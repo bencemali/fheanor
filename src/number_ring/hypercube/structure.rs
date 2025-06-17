@@ -73,7 +73,6 @@ impl PartialEq for HypercubeStructure {
             self.d == other.d && 
             self.ls == other.ls &&
             self.gs.iter().zip(other.gs.iter()).all(|(l, r)| self.galois_group.eq_el(*l, *r)) &&
-
             self.choice == other.choice
     }
 }

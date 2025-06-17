@@ -216,7 +216,7 @@ impl CLPXEncoding {
         let m1 = encoding.m();
         let FpX = DensePolyRing::new(encoding.Fp(), "X");
         let G = log_time::<_, _, LOG, _>("Computing G(X)", |[]| {
-            // first, decompose `m2 = k1 * k2` with `k2` maximally coprime to `m2`, i.e. `k1 | m2^i` for some `i > 0`
+            // first, decompose `m2 = k1 * k2` with `k2` maximal and coprime to `m2`, i.e. `k1 | m2^i` for some `i > 0`
             let mut k2 = m2 as i64;
             let mut k1 = 1;
             let mut d = signed_gcd(k2, m1 as i64, StaticRing::<i64>::RING);
@@ -246,6 +246,8 @@ impl CLPXEncoding {
         let t = log_time::<_, _, LOG, _>("Embedding t(𝝵^m2) into Z[𝝵]", |[]|
             encoding.ZZX().div_rem_monic(encoding.ZZX().from_terms(encoding.ZZi64X.terms(&encoding.t).map(|(c, i)| (int_cast(*c, ZZbig, ZZi64), i * m2))), &Phi_m).1
         );
+        debug_assert!(plaintext_ring.is_zero(&encoding.ZZX().evaluate(&Phi_m, &plaintext_ring.canonical_gen(), plaintext_ring.inclusion().compose(plaintext_ring.base_ring().can_hom(&ZZbig).unwrap()))));
+
         let normt_t_inv = log_time::<_, _, LOG, _>("Compute t(𝝵^m2)^-1 into Z[𝝵]", |[]|
             encoding.ZZX().div_rem_monic(encoding.ZZX().from_terms(encoding.ZZX().terms(&encoding.normt_t_inv).map(|(c, i)| (ZZbig.clone_el(c), i * m2))), &Phi_m).1
         );
@@ -303,7 +305,7 @@ impl CLPXEncoding {
     ///
     /// Computes the image under the isomorphism
     /// ```text
-    ///   Z[𝝵]/(p, t(𝝵^m2)) -> Fp[X]/(Phi_m2(X))
+    ///   Z[X]/(p, t(X^m2), Phi_m(X)) -> Fp[X]/(G(X))
     /// ```
     /// 
     pub fn map(&self, f: &El<DensePolyRing<BigIntRing>>) -> El<IsomorphicRing> {
@@ -315,7 +317,7 @@ impl CLPXEncoding {
     }
 
     ///
-    /// Finds a small preimage under the map `Z[X] -> Z[𝝵]/(p, t(𝝵^m2)) -> Fp[X]/(Phi_m2(X))`
+    /// Finds a small preimage under the map `Z[X] -> Z[𝝵]/(p, t(𝝵^m2)) -> Fp[X]/(G(X))`
     /// 
     pub fn small_preimage(&self, x: &El<IsomorphicRing>) -> El<DensePolyRing<BigIntRing>> {
         // since X -> X, we can operate on every coefficient separately

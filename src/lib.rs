@@ -23,8 +23,11 @@
 use std::alloc::Global;
 use std::time::Instant;
 
-use feanor_math::integer::BigIntRing;
+use feanor_math::integer::{BigIntRing, BigIntRingBase};
 use feanor_math::primitive_int::*;
+use feanor_math::homomorphism::*;
+use feanor_math::algorithms::linsolve::LinSolveRing;
+use feanor_math::rings::zn::{ZnRing, FromModulusCreateableZnRing};
 use feanor_math::ring::*;
 
 extern crate feanor_math;
@@ -143,6 +146,17 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
     }
     return result;
 }
+
+///
+/// Trait for [`ZnRing`]s that have additional functionality, which
+/// is required in many different situations throughout this crate.
+/// 
+/// Having a single trait for all these cases looses a little bit of
+/// flexibility, but significantly simplifies many trait bounds.
+/// 
+pub trait NiceZn: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing {}
+
+impl<R: ?Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing> NiceZn for R {}
 
 ///
 /// The ring of integers, implemented using arbitrary precision

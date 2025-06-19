@@ -1385,7 +1385,7 @@ use crate::bgv::noise_estimator::NaiveBGVNoiseEstimator;
 
 #[test]
 fn test_default_modswitch_strategy_mul() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1406,10 +1406,10 @@ fn test_default_modswitch_strategy_mul() {
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
 
     let modswitch_strategy: DefaultModswitchStrategy<Pow2BGV, _, true> = DefaultModswitchStrategy::new(NaiveBGVNoiseEstimator);
-    let pow8_circuit = PlaintextCircuit::mul(ZZ)
-        .compose(PlaintextCircuit::mul(ZZ).output_twice(ZZ), ZZ)
-        .compose(PlaintextCircuit::mul(ZZ).output_twice(ZZ), ZZ)
-        .compose(PlaintextCircuit::identity(1, ZZ).output_twice(ZZ), ZZ);
+    let pow8_circuit = PlaintextCircuit::mul(ZZi64)
+        .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+        .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+        .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64);
 
     let res = modswitch_strategy.evaluate_circuit(
         &pow8_circuit,
@@ -1437,7 +1437,7 @@ fn test_default_modswitch_strategy_mul() {
 
 #[test]
 fn test_never_modswitch_strategy() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1459,8 +1459,8 @@ fn test_never_modswitch_strategy() {
 
     {
         let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
-        let pow4_circuit = PlaintextCircuit::mul(ZZ)
-            .compose(PlaintextCircuit::square(ZZ).output_twice(ZZ), ZZ);
+        let pow4_circuit = PlaintextCircuit::mul(ZZi64)
+            .compose(PlaintextCircuit::square(ZZi64).output_twice(ZZi64), ZZi64);
 
         let res = modswitch_strategy.evaluate_circuit(
             &pow4_circuit,
@@ -1487,10 +1487,10 @@ fn test_never_modswitch_strategy() {
     }
     {
         let modswitch_strategy = DefaultModswitchStrategy::never_modswitch();
-        let pow8_circuit = PlaintextCircuit::mul(ZZ)
-            .compose(PlaintextCircuit::mul(ZZ).output_twice(ZZ), ZZ)
-            .compose(PlaintextCircuit::mul(ZZ).output_twice(ZZ), ZZ)
-            .compose(PlaintextCircuit::identity(1, ZZ).output_twice(ZZ), ZZ);
+        let pow8_circuit = PlaintextCircuit::mul(ZZi64)
+            .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+            .compose(PlaintextCircuit::mul(ZZi64).output_twice(ZZi64), ZZi64)
+            .compose(PlaintextCircuit::identity(1, ZZi64).output_twice(ZZi64), ZZi64);
 
         let res = modswitch_strategy.evaluate_circuit(
             &pow8_circuit,

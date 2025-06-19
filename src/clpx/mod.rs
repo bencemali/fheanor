@@ -46,33 +46,44 @@ pub mod encoding;
 const ZZi64: StaticRing<i64> = StaticRing::RING;
 const ZZbig: BigIntRing = BigIntRing::RING;
 
-pub type NumberRing<Params: CLPXCiphertextParams> = <Params::CiphertextRing as BGFVCiphertextRing>::NumberRing;
-pub type SecretKey<Params: CLPXCiphertextParams> = El<CiphertextRing<Params>>;
-pub type KeySwitchKey<'a, Params: CLPXCiphertextParams> = (GadgetProductOperand<'a, Params>, GadgetProductOperand<'a, Params>);
-pub type RelinKey<'a, Params: CLPXCiphertextParams> = KeySwitchKey<'a, Params>;
-pub type CiphertextRing<Params: CLPXCiphertextParams> = RingValue<Params::CiphertextRing>;
-pub type Ciphertext<Params: CLPXCiphertextParams> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
-pub type GadgetProductOperand<'a, Params: CLPXCiphertextParams> = GadgetProductRhsOperand<Params::CiphertextRing>;
+pub type NumberRing<Params: CLPXInstantiation> = <Params::CiphertextRing as BGFVCiphertextRing>::NumberRing;
+pub type SecretKey<Params: CLPXInstantiation> = El<CiphertextRing<Params>>;
+pub type KeySwitchKey<'a, Params: CLPXInstantiation> = (GadgetProductOperand<'a, Params>, GadgetProductOperand<'a, Params>);
+pub type RelinKey<'a, Params: CLPXInstantiation> = KeySwitchKey<'a, Params>;
+pub type CiphertextRing<Params: CLPXInstantiation> = RingValue<Params::CiphertextRing>;
+pub type Ciphertext<Params: CLPXInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
+pub type GadgetProductOperand<'a, Params: CLPXInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
 /// Trait for types that represent an instantiation of CLPX/GBFV.
 /// 
-/// The design is very similar to [`super::bfv::BFVCiphertextParams`], for details
-/// have a look at that. In particular, the plaintext modulus is not a part
-/// of the [`super::bfv::BFVCiphertextParams`], but the (initial) ciphertext modulus size
-/// is.
+/// The design is very similar to [`super::bfv::BFVInstantiation`], for details
+/// have a look at that.
 /// 
 /// For a few more details on how this works, see [`crate::examples::clpx_basics`].
 /// 
-pub trait CLPXCiphertextParams {
+pub trait CLPXInstantiation {
 
+    ///
+    /// Type of the ciphertext ring `R/qR`.
+    /// 
     type CiphertextRing: BGFVCiphertextRing + CyclotomicRing + FiniteRing;
     
-    fn ciphertext_modulus_bits(&self) -> Range<usize>;
-
+    ///
+    /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
+    /// the plaintext ring is `R/tR`.
+    /// 
     fn number_ring(&self) -> NumberRing<Self>;
      
-    fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>);
+    ///
+    /// Creates the ciphertext ring `R/qR` and the extended-modulus ciphertext ring
+    /// `R/qq'R` that is necessary for homomorphic multiplication.
+    /// 
+    /// The modulus for `q` is chosen such that its bitlength is within `log2_q`.
+    /// The modulus `q'` is chosen so that `R/qq'R` can represent the result of
+    /// the intermediate product of the shortest lifts of two elements of `R/qR`.
+    /// 
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
     ///
     /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
@@ -288,7 +299,7 @@ pub trait CLPXCiphertextParams {
     ///
     /// Generates a key-switch key. 
     /// 
-    /// In particular, this is used to generate relinearization keys (via [`CLPXCiphertextParams::gen_rk()`]).
+    /// In particular, this is used to generate relinearization keys (via [`CLPXInstantiation::gen_rk()`]).
     /// 
     /// The parameter `digits` refers to the number of "digits" to use for the gadget product
     /// during key-switching. More concretely, when performing key-switching, the ciphertext
@@ -439,7 +450,7 @@ pub trait CLPXCiphertextParams {
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> CLPXCiphertextParams for Pow2CLPX<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
@@ -447,14 +458,8 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         Pow2CyclotomicNumberRing::new_with(2 << self.log2_N)
     }
 
-    fn ciphertext_modulus_bits(&self) -> Range<usize> {
-        assert!(self.log2_q_min < self.log2_q_max);
-        self.log2_q_min..self.log2_q_max
-    }
-
     #[instrument(skip_all)]
-    fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
-        let log2_q = self.ciphertext_modulus_bits();
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
 
@@ -483,21 +488,16 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 
 pub type CompositeCLPX<A = DefaultCiphertextAllocator> = CompositeBFV<A>;
 
-impl<A: Allocator + Clone + Send + Sync> CLPXCiphertextParams for CompositeCLPX<A> {
+impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     
-    fn ciphertext_modulus_bits(&self) -> Range<usize> {
-        self.log2_q_min..self.log2_q_max
-    }
-
     fn number_ring(&self) -> CompositeCyclotomicNumberRing {
         CompositeCyclotomicNumberRing::new(self.m1, self.m2)
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_rings(&self) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
-        let log2_q = self.ciphertext_modulus_bits();
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
 
@@ -528,18 +528,15 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use crate::{log_time, get_default_ciphertext_allocator};
 #[cfg(test)]
-use rand::thread_rng;
 #[cfg(test)]
 use std::marker::PhantomData;
 
 #[test]
 fn test_composite_clpx_mul() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X - 2]);
     let params = CompositeCLPX {
-        log2_q_min: 400,
-        log2_q_max: 420,
         m1: 17,
         m2: 5,
         ciphertext_allocator: get_default_ciphertext_allocator()
@@ -547,7 +544,7 @@ fn test_composite_clpx_mul() {
     let p = ZZbig.int_hom().map(131071);
 
     let P = params.create_encoding::<false>(params.m1, ZZi64X.clone(), t, p);
-    let (C, C_mul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings(400..420);
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(2);
@@ -562,17 +559,15 @@ fn test_composite_clpx_mul() {
 
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
     let params = CompositeCLPX {
-        log2_q_min: 400,
-        log2_q_max: 420,
         m1: 17,
         m2: 5,
         ciphertext_allocator: get_default_ciphertext_allocator()
     };
     let p = ZZbig.int_hom().map(43691);
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
 
     let P = params.create_encoding::<false>(params.m1, ZZi64X, t, p);
-    let (C, C_mul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings(400..420);
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(210);
@@ -589,12 +584,10 @@ fn test_composite_clpx_mul() {
 
 #[test]
 fn test_pow2_clpx_mul() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
     let params = Pow2CLPX {
-        log2_q_min: 400,
-        log2_q_max: 420,
         log2_N: 7,
         ciphertext_allocator: get_default_ciphertext_allocator(),
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
@@ -602,7 +595,7 @@ fn test_pow2_clpx_mul() {
     let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
 
     let P = params.create_encoding::<false>(2 << params.log2_N, ZZi64X.clone(), t, p);
-    let (C, C_mul) = params.create_ciphertext_rings();
+    let (C, C_mul) = params.create_ciphertext_rings(400..420);
 
     let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
     let m1 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(35)));
@@ -619,12 +612,10 @@ fn test_pow2_clpx_mul() {
 #[test]
 #[ignore]
 fn measure_time_composite_clpx() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
     let params = CompositeCLPX {
-        log2_q_min: 790,
-        log2_q_max: 800,
         m1: 127,
         m2: 337,
         ciphertext_allocator: get_default_ciphertext_allocator()
@@ -636,7 +627,7 @@ fn measure_time_composite_clpx() {
     );
     let int_to_P = P.plaintext_ring().inclusion().compose(P.plaintext_ring().base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
     let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
-        params.create_ciphertext_rings()
+        params.create_ciphertext_rings(790..800)
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 

@@ -26,7 +26,9 @@ use std::time::Instant;
 use feanor_math::integer::{BigIntRing, BigIntRingBase};
 use feanor_math::primitive_int::*;
 use feanor_math::homomorphism::*;
+use feanor_math::serialization::SerializableElementRing;
 use feanor_math::algorithms::linsolve::LinSolveRing;
+use feanor_math::rings::local::*;
 use feanor_math::rings::zn::{ZnRing, FromModulusCreateableZnRing};
 use feanor_math::ring::*;
 
@@ -154,9 +156,11 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
 /// Having a single trait for all these cases looses a little bit of
 /// flexibility, but significantly simplifies many trait bounds.
 /// 
-pub trait NiceZn: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing {}
+pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing {}
 
-impl<R: ?Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing> NiceZn for R {}
+impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing> NiceZn for R
+    where AsLocalPIRBase<RingValue<R>>: CanIsoFromTo<R>
+{}
 
 ///
 /// The ring of integers, implemented using arbitrary precision

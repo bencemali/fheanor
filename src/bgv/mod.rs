@@ -25,7 +25,7 @@ use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::single_rns_ring::*;
 use crate::ciphertext_ring::perform_rns_op_to_plaintext_ring;
 use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::{cyclotomic::*, ZZi64};
+use crate::cyclotomic::*;
 use crate::gadget_product::digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ntt::{HERingConvolution, HERingNegacyclicNTT};
@@ -38,6 +38,7 @@ use crate::number_ring::quotient::{NumberRingQuotient, NumberRingQuotientBase};
 use crate::rnsconv::bgv_rescale::{CongruencePreservingAlmostExactBaseConversion, CongruencePreservingRescaling};
 use crate::rnsconv::RNSOperation;
 use crate::{DefaultCiphertextAllocator, DefaultConvolution, DefaultNegacyclicNTT};
+use crate::{ZZi64, ZZbig};
 
 use rand_distr::StandardNormal;
 use rand::*;
@@ -116,9 +117,6 @@ pub mod modswitch;
 /// 
 pub mod bootstrap;
 
-const ZZbig: BigIntRing = BigIntRing::RING;
-const ZZ: StaticRing<i64> = StaticRing::<i64>::RING;
-
 ///
 /// A BGV ciphertext w.r.t. some [`BGVCiphertextParams`]. Note that this implementation
 /// does not include an automatic management of the ciphertext modulus chain,
@@ -139,27 +137,17 @@ pub struct Ciphertext<Params: ?Sized + BGVCiphertextParams> {
 /// 
 pub fn equalize_implicit_scale(Zt: &Zn, implicit_scale_quotient: El<Zn>) -> (i64, i64) {
     let (u, v) = reduce_2d_modular_relation_basis(Zt, implicit_scale_quotient);
-    let ZZ_to_Zt = Zt.can_hom(&StaticRing::<i64>::RING).unwrap();
-    if Zt.is_unit(&ZZ_to_Zt.map(u[0])) {
+    let ZZi64_to_Zt = Zt.can_hom(&StaticRing::<i64>::RING).unwrap();
+    if Zt.is_unit(&ZZi64_to_Zt.map(u[0])) {
         return (u[1], u[0]);
     } else {
-        assert!(Zt.is_unit(&ZZ_to_Zt.map(v[0])), "handling this situation in the case of plaintext moduli with multiple different prime factors is not implemented");
+        assert!(Zt.is_unit(&ZZi64_to_Zt.map(v[0])), "handling this situation in the case of plaintext moduli with multiple different prime factors is not implemented");
         return (v[1], v[0]);
     }
 }
 
 ///
 /// Trait for types that represent an instantiation of BGV.
-/// 
-/// The design is very similar to [`super::bfv::BFVCiphertextParams`], for details
-/// have a look at that. In particular, the plaintext modulus is not a part
-/// of the [`super::bfv::BFVCiphertextParams`], but the (initial) ciphertext modulus size
-/// is. Note however that BGV requires many ciphertext rings, with progressively
-/// smaller ciphertext moduli. You can either manage these manually, or have a look
-/// on [`modswitch::BGVModswitchStrategy`], which is built on top of this
-/// trait and (partially at least) manages ciphertext moduli automatically.
-/// In particular, this is different to how other libraries handle BGV ciphertexts, for
-/// example HElib by default manages the moduli of all BGV ciphertexts.
 /// 
 /// For a few more details on how this works, see [`crate::examples::bgv_basics`].
 /// 
@@ -259,7 +247,7 @@ pub trait BGVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
-        let t = C.base_ring().coerce(&ZZ, *P.base_ring().modulus());
+        let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk);
         return Ciphertext {
             c0: C.inclusion().mul_ref_snd_map(b, &t),
@@ -301,8 +289,8 @@ pub trait BGVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, cache_dir: Option<&str>) {
-        let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group(), p);
+        let (p, _e) = is_prime_power(ZZi64, P.base_ring().modulus()).unwrap();
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group(), int_cast(p, ZZbig, ZZi64));
         let H = if let Some(dir) = cache_dir {
             HypercubeIsomorphism::new_cache_file::<false>(P, hypercube, dir)
         } else {
@@ -328,7 +316,7 @@ pub trait BGVCiphertextParams {
     #[instrument(skip_all)]
     fn hom_add_plain_encoded(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<CiphertextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let implicit_scale = C.base_ring().coerce(&ZZ, P.base_ring().smallest_lift(ct.implicit_scale));
+        let implicit_scale = C.base_ring().coerce(&ZZi64, P.base_ring().smallest_lift(ct.implicit_scale));
         let result = Ciphertext {
             c0: C.add(ct.c0, C.inclusion().mul_ref_map(m, &implicit_scale)),
             c1: ct.c1,
@@ -398,8 +386,8 @@ pub trait BGVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn encode_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
-        return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
+        let ZZi64_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
     }
 
     ///
@@ -903,7 +891,7 @@ pub trait BGVCiphertextParams {
                         Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, x),
                         delta
                     ),
-                    Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(drop_moduli.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZ))))).unwrap()
+                    Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(drop_moduli.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap()
                 )
             };
             
@@ -976,7 +964,7 @@ pub trait BGVCiphertextParams {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_to_plaintext(P: &PlaintextRing<Self>, target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>) {
-        assert!(signed_gcd(*P.base_ring().modulus(), *target.base_ring().modulus(), ZZ) == 1, "can only mod-switch to ciphertext moduli that are coprime to t");
+        assert!(signed_gcd(*P.base_ring().modulus(), *target.base_ring().modulus(), ZZi64) == 1, "can only mod-switch to ciphertext moduli that are coprime to t");
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
 
         let mod_switch = CongruencePreservingRescaling::new_with(
@@ -986,13 +974,13 @@ pub trait BGVCiphertextParams {
             *P.base_ring(),
             Global
         );
-        let c0 = C.inclusion().mul_map(ct.c0, C.base_ring().coerce(&ZZ, P.base_ring().smallest_lift(P.base_ring().invert(&P.base_ring().mul(
+        let c0 = C.inclusion().mul_map(ct.c0, C.base_ring().coerce(&ZZi64, P.base_ring().smallest_lift(P.base_ring().invert(&P.base_ring().mul(
             ct.implicit_scale,
-            Self::mod_switch_down_compute_implicit_scale_factor(P, &int_cast(*target.base_ring().modulus(), ZZbig, ZZ), C.base_ring().modulus())
+            Self::mod_switch_down_compute_implicit_scale_factor(P, &int_cast(*target.base_ring().modulus(), ZZbig, ZZi64), C.base_ring().modulus())
         )).unwrap())));
-        let c1 = C.inclusion().mul_map(ct.c1, C.base_ring().coerce(&ZZ, P.base_ring().smallest_lift(P.base_ring().invert(&P.base_ring().mul(
+        let c1 = C.inclusion().mul_map(ct.c1, C.base_ring().coerce(&ZZi64, P.base_ring().smallest_lift(P.base_ring().invert(&P.base_ring().mul(
             ct.implicit_scale,
-            Self::mod_switch_down_compute_implicit_scale_factor(P, &int_cast(*target.base_ring().modulus(), ZZbig, ZZ), C.base_ring().modulus())
+            Self::mod_switch_down_compute_implicit_scale_factor(P, &int_cast(*target.base_ring().modulus(), ZZbig, ZZi64), C.base_ring().modulus())
         )).unwrap())));
         return (
             perform_rns_op_to_plaintext_ring(target, C.get_ring(), &c0, &mod_switch),
@@ -1040,7 +1028,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
-        let t = C.base_ring().coerce(&ZZ, *P.base_ring().modulus());
+        let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk);
         let result = Ciphertext {
             c0: C.inclusion().mul_ref_snd_map(b, &t),
@@ -1056,9 +1044,9 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let max_bits_per_modulus = 57;
-        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZ, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZ))).unwrap();
+        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZ, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
@@ -1072,8 +1060,8 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 
     #[instrument(skip_all)]
     fn encode_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
-        let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
+        let ZZi64_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_double_rns_repr(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
     }
 }
@@ -1100,7 +1088,7 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
 
     #[instrument(skip_all)]
     fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
-        let t = C.base_ring().coerce(&ZZ, *P.base_ring().modulus());
+        let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk);
         let result = Ciphertext {
             c0: C.inclusion().mul_ref_snd_map(b, &t),
@@ -1119,9 +1107,9 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let max_bits_per_modulus = 57;
-        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZ, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZ))).unwrap();
+        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZ, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
@@ -1135,8 +1123,8 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
 
     #[instrument(skip_all)]
     fn encode_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
-        let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
-        let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
+        let ZZi64_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
+        let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_double_rns_repr(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
     }
 }
@@ -1202,14 +1190,14 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVCiphertext
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
         let max_bits_per_modulus = 57;
-        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZ, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZ))).unwrap();
+        let mut rns_base = sample_primes(log2_q.start, log2_q.end, max_bits_per_modulus, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
         rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZ, ZZbig) as u64)).collect(), ZZbig);
+        return zn_rns::Zn::new(rns_base.into_iter().map(|p| Zn::new(int_cast(p, ZZi64, ZZbig) as u64)).collect(), ZZbig);
     }
 
     #[instrument(skip_all)]
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
-        let max_log2_n = 1 + ZZ.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
+        let max_log2_n = 1 + ZZi64.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
         let convolutions = rns_base.as_iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
         return SingleRNSRingBase::new_with(
             self.number_ring(),
@@ -1233,7 +1221,7 @@ use rand::rngs::StdRng;
 
 #[test]
 fn test_pow2_bgv_enc_dec() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1281,7 +1269,7 @@ fn test_pow2_bgv_gen_sk() {
 
 #[test]
 fn test_pow2_bgv_mul() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1306,7 +1294,7 @@ fn test_pow2_bgv_mul() {
 
 #[test]
 fn test_pow2_bgv_hybrid_key_switch() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 300,
@@ -1358,7 +1346,7 @@ fn test_pow2_bgv_hybrid_key_switch() {
 
 #[test]
 fn test_pow2_bgv_modulus_switch() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1389,7 +1377,7 @@ fn test_pow2_bgv_modulus_switch() {
 
 #[test]
 fn test_pow2_change_plaintext_modulus() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1414,7 +1402,7 @@ fn test_pow2_change_plaintext_modulus() {
 
 #[test]
 fn test_pow2_modulus_switch_hom_add() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1450,7 +1438,7 @@ fn test_pow2_modulus_switch_hom_add() {
 
 #[test]
 fn test_pow2_bgv_modulus_switch_rk() {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 500,
@@ -1527,7 +1515,7 @@ fn measure_time_pow2_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = Pow2BGV {
         log2_q_min: 790,
@@ -1589,7 +1577,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = CompositeBGV {
         log2_q_min: 1090,
@@ -1652,7 +1640,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     tracing_subscriber::registry().with(chrome_layer).init();
 
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     
     let params = SingleRNSCompositeBGV {
         log2_q_min: 1090,

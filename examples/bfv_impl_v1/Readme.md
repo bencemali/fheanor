@@ -109,7 +109,7 @@ Using this, we can generate an element of `R_q` with ternary coefficients very e
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -128,7 +128,7 @@ Using this, we can generate an element of `R_q` with ternary coefficients very e
 #     ); 
 # }
 fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let sk = ciphertext_ring.from_canonical_basis(
         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
             (rng.next_u32() as i32 % 3) - 1
@@ -154,7 +154,7 @@ For this, we use `can_hom()` to get the "canonical homomorphism" `Z -> Z/(q)` an
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -173,7 +173,7 @@ For this, we use `can_hom()` to get the "canonical homomorphism" `Z -> Z/(q)` an
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -182,7 +182,7 @@ For this, we use `can_hom()` to get the "canonical homomorphism" `Z -> Z/(q)` an
 #     return sk;
 # }
 fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let a = ciphertext_ring.random_element(|| rng.next_u64());
     let e = ciphertext_ring.from_canonical_basis(
         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -225,7 +225,7 @@ It does not require any new techniques.
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # type NumberRing = Pow2CyclotomicNumberRing;
@@ -244,7 +244,7 @@ It does not require any new techniques.
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -253,7 +253,7 @@ It does not require any new techniques.
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -305,7 +305,7 @@ We can then test this code, but note that these parameters are not secure in pra
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -325,7 +325,7 @@ We can then test this code, but note that these parameters are not secure in pra
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -334,7 +334,7 @@ We can then test this code, but note that these parameters are not secure in pra
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -389,7 +389,7 @@ First of all, implementing addition of ciphertexts is absolutely trivial.
 # use feanor_math::seq::VectorFn;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -427,7 +427,7 @@ In the power-of-two case that we are currently working in, this is just `X^(m/2)
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -490,7 +490,7 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -510,7 +510,7 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -519,7 +519,7 @@ We do this by using the formula `round( t (c0 + c1 * sk + c2 * sk^2) / q )` to d
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -614,7 +614,7 @@ This leads us to the following code.
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -650,7 +650,7 @@ Putting it all together, we get the following.
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -670,7 +670,7 @@ Putting it all together, we get the following.
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -679,7 +679,7 @@ Putting it all together, we get the following.
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -807,7 +807,7 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
 # use feanor_math::pid::EuclideanRingStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use feanor_math::primitive_int::*;
 # use feanor_math::assert_el_eq;
@@ -827,7 +827,7 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -836,7 +836,7 @@ Finally, let's test that decrypting the result of a homomorphic multiplication w
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(

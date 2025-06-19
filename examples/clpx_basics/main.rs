@@ -7,7 +7,7 @@
 
 use std::{alloc::Global, marker::PhantomData};
 
-use fheanor::clpx::{CLPXCiphertextParams, CiphertextRing, Pow2CLPX};
+use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use fheanor::DefaultNegacyclicNTT;
@@ -21,7 +21,6 @@ use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::ring::*;
 use feanor_math::assert_el_eq;
 use feanor_math::seq::*;
-use rand::thread_rng;
 
 fn main() {
     type ChosenCLPXParamType = Pow2CLPX<Global>;
@@ -29,12 +28,10 @@ fn main() {
     let params = ChosenCLPXParamType {
         ciphertext_allocator: Global,
         log2_N: 12,
-        log2_q_min: 105,
-        log2_q_max: 110,
         negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
     };
 
-    let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings();
+    let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings(105..110);
     let N = C.rank();
     println!("N        = {}", N);
     println!("m        = {}", C.m());
@@ -52,7 +49,7 @@ fn main() {
     let FpX = DensePolyRing::new(P.plaintext_ring().base_ring(), "X");
     println!("G(X)     = {}", FpX.format(&P.plaintext_ring().generating_poly(&FpX, FpX.base_ring().identity())));
 
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
     let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
     

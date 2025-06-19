@@ -838,7 +838,7 @@ fn test_serialization() {
         where R: RingStore,
             R::Type: CyclotomicRing,
             BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<ZnBase>,
-            AsFieldBase<DecoratedBaseRing<R>>: CanIsoFromTo<<DecoratedBaseRing<R> as RingStore>::Type>
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
         let hypercube = HypercubeIsomorphism::new::<false>(&ring, hypercube_structure);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();

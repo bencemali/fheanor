@@ -93,7 +93,7 @@ However, since `q` is sampled using large primes of up to 56 bits, this is unlik
 
 Next, let's generate the keys we will require later.
 Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `ChosenBGVParamType`.
-While it would be preferable for the BGV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVCiphertextParams`].
+While it would be preferable for the BGV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVInstantiation`].
 ```rust
 #![feature(allocator_api)]
 # use fheanor::bgv::*;
@@ -130,7 +130,7 @@ Fheanor is internally completely deterministic, hence it takes this source as pa
 
 Furthermore, for the so-called "relinearization key" `rk`, which is required for multiplications, we have to choose a decomposition of all RNS factors into "digits". 
 A large number of small digits will cause low noise growth, but larger key-switching keys and slower key-switching.
-The function [`fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
+The function [`crate::gadget_product::digits::RNSGadgetVectorDigitIndices::select_digits()`] will equally distribute all RNS factors across the given number of digits which is usually a reasonable choice.
 Here, we choose 3 digits, which might be too low for complex scenarios, but is sufficient for this example
 
 ## Encryption and Decryption
@@ -233,7 +233,7 @@ let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFacto
 let dec_x_sqr = ChosenBGVParamType::dec(&P, &C_initial, enc_x_sqr, &sk);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), &dec_x_sqr);
 ```
-Here we used the function [`fheanor::bgv::BGVCiphertextParams::hom_mul()`] to multiply two encryped plaintexts.
+Here we used the function [`crate::bgv::BGVCiphertextParams::hom_mul()`] to multiply two encryped plaintexts.
 Internally, the homomorphic multiplication will perform an operation called "relinearization" (hence the relinearization key).
 Relinearization also makes sense if the relinearization key is defined modulo a larger modulus than the ciphertext, in which case two ciphertext rings, with a smaller and a larger modulus, can be passed to `hom_mul()`.
 The next parameter should then be the list of indices of RNS factors only occuring in the larger modulus, which is in this context called the "special modulus".
@@ -242,7 +242,7 @@ Here, we don't have any special modulus, thus we pass `C_initial` twice, and an 
 ## Modulus-switching
 
 Let's assume we want to compute a fourth power, i.e. square `enc_x_sqr` again.
-The naive way would be to compute
+The naïve way would be to compute
 ```rust
 #![feature(allocator_api)]
 # use fheanor::bgv::*;

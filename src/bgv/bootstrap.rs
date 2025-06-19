@@ -4,6 +4,7 @@ use std::io::{BufReader, BufWriter};
 
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::ring::*;
+use feanor_math::assert_el_eq;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
 use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
@@ -78,10 +79,10 @@ impl<Params> ThinBootstrapParams<Params>
     }
 
     pub fn build_pow2<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
-        let log2_m = ZZ.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
+        let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
         assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
 
-        let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
+        let (p, r) = is_prime_power(&ZZi64, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
@@ -89,13 +90,13 @@ impl<Params> ThinBootstrapParams<Params>
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZ.pow(p, e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZ.pow(p, r));
+        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e));
+        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, r));
 
         let digit_extract = DigitExtract::new_default(p, e, r);
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), p);
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), int_cast(p, ZZbig, ZZi64));
             if let Some(cache_dir) = cache_dir {
                 HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
             } else {
@@ -106,7 +107,7 @@ impl<Params> ThinBootstrapParams<Params>
 
         let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(pow2::slots_to_coeffs_thin(&original_H), &original_H));
         let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZ.pow(p, k))).collect();
+        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
 
         return ThinBootstrapData {
             digit_extract,
@@ -114,7 +115,7 @@ impl<Params> ThinBootstrapParams<Params>
             coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
             plaintext_ring_hierarchy: plaintext_ring_hierarchy,
             modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZ.pow(p, e) + 1),
+            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e) + 1),
             pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
         };
     }
@@ -122,7 +123,7 @@ impl<Params> ThinBootstrapParams<Params>
     pub fn build_odd<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
         assert!(self.scheme_params.number_ring().m() % 2 != 0);
 
-        let (p, r) = is_prime_power(&ZZ, &self.t).unwrap();
+        let (p, r) = is_prime_power(&ZZi64, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
@@ -130,8 +131,8 @@ impl<Params> ThinBootstrapParams<Params>
             println!("Choosing e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZ.pow(p, e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZ.pow(p, r));
+        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e));
+        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, r));
 
         let digit_extract = if p == 2 && e <= 23 {
             DigitExtract::new_precomputed_p_is_2(p, e, r)
@@ -140,7 +141,7 @@ impl<Params> ThinBootstrapParams<Params>
         };
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), p);
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), int_cast(p, ZZbig, ZZi64));
             if let Some(cache_dir) = cache_dir {
                 HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
             } else {
@@ -151,7 +152,7 @@ impl<Params> ThinBootstrapParams<Params>
 
         let slots_to_coeffs =  Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(composite::slots_to_powcoeffs_thin(&original_H), &original_H));
         let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || MatmulTransform::to_circuit_many(composite::powcoeffs_to_slots_thin(&H), &H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZ.pow(p, k))).collect();
+        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
 
         return ThinBootstrapData {
             digit_extract,
@@ -159,7 +160,7 @@ impl<Params> ThinBootstrapParams<Params>
             coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
             plaintext_ring_hierarchy: plaintext_ring_hierarchy,
             modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZ.pow(p, e) + 1),
+            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e) + 1),
             pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
         };
     }
@@ -198,7 +199,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
     }
 
     fn p(&self) -> i64 {
-        self.digit_extract.p()
+        int_cast(ZZbig.clone_el(self.digit_extract.p()), ZZi64, ZZbig)
     }
 
     pub fn largest_plaintext_ring(&self) -> &PlaintextRing<Params> {
@@ -249,7 +250,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         where Params: 'a
     {
         assert!(LOG || debug_sk.is_none());
-        assert_eq!(ZZ.pow(self.p(), self.r()), *P_base.base_ring().modulus());
+        assert_eq!(ZZi64.pow(self.p(), self.r()), *P_base.base_ring().modulus());
         if LOG {
             println!("Starting Bootstrapping")
         }
@@ -302,21 +303,21 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         }
 
         let P_main = self.plaintext_ring_hierarchy.last().unwrap();
-        debug_assert_eq!(ZZ.pow(self.p(), self.e()), *P_main.base_ring().modulus());
+        debug_assert_eq!(ZZi64.pow(self.p(), self.e()), *P_main.base_ring().modulus());
 
         let noisy_decryption = log_time::<_, _, LOG, _>("2. Computing noisy decryption c0 + c1 * s", |[]| {
             // this is slightly more complicated than in BFV, since we cannot mod-switch to a ciphertext modulus that is not coprime to `t = p^r`.
             // Instead, we first multiply by `p^v`, then mod-switch to `p^e + 1`, and then reduce the shortest lift of the result modulo `p^e`.
             // This will introduce the overflow modulo `p^e + 1` as error in the lower bits, which we will later remove during digit extraction
             let values_scaled = Ciphertext {
-                c0: C_input.inclusion().mul_map(values_in_coefficients.c0, C_input.base_ring().coerce(&ZZ, ZZ.pow(self.p(), self.v()))),
-                c1: C_input.inclusion().mul_map(values_in_coefficients.c1, C_input.base_ring().coerce(&ZZ, ZZ.pow(self.p(), self.v()))),
+                c0: C_input.inclusion().mul_map(values_in_coefficients.c0, C_input.base_ring().coerce(&ZZi64, ZZi64.pow(self.p(), self.v()))),
+                c1: C_input.inclusion().mul_map(values_in_coefficients.c1, C_input.base_ring().coerce(&ZZi64, ZZi64.pow(self.p(), self.v()))),
                 implicit_scale: values_in_coefficients.implicit_scale
             };
             // change to `p^e + 1`
             let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &self.tmp_coprime_modulus_plaintext, &C_input, values_scaled);
             // reduce modulo `p^e`, which will introduce additional error in the lower digits
-            let mod_pe = P_main.base_ring().can_hom(&ZZ).unwrap();
+            let mod_pe = P_main.base_ring().can_hom(&ZZi64).unwrap();
             let (c0, c1) = (
                 P_main.from_canonical_basis(self.tmp_coprime_modulus_plaintext.wrt_canonical_basis(&c0).iter().map(|x| mod_pe.map(self.tmp_coprime_modulus_plaintext.base_ring().smallest_lift(x)))),
                 P_main.from_canonical_basis(self.tmp_coprime_modulus_plaintext.wrt_canonical_basis(&c1).iter().map(|x| mod_pe.map(self.tmp_coprime_modulus_plaintext.base_ring().smallest_lift(x))))
@@ -356,7 +357,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[key_switches]| {
 
             let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
-            let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZ), self.v()), &ZZbig.int_hom().map(2)));
+            let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZi64), self.v()), &ZZbig.int_hom().map(2)));
             let digit_extraction_input = ModulusAwareCiphertext {
                 data: Params::hom_add_plain_encoded(P_main, &C_current, &C_current.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
                 info: noisy_decryption_in_slots.info,
@@ -399,10 +400,10 @@ impl DigitExtract {
         assert!(LOG || debug_sk.is_none());
 
         let (p, actual_r) = is_prime_power(StaticRing::<i64>::RING, P_base.base_ring().modulus()).unwrap();
-        assert_eq!(self.p(), p);
+        assert_el_eq!(ZZbig, self.p(), int_cast(p, ZZbig, ZZi64));
         assert!(actual_r >= self.r());
         for i in 0..(self.e() - self.r()) {
-            assert_eq!(ZZ.pow(self.p(), actual_r + i + 1), *P[i].base_ring().modulus());
+            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(*P[i].base_ring().modulus(), ZZbig, ZZi64));
         }
         let get_P = |exp: usize| if exp == self.r() {
             P_base

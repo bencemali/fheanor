@@ -173,7 +173,7 @@ Instead, we will use similar (but more impactful) techniques when implementing h
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
@@ -203,7 +203,7 @@ Instead, we will use similar (but more impactful) techniques when implementing h
 #     ); 
 # }
 fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let sk = ciphertext_ring.from_canonical_basis(
         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
             (rng.next_u32() as i32 % 3) - 1
@@ -213,7 +213,7 @@ fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
 }
 
 fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let a = ciphertext_ring.random_element(|| rng.next_u64());
     let e = ciphertext_ring.from_canonical_basis(
         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -291,7 +291,7 @@ Since creating a double-RNS ring is somewhat expensive, we do this once and reus
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::number_ring::pow2_cyclotomic::*;
@@ -358,7 +358,7 @@ This leaves us to implement BFV multiplication as follows.
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::ordered::OrderedRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
@@ -463,7 +463,7 @@ We arrive at:
 # use feanor_math::seq::VectorView;
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::primitive_int::StaticRing;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::gadget_product::*;
@@ -475,7 +475,7 @@ We arrive at:
 # type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;
 # type CiphertextRing = DoubleRNSRing<NumberRing>;
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
@@ -535,7 +535,7 @@ Finally, let's test this implementation again!
 # use feanor_math::rings::finite::FiniteRingStore;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::ordered::OrderedRingStore;
-# use rand::{Rng, RngCore, thread_rng};
+# use rand::{Rng, RngCore};
 # use rand_distr::StandardNormal;
 # use fheanor::number_ring::*;
 # use fheanor::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
@@ -569,7 +569,7 @@ Finally, let's test this implementation again!
 #     ); 
 # }
 # fn key_gen(ciphertext_ring: &CiphertextRing) -> El<CiphertextRing> {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let sk = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(
 #             (rng.next_u32() as i32 % 3) - 1
@@ -578,7 +578,7 @@ Finally, let's test this implementation again!
 #     return sk;
 # }
 # fn rlwe_sample(ciphertext_ring: &CiphertextRing, sk: &El<CiphertextRing>) -> (El<CiphertextRing>, El<CiphertextRing>) {
-#     let mut rng = thread_rng();
+#     let mut rng = rand::rng();
 #     let a = ciphertext_ring.random_element(|| rng.next_u64());
 #     let e = ciphertext_ring.from_canonical_basis(
 #         (0..ciphertext_ring.rank()).map(|_| ciphertext_ring.base_ring().int_hom().map(

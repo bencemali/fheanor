@@ -18,7 +18,6 @@ use feanor_math::seq::*;
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::homomorphism::*;
 
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use tracing::instrument;
 
 use crate::circuit::{Coefficient, PlaintextCircuit};

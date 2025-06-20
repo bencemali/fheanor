@@ -156,9 +156,9 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
 /// Having a single trait for all these cases looses a little bit of
 /// flexibility, but significantly simplifies many trait bounds.
 /// 
-pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing {}
+pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing + Send + Sync {}
 
-impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing> NiceZn for R
+impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing + Send + Sync> NiceZn for R
     where AsLocalPIRBase<RingValue<R>>: CanIsoFromTo<R>
 {}
 

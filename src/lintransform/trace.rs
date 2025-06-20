@@ -6,12 +6,12 @@ use feanor_math::matrix::OwnedMatrix;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::primitive_int::StaticRing;
 use feanor_math::ring::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 
 use crate::circuit::PlaintextCircuit;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
 use crate::cyclotomic::*;
+use crate::NiceZn;
 
 ///
 /// Generates a circuit that computes a relative trace in a ring with the given Galois group.
@@ -89,8 +89,10 @@ pub fn trace_circuit<R>(ring: &R, galois_group: &CyclotomicGaloisGroup, relative
 /// 
 /// If the given function `function` is not `Fp`-linear, results may be nonsensical.
 /// 
-pub fn extract_linear_map<G>(slot_ring: &SlotRingOver<Zn>, mut function: G) -> El<SlotRingOver<Zn>>
-    where G: FnMut(El<SlotRingOver<Zn>>) -> El<Zn>
+pub fn extract_linear_map<G, R>(slot_ring: &SlotRingOver<R>, mut function: G) -> El<SlotRingOver<R>>
+    where G: FnMut(El<SlotRingOver<R>>) -> El<R>,
+        R: RingStore,
+        R::Type: NiceZn
 {
     let mut lhs = OwnedMatrix::zero(slot_ring.rank(), slot_ring.rank(), slot_ring.base_ring());
     let mut rhs = OwnedMatrix::zero(slot_ring.rank(), 1, slot_ring.base_ring());
@@ -126,6 +128,8 @@ use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::finite::FiniteRingStore;
 #[cfg(test)]
 use feanor_math::seq::VectorFn;
+#[cfg(test)]
+use feanor_math::rings::zn::zn_64::*;
 #[cfg(test)]
 use crate::ntt::dyn_convolution::*;
 #[cfg(test)]

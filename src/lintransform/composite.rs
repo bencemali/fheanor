@@ -7,12 +7,14 @@ use feanor_math::rings::zn::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::primitive_int::*;
 use feanor_math::seq::VectorFn;
-use matmul::MatmulTransform;
 use tracing::instrument;
 
+use crate::circuit::PlaintextCircuit;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::hypercube::isomorphism::*;
+use crate::number_ring::quotient::*;
 use crate::number_ring::*;
+use crate::lintransform::matmul::*;
 use crate::cyclotomic::*;
 use crate::lintransform::*;
 
@@ -40,7 +42,7 @@ fn dwt1d_matrix(H: &HypercubeStructure, slot_ring: &SlotRingOver<Zn>, dim_index:
 /// to `m_i`. This assumes that `l_i = phi(m_i)`, i.e. the hypercube dimension is good.
 /// 
 #[instrument(skip_all)]
-fn dwt1d<'a, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<Zn>>) -> Vec<MatmulTransform<NumberRing>>
+fn dwt1d<'a, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<Zn>>) -> Vec<DefaultMatmulTransform<NumberRing>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
     if H.hypercube().dim_length(dim_index) == 1{
@@ -61,7 +63,7 @@ fn dwt1d<'a, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, zet
 /// Inverse to [`dwt1d()`].
 /// 
 #[instrument(skip_all)]
-fn dwt1d_inv<'a, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<Zn>>) -> Vec<MatmulTransform<NumberRing>>
+fn dwt1d_inv<'a, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<Zn>>) -> Vec<DefaultMatmulTransform<NumberRing>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
     if H.hypercube().dim_length(dim_index) == 1{
@@ -137,7 +139,14 @@ fn slots_to_powcoeffs_fat_fst_step<NumberRing>(H: &DefaultHypercube<NumberRing>,
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<MatmulTransform<NumberRing>>
+pub fn slots_to_powcoeffs_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, RingValue<ZnBase>>>
+    where NumberRing: HECyclotomicNumberRing + Clone
+{
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H))
+}
+
+#[instrument(skip_all)]
+fn slots_to_powcoeffs_fat_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
     assert!(H.hypercube().is_tensor_product_compatible());
@@ -177,7 +186,14 @@ pub fn slots_to_powcoeffs_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> V
 /// This requires that the underlying hypercube structure is a Halevi-Shoup hypercube structure, and that `d l_1 = phi(m_1)`.
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<MatmulTransform<NumberRing>>
+pub fn powcoeffs_to_slots_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, RingValue<ZnBase>>>
+    where NumberRing: HECyclotomicNumberRing + Clone
+{
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H))
+}
+
+#[instrument(skip_all)]
+fn powcoeffs_to_slots_fat_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
     assert!(H.ring().m() % 2 != 0);
@@ -213,7 +229,14 @@ pub fn powcoeffs_to_slots_fat<NumberRing>(H: &DefaultHypercube<NumberRing>) -> V
 /// doesn't contain a scalar, the behavior is unspecified.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_powcoeffs_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<MatmulTransform<NumberRing>>
+pub fn slots_to_powcoeffs_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, RingValue<ZnBase>>>
+    where NumberRing: HECyclotomicNumberRing + Clone
+{
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H))
+}
+
+#[instrument(skip_all)]
+fn slots_to_powcoeffs_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
     assert!(H.ring().m() % 2 != 0);
@@ -237,16 +260,23 @@ pub fn slots_to_powcoeffs_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> 
 /// full rank, and cannot be the mathematical inverse of [`slots_to_powcoeffs_thin()`].
 /// 
 #[instrument(skip_all)]
-pub fn powcoeffs_to_slots_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<MatmulTransform<NumberRing>>
+pub fn powcoeffs_to_slots_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>>
     where NumberRing: HECyclotomicNumberRing + Clone
 {
-    let mut result = powcoeffs_to_slots_fat(H);
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H))
+}
+
+#[instrument(skip_all)]
+fn powcoeffs_to_slots_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
+    where NumberRing: HECyclotomicNumberRing + Clone
+{
+    let mut result = powcoeffs_to_slots_fat_impl(H);
     let discard_unused = MatmulTransform::blockmatmul0d(
         H, 
         |i, j, _idxs| if j == 0 && i == 0 { H.slot_ring().base_ring().one() } else { H.slot_ring().base_ring().zero() }
     );
     let last_step = result.last_mut().unwrap();
-    *last_step = discard_unused.compose(last_step, H);
+    *last_step = discard_unused.compose(H.ring(), H.hypercube(), last_step);
     return result;
 }
 
@@ -256,8 +286,6 @@ use crate::ring_literal;
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::integer::*;
-#[cfg(test)]
-use crate::number_ring::quotient::*;
 #[cfg(test)]
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 #[cfg(test)]
@@ -272,8 +300,8 @@ fn test_slots_to_powcoeffs_thin() {
 
     // first test very simple case
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    for transform in slots_to_powcoeffs_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = ring.sum([0, 5, 7, 12, 14, 19, 21, 26].into_iter().map(|k| ring.pow(ring.canonical_gen(), k)));
     assert_el_eq!(ring, expected, current);
@@ -284,8 +312,8 @@ fn test_slots_to_powcoeffs_thin() {
     assert_eq!(5, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(4, H.hypercube().dim_length(1));
     let mut current = H.from_slot_values((1..9).map(|m| H.slot_ring().int_hom().map(m)));
-    for transform in slots_to_powcoeffs_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let ring_ref = &ring;
     let expected = ring.sum((0..2).flat_map(|i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4) as i32)))));
@@ -297,8 +325,8 @@ fn test_slots_to_powcoeffs_thin() {
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
     let mut current = H.from_slot_values((1..25).map(|m| H.slot_ring().int_hom().map(m)));
-    for transform in slots_to_powcoeffs_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let ring_ref = &ring;
     let expected = ring.sum((0..4).flat_map(|i| (0..6).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 7 + j * 5), ring_ref.int_hom().map((1 + j + i * 6) as i32)))));
@@ -310,8 +338,8 @@ fn test_slots_to_powcoeffs_thin() {
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
     let mut current = H.from_slot_values((1..=30).map(|m| H.slot_ring().int_hom().map(m)));
-    for transform in slots_to_powcoeffs_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = ring.sum((0..30).map(|j| ring.mul(ring.pow(ring.canonical_gen(), j * 11), ring.int_hom().map((j + 1) as i32))));
     assert_el_eq!(ring, expected, current);
@@ -329,16 +357,16 @@ fn test_powcoeffs_to_slots_thin() {
     assert_eq!(4, H.hypercube().dim_length(1));
 
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    for transform in powcoeffs_to_slots_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in powcoeffs_to_slots_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = H.from_slot_values([H.slot_ring().one()].into_iter().chain((2..9).map(|_| H.slot_ring().zero())));
     assert_el_eq!(ring, expected, current);
     
     let ring_ref = &ring;
     let mut current = ring.sum((0..6).flat_map(|i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4) as i32)))));
-    for transform in powcoeffs_to_slots_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in powcoeffs_to_slots_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = H.from_slot_values([1, 2, 3, 4, 5, 6, 7, 8].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(ring, expected, current);
@@ -350,8 +378,8 @@ fn test_powcoeffs_to_slots_thin() {
 
     let ring_ref = &ring;
     let mut current = ring.sum((0..4).flat_map(|i| (0..6).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 7 + j * 5), ring_ref.int_hom().map((1 + j + i * 6) as i32)))));
-    for transform in powcoeffs_to_slots_thin(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in powcoeffs_to_slots_thin_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = H.from_slot_values((1..25).map(|i| H.slot_ring().int_hom().map(i)));
     assert_el_eq!(ring, expected, current);
@@ -366,8 +394,8 @@ fn test_slots_to_powcoeffs_fat() {
 
     // first test very simple case
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    for transform in slots_to_powcoeffs_fat(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = ring.sum([0, 5, 7, 12, 14, 19, 21, 26].into_iter().map(|k| ring.pow(ring.canonical_gen(), k)));
     assert_el_eq!(ring, expected, current);
@@ -378,8 +406,8 @@ fn test_slots_to_powcoeffs_fat() {
     assert_eq!(5, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(4, H.hypercube().dim_length(1));
     let mut current = H.from_slot_values((1..9).map(|i| H.slot_ring().int_hom().map(i)));
-    for transform in slots_to_powcoeffs_fat(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let ring_ref = &ring;
     let expected = ring.sum((0..2).flat_map(|i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4) as i32)))));
@@ -388,8 +416,8 @@ fn test_slots_to_powcoeffs_fat() {
     // then test "fat bootstrapping" case
     let hom = H.slot_ring().base_ring().int_hom();
     let mut current = H.from_slot_values((1..9).map(|i| H.slot_ring().from_canonical_basis([hom.map(i), hom.map(i + 100), hom.map(i + 200)])));
-    for transform in slots_to_powcoeffs_fat(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let ring_ref = &ring;
     let expected = ring.sum((0..3).flat_map(|k| (0..2).flat_map(move |i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), (i + k * 2) * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4 + k * 100) as i32))))));
@@ -406,8 +434,8 @@ fn test_slots_to_powcoeffs_fat() {
     assert_eq!(6, H.hypercube().dim_length(1));
 
     let mut current = H.from_slot_values((1..25).map(|i| H.slot_ring().int_hom().map(i)));
-    for transform in slots_to_powcoeffs_fat(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in slots_to_powcoeffs_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let ring_ref = &ring;
     let expected = ring.sum((0..4).flat_map(|i| (0..6).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 7 + j * 5), ring_ref.int_hom().map((1 + j + i * 6) as i32)))));
@@ -427,8 +455,8 @@ fn test_powcoeffs_to_slots_fat() {
 
     let ring_ref = &ring;
     let mut current = ring.sum((0..6).flat_map(|i| (0..4).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 5 + j * 7), ring_ref.int_hom().map((1 + j + i * 4) as i32)))));
-    for transform in powcoeffs_to_slots_fat(&H) {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+    for transform in powcoeffs_to_slots_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
     let expected = H.from_slot_values([1, 2, 3, 4, 5, 6, 7, 8].into_iter().map(|i| H.slot_ring().from_canonical_basis([i, i + 8, i + 16].into_iter().map(|i| H.slot_ring().base_ring().int_hom().map(i)))));
     assert_el_eq!(ring, expected, current);
@@ -446,12 +474,12 @@ fn test_powcoeffs_to_slots_fat_large() {
     assert_eq!(127, H.hypercube().factor_of_m(1).unwrap());
     assert_eq!(126, H.hypercube().dim_length(1));
 
-    let transform = powcoeffs_to_slots_fat(&H);
+    let transform = powcoeffs_to_slots_fat_impl(&H);
 
     let ring_ref = &ring;
     let mut current = ring.pow(ring_ref.canonical_gen(), 7 * 127 + 2 * 337);
     for transform in &transform {
-        current = ring.get_ring().compute_linear_transform(&H, &current, &transform);
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &transform);
     }
 
     let expected = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| if idxs[0] == 7 && idxs[1] == 2 {

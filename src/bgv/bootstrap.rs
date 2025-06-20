@@ -10,7 +10,6 @@ use crate::bgv::modswitch::DefaultModswitchStrategy;
 use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
 use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use crate::circuit::*;
-use crate::lintransform::matmul::MatmulTransform;
 use crate::log_time;
 use crate::digitextract::DigitExtract;
 
@@ -105,7 +104,7 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(pow2::slots_to_coeffs_thin(&original_H), &original_H));
+        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
         let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
 
@@ -150,8 +149,8 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs =  Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || MatmulTransform::to_circuit_many(composite::slots_to_powcoeffs_thin(&original_H), &original_H));
-        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || MatmulTransform::to_circuit_many(composite::powcoeffs_to_slots_thin(&H), &H));
+        let slots_to_coeffs =  Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
+        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
 
         return ThinBootstrapData {

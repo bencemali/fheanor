@@ -445,7 +445,7 @@ impl<R> HypercubeIsomorphism<R>
         // other factors as the suitable Galois conjugates of the first factor, which can
         // be done using arithmetic in the full ring.
 
-        let tmp_slot_ring = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Creating temporary slot ring", |[]| {
+        let tmp_slot_ring = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_large_slot_ring] Creating temporary slot ring", |[]| {
             let base_ring = AsLocalPIR::<RingRef<_>>::from_zn(RingRef::new(ring.base_ring().get_ring())).unwrap();
             GaloisField::new_with(
                 FpX.base_ring(), 
@@ -459,11 +459,11 @@ impl<R> HypercubeIsomorphism<R>
             )
         });
 
-        let root_of_unity = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing root of unity", |[]| 
+        let root_of_unity = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_large_slot_ring] Computing root of unity", |[]| 
             get_prim_root_of_unity(FpX.base_ring(), &tmp_slot_ring, m)
         );
 
-        let slot_ring_modulus = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing single factor of cyclotomic polynomial", |[]| {
+        let slot_ring_modulus = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_large_slot_ring] Computing single factor of cyclotomic polynomial", |[]| {
             let SX = DensePolyRing::new(&tmp_slot_ring, "X");
             let mut result = SX.prod((0..d).scan(
                 root_of_unity, 

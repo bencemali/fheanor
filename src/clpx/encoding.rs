@@ -24,11 +24,7 @@ use feanor_math::seq::VectorView;
 use feanor_math::seq::VectorViewMut;
 use crate::cyclotomic::{CyclotomicRing, CyclotomicRingStore};
 use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::euler_phi;
-use crate::log_time;
-
-const ZZi64: StaticRing<i64> = StaticRing::RING;
-const ZZbig: BigIntRing = BigIntRing::RING;
+use crate::{euler_phi, log_time, ZZbig, ZZi64};
 
 ///
 /// Implements the isomorphism

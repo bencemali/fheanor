@@ -411,7 +411,7 @@ impl HypercubeStructure {
             T: 'b
     {
         let mut it = multi_cartesian_product(
-            self.ls.iter().map(|l| (0..*l)),
+            self.ls.iter().map(|l| 0..*l),
             for_slot,
             |_, x| *x
         );

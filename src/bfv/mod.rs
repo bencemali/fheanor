@@ -63,9 +63,6 @@ pub type CiphertextRing<Params: BFVInstantiation> = RingValue<Params::Ciphertext
 pub type Ciphertext<Params: BFVInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
 pub type GadgetProductOperand<'a, Params: BFVInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
 
-const ZZbig: BigIntRing = BigIntRing::RING;
-const ZZi64: StaticRing<i64> = StaticRing::<i64>::RING;
-
 ///
 /// Trait for types that represent an instantiation of BFV.
 /// 

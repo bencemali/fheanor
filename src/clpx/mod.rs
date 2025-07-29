@@ -32,7 +32,8 @@ use crate::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
 use crate::{DefaultCiphertextAllocator, DefaultNegacyclicNTT};
-use encoding::*;
+use crate::clpx::encoding::*;
+use crate::*;
 
 use rand::{Rng, CryptoRng};
 use rand_distr::StandardNormal;
@@ -42,9 +43,6 @@ use rand_distr::StandardNormal;
 /// that CLPX/GBFV is based on.
 /// 
 pub mod encoding;
-
-const ZZi64: StaticRing<i64> = StaticRing::RING;
-const ZZbig: BigIntRing = BigIntRing::RING;
 
 pub type NumberRing<Params: CLPXInstantiation> = <Params::CiphertextRing as BGFVCiphertextRing>::NumberRing;
 pub type SecretKey<Params: CLPXInstantiation> = El<CiphertextRing<Params>>;

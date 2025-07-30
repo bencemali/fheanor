@@ -10,14 +10,8 @@ use tracing::instrument;
 
 use std::alloc::{Allocator, Global};
 
-use super::RNSOperation;
-
-#[cfg(feature = "strassen_rnsconv")]
-type UsedBaseConversion<A> = super::matrix_lift::AlmostExactMatrixBaseConversion<A>;
-#[cfg(not(feature = "strassen_rnsconv"))]
-type UsedBaseConversion<A> = super::lift::AlmostExactBaseConversion<A>;
-
-const ZZbig: BigIntRing = BigIntRing::RING;
+use crate::rnsconv::{UsedBaseConversion, RNSOperation};
+use crate::ZZbig;
 
 ///
 /// Computes almost exact rescaling with final conversion.

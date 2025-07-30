@@ -6,12 +6,9 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
 use tracing::instrument;
 
-use super::RNSOperation;
+use crate::rnsconv::UsedBaseConversion;
 
-#[cfg(feature = "strassen_rnsconv")]
-type UsedBaseConversion<A> = super::matrix_lift::AlmostExactMatrixBaseConversion<A>;
-#[cfg(not(feature = "strassen_rnsconv"))]
-type UsedBaseConversion<A> = super::lift::AlmostExactBaseConversion<A>;
+use super::RNSOperation;
 
 ///
 /// Computes almost exact base conversion with a shared factor.

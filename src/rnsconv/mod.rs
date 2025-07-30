@@ -71,6 +71,11 @@ pub trait RNSOperation {
             V2: AsPointerToSlice<El<Self::Ring>>;
 }
 
+#[cfg(feature = "strassen_rnsconv")]
+pub(crate) type UsedBaseConversion<A> = matrix_lift::AlmostExactMatrixBaseConversion<A>;
+#[cfg(not(feature = "strassen_rnsconv"))]
+pub(crate) type UsedBaseConversion<A> = lift::AlmostExactBaseConversion<A>;
+
 ///
 /// Returns `(data_sorted, perm)` such that `data_sorted` is an (ascending)
 /// unstable sorting of `data`, and `data[i] = data_sorted[perm[i]]`.

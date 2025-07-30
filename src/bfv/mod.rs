@@ -41,7 +41,7 @@ use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
 use crate::rnsconv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
-use crate::rnsconv::RNSOperation;
+use crate::rnsconv::{RNSOperation, UsedBaseConversion};
 use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::DefaultCiphertextAllocator;
 use crate::*;
@@ -467,7 +467,6 @@ pub trait BFVInstantiation {
         let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
-        
     }
     
     ///
@@ -944,13 +943,24 @@ pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El
 }
 
 fn lift_to_Cmul<'a, Params: ?Sized + BFVInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
-    let lift = AlmostExactSharedBaseConversion::new_with(
-        C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
-        Vec::new(),
+    let lift = UsedBaseConversion::new_with(
+        C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         Global
     );
-    return move |c| perform_rns_op(C_mul.get_ring(), C.get_ring(), c, &lift);
+    let mut tmp1 = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    let mut tmp2 = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    return move |c| {
+        C.get_ring().as_representation_wrt_small_generating_set(c, tmp1.data_mut());
+        let mut result = C_mul.get_ring().add_rns_factor_element(C.get_ring(), &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(), C.clone_el(c));
+        lift.apply(tmp1.data(), tmp2.data_mut());
+        C_mul.get_ring().add_assign_from_partial_representation_wrt_small_generating_set(
+            &mut result,
+            &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(),
+            tmp2.data()
+        );
+        return result;
+    };
 }
 
 fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>, C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
@@ -958,7 +968,7 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
     assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
     let ZZ = P.base_ring().integer_ring();
-    let result: Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>> = if false && ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap() <= 50 {
+    let result: Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>> = if ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap() <= 50 {
         let rescale = AlmostExactRescalingConvert::new_with(
             C_mul.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
             vec![ Zn::new(int_cast(ZZ.clone_el(P.base_ring().modulus()), ZZi64, ZZ) as u64) ], 

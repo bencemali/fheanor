@@ -9,15 +9,13 @@ use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::primitive_int::*;
 use feanor_math::integer::int_cast;
-use feanor_math::integer::*;
 use feanor_math::ring::*;
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::seq::*;
 use tracing::instrument;
 
-use super::RNSOperation;
-
-const ZZbig: BigIntRing = BigIntRing::RING;
+use crate::ZZbig;
+use crate::rnsconv::RNSOperation;
 
 ///
 /// We don't use Strassen-based [`super::matrix_lift::AlmostExactMatrixBaseConversion`], since

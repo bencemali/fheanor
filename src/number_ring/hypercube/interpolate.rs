@@ -80,14 +80,14 @@ impl<P> FastPolyInterpolation<P>
         while current.len() > 1 {
             let mut result_part = Vec::new();
             let mut new = Vec::new();
-            let mut moduli_it = current.array_chunks::<2>();
-            for [f, g] in moduli_it.by_ref() {
+            let (chunks, remainder) = current.as_chunks::<2>();
+            for [f, g] in chunks {
                 let new_modulus = poly_ring.mul_ref(f, g);
                 let unit_vectors = (crt_unit_vectors(&poly_ring, f, g), crt_unit_vectors(&poly_ring, g, f));
                 result_part.push(unit_vectors);
                 new.push(new_modulus);
             }
-            if let Some(last) = moduli_it.remainder().get(0) {
+            if let Some(last) = remainder.get(0) {
                 new.push(poly_ring.clone_el(last));
             }
             current = new;
@@ -148,14 +148,14 @@ impl<P> FastPolyInterpolation<P>
         let mut current = remainders;
         for i in 0..self.unit_vectors.len() {
             let mut new = Vec::new();
-            let mut current_it = current.array_chunks::<2>();
-            for ([f0, f1], (e0, e1)) in current_it.by_ref().zip(self.unit_vectors[i].iter()) {
+            let (chunks, remainer) = current.as_chunks::<2>();
+            for ([f0, f1], (e0, e1)) in chunks.iter().zip(self.unit_vectors[i].iter()) {
                 new.push(self.poly_ring.add(
                     self.poly_ring.mul_ref(f0, e0),
                     self.poly_ring.mul_ref(f1, e1)
                 ));
             }
-            if let Some(last) = current_it.remainder().get(0) {
+            if let Some(last) = remainer.get(0) {
                 new.push(self.poly_ring.clone_el(last));
             }
             current = new;

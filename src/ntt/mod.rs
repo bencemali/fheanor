@@ -19,7 +19,7 @@ use feanor_math::rings::zn::*;
 pub trait HERingConvolution<R>: ConvolutionAlgorithm<R::Type>
     where R: RingStore
 {
-    fn ring(&self) -> RingRef<R::Type>;
+    fn ring(&self) -> RingRef<'_, R::Type>;
 
     fn new(ring: R, max_log2_len: usize) -> Self;
 }
@@ -33,7 +33,7 @@ impl<R> HERingConvolution<R> for NTTConvolution<R::Type, R::Type, Identity<R>>
         NTTConvolution::new(ring)
     }
 
-    fn ring(&self) -> RingRef<R::Type> {
+    fn ring(&self) -> RingRef<'_, R::Type> {
         NTTConvolution::ring(self)
     }
 }
@@ -45,7 +45,7 @@ impl HERingConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnFa
         NTTConvolution::new_with(ring.into_can_hom(ZnFastmul::new(ring).unwrap()).ok().unwrap(), Global)
     }
 
-    fn ring(&self) -> RingRef<ZnBase> {
+    fn ring(&self) -> RingRef<'_, ZnBase> {
         NTTConvolution::ring(self)
     }
 }

@@ -176,7 +176,7 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
     /// [`ManagedDoubleRNSRingBase::to_doublerns()`], which can be used to access the underlying
     /// representation of elements.
     /// 
-    pub fn unmanaged_ring(&self) -> RingRef<DoubleRNSRingBase<NumberRing, A>> {
+    pub fn unmanaged_ring(&self) -> RingRef<'_, DoubleRNSRingBase<NumberRing, A>> {
         RingRef::new(&self.base)
     }
 

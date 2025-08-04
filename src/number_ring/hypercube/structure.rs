@@ -1,6 +1,6 @@
 use std::cmp::max;
 
-use feanor_math::algorithms::discrete_log::discrete_log;
+use feanor_math::algorithms::discrete_log::*;
 use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::integer::{int_cast, BigIntRing};
@@ -15,7 +15,6 @@ use feanor_math::pid::*;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_rns;
 use feanor_math::seq::*;
-use feanor_math::wrapper::RingElementWrapper;
 use serde::{Deserialize, Serialize};
 
 use crate::{cyclotomic::*, ZZbig, ZZi64};
@@ -163,7 +162,7 @@ impl HypercubeStructure {
                     let g2 = Zqk.can_hom(&ZZi64).unwrap().map(-1);
                     if p % 4 == 1 {
                         // `p` is in `<g1>`
-                        let logg1_p = unit_group_dlog(Zqk, g1, ord_g1, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
+                        let logg1_p = unit_group_dlog(Zqk, g1, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
                         dimensions.push(HypercubeDimension {
                             order_of_projected_p: ord_g1 / signed_gcd(logg1_p, ord_g1, &ZZi64), 
                             group_order: ord_g1,
@@ -178,7 +177,7 @@ impl HypercubeStructure {
                         });
                     } else {
                         // `<p, g1> = (Z/2^kZ)*` and `p * g2 in <g1>`
-                        let logg1_pg2 = unit_group_dlog(Zqk, g1, ord_g1, Zqk.mul(Zqk.can_hom(&ZZi64).unwrap().map(p), g2)).unwrap();
+                        let logg1_pg2 = unit_group_dlog(Zqk, g1, Zqk.mul(Zqk.can_hom(&ZZi64).unwrap().map(p), g2)).unwrap();
                         dimensions.push(HypercubeDimension {
                             order_of_projected_p: max(ord_g1 / signed_gcd(logg1_pg2, ord_g1, &ZZi64), 2),
                             group_order: 2 * ord_g1,
@@ -191,7 +190,7 @@ impl HypercubeStructure {
                 // `(Z/q^kZ)*` is cyclic
                 let g = get_multiplicative_generator(*Zqk, &[(*q, *k)]);
                 let ord_g = euler_phi(&[(*q, *k)]);
-                let logg_p = unit_group_dlog(Zqk, g, ord_g, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
+                let logg_p = unit_group_dlog(Zqk, g, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
                 let ord_p = ord_g / signed_gcd(logg_p, ord_g, ZZi64);
                 dimensions.push(HypercubeDimension {
                     order_of_projected_p: ord_p, 
@@ -411,7 +410,7 @@ impl HypercubeStructure {
             T: 'b
     {
         let mut it = multi_cartesian_product(
-            self.ls.iter().map(|l| (0..*l)),
+            self.ls.iter().map(|l| 0..*l),
             for_slot,
             |_, x| *x
         );
@@ -449,13 +448,11 @@ pub fn get_multiplicative_generator(ring: Zn, factorization: &[(i64, usize)]) ->
     }
 }
 
-pub fn unit_group_dlog(ring: &Zn, base: ZnEl, order: i64, value: ZnEl) -> Option<i64> {
-    discrete_log(
-        RingElementWrapper::new(&ring, value), 
-        &RingElementWrapper::new(&ring, base), 
-        order, 
-        |x, y| x * y, 
-        RingElementWrapper::new(&ring, ring.one())
+pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
+    finite_field_discrete_log(
+        value,
+        base,
+        ring
     )
 }
 

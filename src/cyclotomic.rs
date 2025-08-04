@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use feanor_math::algorithms::discrete_log::order;
+use feanor_math::algorithms::discrete_log::multiplicative_order;
 use feanor_math::ring::*;
 use feanor_math::delegate;
 use feanor_math::rings::extension::*;
@@ -9,7 +9,6 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::serialization::*;
-use feanor_math::wrapper::RingElementWrapper;
 use feanor_math::divisibility::DivisibilityRingStore;
 use serde::de::DeserializeSeed;
 use serde::Deserialize;
@@ -118,11 +117,9 @@ impl CyclotomicGaloisGroup {
     }
 
     pub fn element_order(&self, value: CyclotomicGaloisGroupEl) -> usize {
-        order(
-            &RingElementWrapper::new(&self.ring, value.value), 
-            self.group_order() as i64, 
-            |a, b| a * b, 
-            RingElementWrapper::new(&self.ring, self.ring.one())
+        multiplicative_order(
+            value.value,
+            &self.ring
         ) as usize
     }
 }

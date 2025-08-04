@@ -10,7 +10,7 @@ use tracing::instrument;
 
 use std::alloc::{Allocator, Global};
 
-use crate::rnsconv::{UsedBaseConversion, RNSOperation};
+use crate::rns_conv::{UsedBaseConversion, RNSOperation};
 use crate::ZZbig;
 
 ///
@@ -132,8 +132,8 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # use feanor_math::assert_el_eq;
 /// # use feanor_math::homomorphism::*;
 /// # use feanor_math::matrix::*;
-/// # use fheanor::rnsconv::*;
-/// # use fheanor::rnsconv::bfv_rescale::AlmostExactRescaling;
+/// # use fheanor::rns_conv::*;
+/// # use fheanor::rns_conv::bfv_rescale::AlmostExactRescaling;
 /// let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// let from_modulus = 17 * 19 * 23;
 /// let to = vec![Zn::new(29)];
@@ -156,8 +156,8 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # use feanor_math::assert_el_eq;
 /// # use feanor_math::homomorphism::*;
 /// # use feanor_math::matrix::*;
-/// # use fheanor::rnsconv::*;
-/// # use fheanor::rnsconv::bfv_rescale::AlmostExactRescaling;
+/// # use fheanor::rns_conv::*;
+/// # use fheanor::rns_conv::bfv_rescale::AlmostExactRescaling;
 /// # let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// # let from_modulus = 17 * 19 * 23;
 /// # let to = vec![Zn::new(29)];

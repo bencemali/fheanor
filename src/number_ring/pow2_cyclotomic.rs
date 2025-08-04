@@ -205,7 +205,7 @@ impl<N, A> HENumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A>
     }
 
     fn base_ring(&self) -> &zn_64::Zn {
-        self.ntt.ring()
+        RingValue::from_ref(self.ntt.ring().into())
     }
 }
 

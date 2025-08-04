@@ -14,9 +14,9 @@ use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::quotient::*;
 use crate::number_ring::*;
-use crate::lintransform::matmul::*;
+use crate::lin_transform::matmul::*;
 use crate::cyclotomic::*;
-use crate::lintransform::*;
+use crate::lin_transform::*;
 
 #[instrument(skip_all)]
 fn dwt1d_matrix(H: &HypercubeStructure, slot_ring: &SlotRingOver<Zn>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<Zn>>) -> OwnedMatrix<El<SlotRingOver<Zn>>> {

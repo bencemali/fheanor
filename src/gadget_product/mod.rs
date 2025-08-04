@@ -15,7 +15,7 @@ use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, 
 use crate::ciphertext_ring::{BGFVCiphertextRing, PreparedMultiplicationRing};
 use crate::cyclotomic::*;
 use crate::number_ring::HENumberRing;
-use crate::rnsconv::{lift, RNSOperation};
+use crate::rns_conv::{lift, RNSOperation};
 
 ///
 /// Contains the two basic types [`digits::RNSFactorIndexList`] and [`digits::RNSGadgetVectorDigitIndices`]

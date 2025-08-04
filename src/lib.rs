@@ -195,7 +195,7 @@ pub mod cyclotomic;
 ///
 /// Implementation of fast RNS conversion algorithms.
 /// 
-pub mod rnsconv;
+pub mod rns_conv;
 
 ///
 /// Contains an HE-specific abstraction for number rings.
@@ -230,13 +230,13 @@ pub mod circuit;
 /// them as linear combination of Galois automorphisms, as required for
 /// (second-generation) HE schemes.
 /// 
-pub mod lintransform;
+pub mod lin_transform;
 
 ///
 /// Contains algorithms to build arithmetic circuits, with a focus on
 /// digit extraction polynomials.
 /// 
-pub mod digitextract;
+pub mod digit_extract;
 
 ///
 /// Contains an implementation of the BGV scheme.

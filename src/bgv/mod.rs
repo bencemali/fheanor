@@ -35,8 +35,8 @@ use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::{sample_primes, largest_prime_leq_congruent_to_one, HECyclotomicNumberRing, HENumberRing};
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::number_ring::quotient::{NumberRingQuotient, NumberRingQuotientBase};
-use crate::rnsconv::bgv_rescale::{CongruencePreservingAlmostExactBaseConversion, CongruencePreservingRescaling};
-use crate::rnsconv::RNSOperation;
+use crate::rns_conv::bgv_rescale::{CongruencePreservingAlmostExactBaseConversion, CongruencePreservingRescaling};
+use crate::rns_conv::RNSOperation;
 use crate::{DefaultCiphertextAllocator, DefaultConvolution, DefaultNegacyclicNTT};
 use crate::{ZZi64, ZZbig};
 

@@ -11,10 +11,10 @@ use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
 use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use crate::circuit::*;
 use crate::log_time;
-use crate::digitextract::DigitExtract;
+use crate::digit_extract::DigitExtract;
 
-use crate::lintransform::composite;
-use crate::lintransform::pow2;
+use crate::lin_transform::composite;
+use crate::lin_transform::pow2;
 
 use serde::de::DeserializeSeed;
 use serde::Serialize;

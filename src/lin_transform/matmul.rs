@@ -22,7 +22,7 @@ use tracing::instrument;
 
 use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::cyclotomic::*;
-use crate::lintransform::PowerTable;
+use crate::lin_transform::PowerTable;
 use crate::number_ring::quotient::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;

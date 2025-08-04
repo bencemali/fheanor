@@ -15,9 +15,9 @@ use serde::de::DeserializeSeed;
 
 use crate::bgv::modswitch::{level_digits, drop_rns_factors_balanced};
 use crate::cyclotomic::CyclotomicRingStore;
-use crate::digitextract::*;
-use crate::lintransform::pow2;
-use crate::lintransform::composite;
+use crate::digit_extract::*;
+use crate::lin_transform::pow2;
+use crate::lin_transform::composite;
 use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 
 use super::*;

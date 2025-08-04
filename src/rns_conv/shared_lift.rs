@@ -6,7 +6,7 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::ring::*;
 use tracing::instrument;
 
-use crate::rnsconv::UsedBaseConversion;
+use crate::rns_conv::UsedBaseConversion;
 
 use super::RNSOperation;
 

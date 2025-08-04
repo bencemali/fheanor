@@ -40,9 +40,9 @@ use crate::number_ring::quotient::*;
 use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
-use crate::rnsconv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
-use crate::rnsconv::{RNSOperation, UsedBaseConversion};
-use crate::rnsconv::shared_lift::AlmostExactSharedBaseConversion;
+use crate::rns_conv::bfv_rescale::{AlmostExactRescaling, AlmostExactRescalingConvert};
+use crate::rns_conv::{RNSOperation, UsedBaseConversion};
+use crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::DefaultCiphertextAllocator;
 use crate::*;
 

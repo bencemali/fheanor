@@ -14,9 +14,9 @@ use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
 use crate::cyclotomic::*;
-use crate::lintransform::matmul::*;
-use crate::lintransform::trace::trace_circuit;
-use crate::lintransform::PowerTable;
+use crate::lin_transform::matmul::*;
+use crate::lin_transform::trace::trace_circuit;
+use crate::lin_transform::PowerTable;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::quotient::NumberRingQuotientBase;
 use crate::number_ring::*;

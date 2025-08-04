@@ -1,14 +1,17 @@
 use std::alloc::Global;
 
+use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
 use feanor_math::algorithms::fft::*;
 use feanor_math::algorithms::fft::cooley_tuckey::CooleyTuckeyFFT;
 use feanor_math::algorithms::unity_root::get_prim_root_of_unity_pow2;
 use feanor_math::algorithms::convolution::ntt::NTTConvolution;
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
-use feanor_math::homomorphism::{CanHom, Identity};
+use feanor_math::computation::no_error;
+use feanor_math::homomorphism::{CanHom, CanHomFrom, Identity};
 use feanor_math::ring::*;
-use feanor_math::integer::IntegerRingStore;
+use feanor_math::integer::{int_cast, BigIntRing, IntegerRingStore};
 use feanor_math::pid::EuclideanRingStore;
+use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::zn_64::{Zn, ZnBase, ZnFastmul, ZnFastmulBase};
 use feanor_math::rings::zn::*;
 
@@ -77,9 +80,11 @@ pub trait HERingNegacyclicNTT<R>: PartialEq
     /// Concretely, the `i`-th element of `output` should store the evaluation of `input` (interpreted
     /// as a polynomial) at `𝝵^(bitrev(i) * 2 + 1)`.
     /// 
+    /// The implementation may overwrite the values of input with arbitrary (but safe) values.
+    /// 
     fn bitreversed_negacyclic_fft_base<const INV: bool>(&self, input: &mut [El<R>], output: &mut [El<R>]);
 
-    fn ring(&self) -> &R;
+    fn ring(&self) -> RingRef<'_, R::Type>;
 
     fn len(&self) -> usize;
 
@@ -128,8 +133,8 @@ impl<R> HERingNegacyclicNTT<R> for RustNegacyclicNTT<R>
         }
     }
 
-    fn ring(&self) -> &R {
-        &self.ring
+    fn ring(&self) -> RingRef<'_, R::Type> {
+        RingRef::new(self.ring.get_ring())
     }
 
     fn len(&self) -> usize {
@@ -187,6 +192,64 @@ impl HERingNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
     }
 }
 
+///
+/// An object that supports computing an arbitrary-length NTT, i.e the evaluation
+/// of a polynomial at all primitive `m`-th roots of unity, for an arbitrary `m`
+/// which usually is not a power of two.
+/// 
+pub trait HERingGeneralNTT<R>: PartialEq
+    where R: RingStore
+{
+    ///
+    /// Should assign to `output` the NTT of `input`, i.e. the evaluation
+    /// at all primitive `(2 * self.len())`-th roots of unity.
+    /// 
+    /// Concretely, the `i`-th element of `output` should store the evaluation
+    /// of `input` (interpreted as a polynomial) at `𝝵^i`.
+    /// 
+    /// The implementation may overwrite the values of input with arbitrary (but safe) values.
+    /// 
+    fn fft_base<const INV: bool>(&self, input: &mut [El<R>], output: &mut [El<R>]);
+
+    fn ring(&self) -> RingRef<'_, R::Type>;
+
+    fn len(&self) -> usize;
+
+    fn new(ring: R, m: usize) -> Self;
+}
+
+impl<R_main, R_twiddle> HERingGeneralNTT<R_main> for BluesteinFFT<R_main::Type, R_twiddle, CanHom<RingValue<R_twiddle>, R_main>>
+    where R_main: RingStore + Clone,
+        R_twiddle: ZnRing + FromModulusCreateableZnRing + Clone,
+        R_main::Type: FiniteRing + CanHomFrom<R_twiddle>
+{
+    fn fft_base<const INV: bool>(&self, input: &mut [El<R_main>], output: &mut [El<R_main>]) {
+        assert_eq!(input.len(), HERingGeneralNTT::len(self));
+        assert_eq!(output.len(), HERingGeneralNTT::len(self));
+        if INV {
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::inv_fft(&self, &mut *input, HERingGeneralNTT::ring(self));
+        } else {
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::fft(&self, &mut *input, HERingGeneralNTT::ring(self));
+        }
+        for i in 0..input.len() {
+            output[i] = HERingGeneralNTT::ring(self).clone_el(&input[i]);
+        }
+    }
+
+    fn ring(&self) -> RingRef<'_, R_main::Type> {
+        unimplemented!()
+    }
+
+    fn len(&self) -> usize {
+        <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::len(self)
+    }
+
+    fn new(ring: R_main, m: usize) -> Self {
+        let p = ring.characteristic(BigIntRing::RING).unwrap();
+        let twiddle_ring = RingValue::from(R_twiddle::from_modulus(|ZZ| Ok(int_cast(p, RingRef::new(ZZ), BigIntRing::RING))).unwrap_or_else(no_error));
+        return BluesteinFFT::for_zn_with_hom(ring.into_can_hom(twiddle_ring).ok().unwrap(), m, Global).unwrap()
+    }
+}
 
 ///
 /// Contains a dyn-compatible variant of [`ConvolutionAlgorithm`].

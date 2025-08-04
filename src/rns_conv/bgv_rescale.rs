@@ -15,7 +15,7 @@ use feanor_math::seq::*;
 use tracing::instrument;
 
 use crate::ZZbig;
-use crate::rnsconv::RNSOperation;
+use crate::rns_conv::RNSOperation;
 
 ///
 /// We don't use Strassen-based [`super::matrix_lift::AlmostExactMatrixBaseConversion`], since

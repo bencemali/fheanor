@@ -11,7 +11,7 @@ use tracing::instrument;
 
 use crate::number_ring::quotient::{NumberRingQuotient, NumberRingQuotientEl};
 use crate::number_ring::HECyclotomicNumberRing;
-use crate::rnsconv::RNSOperation;
+use crate::rns_conv::RNSOperation;
 
 ///
 /// Contains utilities to serialize/deserialize elements of rings that are based on RNS bases.

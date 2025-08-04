@@ -19,13 +19,13 @@ use feanor_math::primitive_int::StaticRing;
 use rand::{Rng, RngCore};
 use rand_distr::StandardNormal;
 use fheanor::number_ring::*;
-use fheanor::rnsconv::bfv_rescale::AlmostExactRescalingConvert;
+use fheanor::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
 use fheanor::gadget_product::*;
-use fheanor::rnsconv::RNSOperation;
+use fheanor::rns_conv::RNSOperation;
 use fheanor::number_ring::pow2_cyclotomic::*;
 use fheanor::ciphertext_ring::double_rns_ring::*;
 use fheanor::number_ring::quotient::*;
-use fheanor::rnsconv::lift::AlmostExactBaseConversion;
+use fheanor::rns_conv::lift::AlmostExactBaseConversion;
 
 type NumberRing = Pow2CyclotomicNumberRing;
 type PlaintextRing = NumberRingQuotient<NumberRing, zn_64::Zn>;

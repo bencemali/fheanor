@@ -654,6 +654,16 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// 
     pub fn gal_many<S: RingStore<Type = R>>(gs: &[CyclotomicGaloisGroupEl], galois_group: &CyclotomicGaloisGroup, _ring: S) -> Self {
         let non_identity_gs = gs.iter().filter(|g| !galois_group.is_identity(**g)).copied().collect::<Vec<_>>();
+        if non_identity_gs.len() == 0 {
+            return PlaintextCircuit {
+                gates: Vec::new(),
+                input_count: 1,
+                output_transforms: gs.iter().map(|_| LinearCombination {
+                    constant: Coefficient::Zero,
+                    factors: vec![Coefficient::One]
+                }).collect()
+            };
+        }
         let len = non_identity_gs.len() + 1;
         let result = Self {
             input_count: 1,
@@ -664,7 +674,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
                     factors: vec![Coefficient::One]
                 }
             )],
-            output_transforms:gs.iter().scan(0, |nonzero_gs, g| if galois_group.is_identity(*g) {
+            output_transforms: gs.iter().scan(0, |nonzero_gs, g| if galois_group.is_identity(*g) {
                 Some(LinearCombination {
                     constant: Coefficient::Zero,
                     factors: [Coefficient::One].into_iter().chain((1..len).map(|_| Coefficient::Zero)).collect()
@@ -1246,4 +1256,12 @@ fn test_serialization() {
     let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
     let deserialized_circuit = DeserializeSeedPlaintextCircuit::new_no_galois(&ring).deserialize(&mut deserializer).unwrap();
     assert!(deserialized_circuit == circuit);
+}
+
+#[test]
+fn test_identity_galois() {
+    let Gal = CyclotomicGaloisGroup::new(5);
+    let ring = StaticRing::<i64>::RING;
+    let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
+    assert!(circuit == PlaintextCircuit::identity(1, ring));
 }

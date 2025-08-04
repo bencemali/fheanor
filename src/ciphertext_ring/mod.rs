@@ -101,7 +101,7 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// 
     /// More concretely, this computes the map
     /// ```text
-    ///   R/q' -> R/q,  x -> x q/q'
+    ///   R/q' -> R/q,  x -> x (q/q' mod q')^-1 q/q'
     /// ```
     /// In particular, the RNS factors of `q'` must be exactly the RNS factors of `q`,
     /// except for the RNS factors whose indices occur in `added_rns_factors`.
@@ -158,8 +158,19 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// 
     /// For details, [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`].
     /// 
-    fn partial_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, row_indices: &[usize], output: SubmatrixMut<V, ZnEl>)
-        where V: AsPointerToSlice<ZnEl>;
+    fn partial_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, row_indices: &[usize], mut output: SubmatrixMut<V, ZnEl>)
+        where V: AsPointerToSlice<ZnEl>
+    {
+        assert_eq!(output.col_count(), self.small_generating_set_len());
+        assert_eq!(output.row_count(), row_indices.len());
+        let mut tmp = OwnedMatrix::zero(self.base_ring().len(), self.small_generating_set_len(), self.base_ring().at(0));
+        self.as_representation_wrt_small_generating_set(x, tmp.data_mut());
+        for (i_dst, i_src) in row_indices.into_iter().enumerate() {
+            for j in 0..self.small_generating_set_len() {
+                *output.at_mut(i_dst, j) = self.base_ring().at(*i_src).clone_el(tmp.at(*i_src, j));
+            }
+        }
+    }
 
     ///
     /// Creates a ring element from its underlying representation.
@@ -176,6 +187,30 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// 
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, ZnEl>) -> Self::Element
         where V: AsPointerToSlice<ZnEl>;
+
+    ///
+    /// Add-assigns to `dst` the ring element with the given representation modulo `q'` (and `= 0 mod q/q'`),
+    /// where `q'` is the product of the RNS factors of `q` indexed by `row_indices`.
+    /// 
+    /// For details, [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]. In a sense, this
+    /// function is the counterpart to [`BGFVCiphertextRing::partial_representation_wrt_small_generating_set()`],
+    /// since it constructs a ring element from a "partial" representation w.r.t. the small generating set.
+    /// However, the constructed ring element is not returned, but added to the given destination. This fact
+    /// can be exploited by some underlying rings to avoid conversions modulo `q/q'`.
+    /// 
+    fn add_assign_from_partial_representation_wrt_small_generating_set<V>(&self, dst: &mut Self::Element, row_indices: &[usize], data: Submatrix<V, ZnEl>)
+        where V: AsPointerToSlice<ZnEl>
+    {
+        assert_eq!(data.col_count(), self.small_generating_set_len());
+        assert_eq!(data.row_count(), row_indices.len());
+        let mut tmp = OwnedMatrix::zero(self.base_ring().len(), self.small_generating_set_len(), self.base_ring().at(0));
+        for (i_src, i_dst) in row_indices.into_iter().enumerate() {
+            for j in 0..self.small_generating_set_len() {
+                *tmp.at_mut(*i_dst, j) = self.base_ring().at(*i_dst).clone_el(data.at(i_src, j));
+            }
+        }
+        self.add_assign(dst, self.from_representation_wrt_small_generating_set(tmp.data()));
+    }
 
     ///
     /// Computes `[lhs[0] * rhs[0], lhs[0] * rhs[1] + lhs[1] * rhs[0], lhs[1] * rhs[1]]`, but might be

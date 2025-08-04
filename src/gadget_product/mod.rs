@@ -490,7 +490,8 @@ use crate::DefaultConvolution;
 
 #[test]
 fn test_gadget_decomposition() {
-    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(4), zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
+    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring, zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
     let rns_base = ring.base_ring();
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
     let hom_i32 = ring.base_ring().can_hom(&StaticRing::<i32>::RING).unwrap();
@@ -506,7 +507,8 @@ fn test_gadget_decomposition() {
 
 #[test]
 fn test_modulus_switch() {
-    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(4), zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
+    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring.clone(), zn_rns::Zn::create_from_primes(vec![17, 97, 113], BigIntRing::RING));
     let rns_base = ring.base_ring();
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
@@ -514,13 +516,13 @@ fn test_modulus_switch() {
     rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
     rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
 
-    let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(4), zn_rns::Zn::create_from_primes(vec![17, 113], BigIntRing::RING));
+    let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring.clone(), zn_rns::Zn::create_from_primes(vec![17, 113], BigIntRing::RING));
     let rhs = rhs.modulus_switch(smaller_ring.get_ring(), RNSFactorIndexList::from_ref(&[1], rns_base.len()), ring.get_ring());
     let lhs = GadgetProductLhsOperand::from_element(smaller_ring.get_ring(), &smaller_ring.int_hom().map(1000), 2);
 
     assert_el_eq!(&smaller_ring, smaller_ring.int_hom().map(1000), lhs.gadget_product(&rhs, smaller_ring.get_ring()));
 
-    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(4), zn_rns::Zn::create_from_primes(vec![17, 97, 113, 193, 241], BigIntRing::RING));
+    let ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring.clone(), zn_rns::Zn::create_from_primes(vec![17, 97, 113, 193, 241], BigIntRing::RING));
     let rns_base = ring.base_ring();
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
@@ -529,7 +531,7 @@ fn test_modulus_switch() {
     rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1000, 1000, 0])));
     rhs.set_rns_factor(ring.get_ring(), 2, ring.inclusion().map(from_congruence(&[0, 0, 0, 0, 1000])));
 
-    let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(4), zn_rns::Zn::create_from_primes(vec![17, 193, 241], BigIntRing::RING));
+    let smaller_ring = SingleRNSRingBase::<_, Global, DefaultConvolution>::new(number_ring, zn_rns::Zn::create_from_primes(vec![17, 193, 241], BigIntRing::RING));
     let rhs = rhs.modulus_switch(smaller_ring.get_ring(), RNSFactorIndexList::from_ref(&[1, 2], rns_base.len()), ring.get_ring());
     let lhs = GadgetProductLhsOperand::from_element(smaller_ring.get_ring(), &smaller_ring.int_hom().map(1000), 3);
 

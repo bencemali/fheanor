@@ -451,7 +451,8 @@ use crate::ZZbig;
 #[test]
 fn test_slots_to_coeffs_thin() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(97));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     
@@ -469,7 +470,8 @@ fn test_slots_to_coeffs_thin() {
     assert_el_eq!(&ring, &ring_literal(&ring, &expected), &current);
 
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
@@ -488,7 +490,8 @@ fn test_slots_to_coeffs_thin() {
 #[test]
 fn test_slots_to_coeffs_thin_inv() {
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 
@@ -498,7 +501,8 @@ fn test_slots_to_coeffs_thin_inv() {
     }
     
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(97));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     
@@ -511,7 +515,8 @@ fn test_slots_to_coeffs_thin_inv() {
 #[test]
 fn test_coeffs_to_slots_thin() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(97));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
     
@@ -529,7 +534,8 @@ fn test_coeffs_to_slots_thin() {
     assert_el_eq!(&ring, &expected, &actual);
 
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
 

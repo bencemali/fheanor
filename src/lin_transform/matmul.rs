@@ -814,7 +814,8 @@ use feanor_math::integer::*;
 
 #[test]
 fn test_to_circuit_single() {
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
@@ -870,7 +871,8 @@ fn test_compute_automorphisms_per_dimension() {
 
 #[test]
 fn test_compose() {
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
@@ -898,7 +900,8 @@ fn test_compose() {
 
 #[test]
 fn test_invert() {
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(64), Zn::new(23));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());

@@ -726,7 +726,7 @@ pub fn test_with_number_ring<NumberRing: HENumberRing>(number_ring: NumberRing) 
 
 #[test]
 pub fn test_decomposition_ring_large_modulus() {
-    let number_ring = Pow2CyclotomicNumberRing::<>::new(32);
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(32);
     let rank = number_ring.rank();
     let ring = NumberRingQuotientBase::new(number_ring, zn_big::Zn::new(BigIntRing::RING, BigIntRing::RING.get_ring().parse("1267650600228229401496703205653", 10).unwrap()));
     

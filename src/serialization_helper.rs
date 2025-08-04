@@ -602,6 +602,7 @@ impl<'de, T> DeserializeSeed<'de> for NoopDeserializeSeed<T> {
     }
 }
 
+#[allow(unused)]
 pub struct DeserializeSeedTuple<A, B>(pub A, pub B);
 
 impl<'de, A: DeserializeSeed<'de>, B: DeserializeSeed<'de>> DeserializeSeed<'de> for DeserializeSeedTuple<A, B> {

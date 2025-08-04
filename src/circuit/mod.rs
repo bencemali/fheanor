@@ -1178,7 +1178,8 @@ fn test_circuit_tensor_compose() {
 
 #[test]
 fn test_circuit_tensor_compose_with_galois() {
-    let ring = NumberRingQuotientBase::new(Pow2CyclotomicNumberRing::new(16), Zn::new(17));
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(17));
 
     let x = PlaintextCircuit::identity(1, &ring);
     let y = PlaintextCircuit::identity(1, &ring);

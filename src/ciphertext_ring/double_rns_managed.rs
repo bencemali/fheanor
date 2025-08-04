@@ -1239,8 +1239,9 @@ fn test_ring_axioms() {
 
 #[test]
 fn test_thread_safe() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
-    let ring = Arc::new(ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base));
+    let ring = Arc::new(ManagedDoubleRNSRingBase::new(number_ring, rns_base));
 
     let test_element = Arc::new(ring.get_ring().new_element_sum(
         ring.get_ring().base.from_non_fft(ring.get_ring().base.base_ring().int_hom().map(1)), 
@@ -1265,8 +1266,9 @@ fn test_thread_safe() {
 
 #[test]
 fn test_canonical_hom_from_doublerns() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base);
+    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
 
     let doublerns_ring = RingRef::new(&ring.get_ring().base);
     let elements = vec![
@@ -1287,10 +1289,10 @@ fn test_canonical_hom_from_doublerns() {
 
 #[test]
 fn test_canonical_hom_from_singlerns() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(97), zn_64::Zn::new(193)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base.clone());
-
-    let singlerns_ring = SingleRNSRingBase::<_, _, DefaultConvolution>::new(Pow2CyclotomicNumberRing::new(16), rns_base);
+    let ring = ManagedDoubleRNSRingBase::new(number_ring.clone(), rns_base.clone());
+    let singlerns_ring = SingleRNSRingBase::<_, _, DefaultConvolution>::new(number_ring, rns_base);
     let elements = vec![
         singlerns_ring.zero(),
         singlerns_ring.one(),
@@ -1309,8 +1311,9 @@ fn test_canonical_hom_from_singlerns() {
 
 #[test]
 fn test_add_result_independent_of_repr() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
     let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
-    let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(4), rns_base);
+    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
     let base = &ring.get_ring().base;
     let reprs_of_11: [Box<dyn Fn() -> ManagedDoubleRNSEl<_, _>>; 4] = [
         Box::new(|| ring.get_ring().from_small_basis_repr(base.from_non_fft(base.base_ring().int_hom().map(11)))),

@@ -218,33 +218,34 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 
 #[test]
 fn test_pow2_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
+    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
+    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_decomposition_ring() {
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
+    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(Pow2CyclotomicNumberRing::new(16), rns_base, Global);
+    let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
     assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), R.get_ring().galois_group().from_representative(3)));
     assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), R.get_ring().galois_group().from_representative(3)));
 }
 
 #[bench]
 fn bench_permute_galois_action(bencher: &mut test::Bencher) {
-    let number_ring = Pow2CyclotomicNumberRing::new(1 << 15);
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
     let Fp = Zn::new(65537);
     let number_ring_mod_p = number_ring.mod_p(Fp);
     let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();

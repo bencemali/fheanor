@@ -104,7 +104,9 @@ impl<R> MatmulTransform<R>
     /// Requires that `self` and `other` both use the same given ring
     /// and the same given [`HypercubeStructure`].
     /// 
-    pub fn eq<S: Copy + RingStore<Type = R>>(&self, ring: S, H: &HypercubeStructure, other: &Self) -> bool {
+    pub fn eq<S>(&self, ring: S, H: &HypercubeStructure, other: &Self) -> bool
+        where S: Copy + RingStore<Type = R>
+    {
         self.check_valid(ring, H);
         other.check_valid(ring, H);
         if self.data.len() != other.data.len() {
@@ -143,7 +145,7 @@ impl<R> MatmulTransform<R>
     #[instrument(skip_all)]
     pub fn matmul1d<G, S>(H: &HypercubeIsomorphism<S>, dim_index: usize, matrix: G) -> MatmulTransform<R>
         where G: Sync + Fn(usize, usize, &[usize]) -> El<SlotRingOf<S>>,
-            S: Copy + RingStore<Type = R>
+            S: RingStore<Type = R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
         let mut result = MatmulTransform {
@@ -171,7 +173,7 @@ impl<R> MatmulTransform<R>
     #[instrument(skip_all)]
     pub fn blockmatmul0d<G, S>(H: &HypercubeIsomorphism<S>, matrix: G) -> MatmulTransform<R>
         where G: Fn(usize, usize, &[usize]) -> El<R::BaseRing>,
-            S: Copy + RingStore<Type = R>
+            S: RingStore<Type = R>
     {
         let d = H.slot_ring().rank();
         let Gal = H.galois_group();
@@ -228,7 +230,7 @@ impl<R> MatmulTransform<R>
     #[instrument(skip_all)]
     pub fn blockmatmul1d<G, S>(H: &HypercubeIsomorphism<S>, dim_index: usize, matrix: G) -> MatmulTransform<R>
         where G: Sync + Fn((usize, usize), (usize, usize), &[usize]) -> El<R::BaseRing>,
-            S: Copy + RingStore<Type = R>
+            S: RingStore<Type = R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
         let d = H.slot_ring().rank();
@@ -293,7 +295,9 @@ impl<R> MatmulTransform<R>
     /// the given [`HypercubeIsomorphism`].
     /// 
     #[instrument(skip_all)]
-    pub fn inverse<S: Copy + RingStore<Type = R>>(&self, H: &HypercubeIsomorphism<S>) -> Self {
+    pub fn inverse<S>(&self, H: &HypercubeIsomorphism<S>) -> Self
+        where S: RingStore<Type = R>
+    {
         self.check_valid(H.ring(), H.hypercube());
         let Gal = H.galois_group();
         let original_automorphisms = self.data.iter().map(|(g, _)| g.clone());
@@ -362,7 +366,9 @@ impl<R> MatmulTransform<R>
         return result;
     }
 
-    fn check_valid<S: Copy + RingStore<Type = R>>(&self, _ring: S, H: &HypercubeStructure) {
+    fn check_valid<S>(&self, _ring: S, H: &HypercubeStructure)
+        where S: RingStore<Type = R>
+    {
         let Gal = H.galois_group();
         assert!(self.data.is_sorted_by_key(|(g, _)| Gal.representative(H.map_incl_frobenius(g))));
         for (i, (g, _)) in self.data.iter().enumerate() {
@@ -381,7 +387,9 @@ impl<R> MatmulTransform<R>
     /// and the same given [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn compose<S: Copy + RingStore<Type = R>>(&self, ring: S, H: &HypercubeStructure, run_first: &MatmulTransform<R>) -> Self {
+    pub fn compose<S>(&self, ring: S, H: &HypercubeStructure, run_first: &MatmulTransform<R>) -> Self
+        where S: Copy + RingStore<Type = R>
+    {
         self.check_valid(ring, H);
         run_first.check_valid(ring, H);
         let mut result = Self {
@@ -399,7 +407,9 @@ impl<R> MatmulTransform<R>
     /// with the given scalar.
     /// 
     #[instrument(skip_all)]
-    pub fn mult_scalar_slots<S: Copy + RingStore<Type = R>>(H: &HypercubeIsomorphism<S>, scalar: &El<SlotRingOf<S>>) -> MatmulTransform<R> {
+    pub fn mult_scalar_slots<S>(H: &HypercubeIsomorphism<S>, scalar: &El<SlotRingOf<S>>) -> MatmulTransform<R>
+        where S: RingStore<Type = R>
+    {
         Self::mult_ring_element(H.ring(), H.hypercube(), &H.from_slot_values((0..H.slot_count()).map(|_| H.slot_ring().clone_el(scalar))))
     }
 
@@ -408,7 +418,9 @@ impl<R> MatmulTransform<R>
     /// the given constant.
     /// 
     #[instrument(skip_all)]
-    pub fn mult_ring_element<S: Copy + RingStore<Type = R>>(ring: S, H: &HypercubeStructure, factor: &El<S>) -> MatmulTransform<R> {
+    pub fn mult_ring_element<S>(ring: S, H: &HypercubeStructure, factor: &El<S>) -> MatmulTransform<R>
+        where S: RingStore<Type = R>
+    {
         return MatmulTransform {
             data: vec![(
                 [0].into_iter().chain((0..H.dim_count()).map(|_| 0)).collect::<Vec<_>>().into_boxed_slice(), 
@@ -421,7 +433,9 @@ impl<R> MatmulTransform<R>
     /// Returns a representation of the identity map as [`MatmulTransform`].
     /// 
     #[instrument(skip_all)]
-    pub fn identity<S: Copy + RingStore<Type = R>>(ring: S, H: &HypercubeStructure) -> Self {
+    pub fn identity<S>(ring: S, H: &HypercubeStructure) -> Self
+        where S: Copy + RingStore<Type = R>
+    {
         Self::mult_ring_element(ring, H, &ring.one())
     }
 
@@ -436,7 +450,9 @@ impl<R> MatmulTransform<R>
     /// out a slot filled with zero always just moves in zero on the other side. 
     /// 
     #[instrument(skip_all)]
-    pub fn shift<S: Copy + RingStore<Type = R>>(ring: S, H: &HypercubeStructure, positions: &[i64]) -> Self {
+    pub fn shift<S>(ring: S, H: &HypercubeStructure, positions: &[i64]) -> Self
+        where S: Copy + RingStore<Type = R>
+    {
         assert_eq!(H.dim_count(), positions.len());
         Self {
             data: vec![(
@@ -465,7 +481,7 @@ impl<R> MatmulTransform<R>
     pub fn linear_combine_shifts<V, I, S>(H: &HypercubeIsomorphism<S>, summands: I) -> Self
         where I: Iterator<Item = (V, El<S>)>,
             V: VectorFn<i64>,
-            S: Copy + RingStore<Type = R>
+            S: RingStore<Type = R>
     {
         let mut result = Self {
             data: summands
@@ -479,7 +495,9 @@ impl<R> MatmulTransform<R>
         return result;
     }
 
-    fn canonicalize<S: Copy + RingStore<Type = R>>(&mut self, ring: S, H: &HypercubeStructure) {
+    fn canonicalize<S>(&mut self, ring: S, H: &HypercubeStructure)
+        where S: Copy + RingStore<Type = R>
+    {
         self.data.sort_unstable_by_key(|(g, _)| H.galois_group().representative(H.map_incl_frobenius(g)));
         let mut normalize_all_shifts = false;
         self.data.dedup_by(|second, first| {
@@ -510,7 +528,9 @@ impl<R> MatmulTransform<R>
     /// 
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
-    fn compute_automorphisms_per_dimension<S: Copy + RingStore<Type = R>>(&self, ring: S, H: &HypercubeStructure) -> (Vec<i64>, Vec<i64>, Vec<usize>, Vec<usize>) {
+    fn compute_automorphisms_per_dimension<S>(&self, ring: S, H: &HypercubeStructure) -> (Vec<i64>, Vec<i64>, Vec<usize>, Vec<usize>)
+        where S: Copy + RingStore<Type = R>
+    {
         self.check_valid(ring, H);
         
         let mut max_step: Vec<i64> = Vec::new();
@@ -587,7 +607,9 @@ impl<R> MatmulTransform<R>
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit<S: Copy + RingStore<Type = R>>(self, ring: S, H: &HypercubeStructure) -> PlaintextCircuit<R> {
+    pub fn to_circuit<S>(self, ring: S, H: &HypercubeStructure) -> PlaintextCircuit<R>
+        where S: Copy + RingStore<Type = R>
+    {
         self.check_valid(ring, H);
 
         let (_, _, _, sizes) = self.compute_automorphisms_per_dimension(ring, H);
@@ -612,7 +634,9 @@ impl<R> MatmulTransform<R>
     /// Requires that all transforms are defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit_many<S: Copy + RingStore<Type = R>>(ring: S, H: &HypercubeStructure, transforms: Vec<Self>) -> PlaintextCircuit<R> {
+    pub fn to_circuit_many<S>(ring: S, H: &HypercubeStructure, transforms: Vec<Self>) -> PlaintextCircuit<R>
+        where S: Copy + RingStore<Type = R>
+    {
         transforms.into_iter().fold(PlaintextCircuit::identity(1, ring), |current, next| next.to_circuit(ring, H).compose(current, ring))
     }
 
@@ -630,7 +654,9 @@ impl<R> MatmulTransform<R>
     /// Requires that `self` is defined w.r.t. the given ring and [`HypercubeStructure`].
     /// 
     #[instrument(skip_all)]
-    pub fn to_circuit_with_baby_steps<S: Copy + RingStore<Type = R>>(self, ring: S, H: &HypercubeStructure, preferred_baby_steps: usize) -> PlaintextCircuit<R> {
+    pub fn to_circuit_with_baby_steps<S>(self, ring: S, H: &HypercubeStructure, preferred_baby_steps: usize) -> PlaintextCircuit<R>
+        where S: Copy + RingStore<Type = R>
+    {
         self.check_valid(ring, H);
 
         let (max_step, min_step, gcd_step, sizes) = self.compute_automorphisms_per_dimension(ring, H);

@@ -41,6 +41,20 @@ pub struct AlmostExactRescalingConvert<A = Global>
     convert: UsedBaseConversion<A>
 }
 
+impl AlmostExactRescalingConvert {
+
+    ///
+    /// Creates a new [`AlmostExactRescalingConvert`], where
+    ///  - `q` is the product of `in_moduli`
+    ///  - `a` is the product of `num_moduli`
+    ///  - `b` is the product of the first `den_moduli_count` elements of `in_moduli`
+    /// 
+    pub fn new(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>) -> Self {
+        Self::new_with_alloc(in_moduli, num_moduli, den_moduli_indices, Global)
+    }
+
+}
+
 impl<A> AlmostExactRescalingConvert<A>
     where A: Allocator + Clone
 {
@@ -51,10 +65,10 @@ impl<A> AlmostExactRescalingConvert<A>
     ///  - `b` is the product of the first `den_moduli_count` elements of `in_moduli`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, allocator: A) -> Self {
+    pub fn new_with_alloc(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, allocator: A) -> Self {
         let out_moduli = den_moduli_indices.iter().map(|i| in_moduli[*i]).collect();
-        let rescaling = AlmostExactRescaling::new_with(in_moduli.clone(), num_moduli, den_moduli_indices, allocator.clone());
-        let convert = UsedBaseConversion::new_with(
+        let rescaling = AlmostExactRescaling::new_with_alloc(in_moduli.clone(), num_moduli, den_moduli_indices, allocator.clone());
+        let convert = UsedBaseConversion::new_with_alloc(
             rescaling.output_rings().iter().cloned().collect(),
             out_moduli,
             allocator,
@@ -213,7 +227,7 @@ impl<A> AlmostExactRescaling<A>
     ///  - `b` is the product of the first `den_moduli_count` elements of `in_moduli`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, allocator: A) -> Self {
+    pub fn new_with_alloc(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, allocator: A) -> Self {
         let a_moduli_count = num_moduli.len();
         
         let a = ZZbig.prod(num_moduli.iter().map(|Zn| int_cast(Zn.integer_ring().clone_el(Zn.modulus()), &ZZbig, Zn.integer_ring())));
@@ -245,7 +259,7 @@ impl<A> AlmostExactRescaling<A>
             a_mod_b: b_moduli.iter().map(|Zn| Zn.coerce(&ZZbig, ZZbig.clone_el(&a))).collect(),
             a_mod_q_over_b: (num_moduli.len()..aq_over_b_moduli.len()).map(|i| aq_over_b_moduli[i].coerce(&ZZbig, ZZbig.clone_el(&a))).collect(),
             b_inv: aq_over_b_moduli.iter().map(|Zn| Zn.invert(&Zn.coerce(&ZZbig, ZZbig.clone_el(&b))).unwrap()).collect(),
-            b_to_aq_over_b_lift: UsedBaseConversion::new_with(b_moduli.clone(), aq_over_b_moduli.clone(), allocator.clone()),
+            b_to_aq_over_b_lift: UsedBaseConversion::new_with_alloc(b_moduli.clone(), aq_over_b_moduli.clone(), allocator.clone()),
             b_moduli_indices: den_moduli_indices,
             q_moduli: q_moduli,
             aq_over_b_moduli: aq_over_b_moduli,
@@ -334,7 +348,7 @@ fn test_rescale_partial() {
     let to = vec![Zn::new(257), Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = AlmostExactRescaling::new_with(
+    let rescaling = AlmostExactRescaling::new_with_alloc(
         from.clone(), 
         num.clone(), 
         vec![0, 1],
@@ -366,7 +380,7 @@ fn test_rescale_larger() {
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 17 * 31 * 23 * 29 * 19;
 
-    let rescaling = AlmostExactRescaling::new_with(
+    let rescaling = AlmostExactRescaling::new_with_alloc(
         from.clone(), 
         num.clone(), 
         vec![1, 3],
@@ -396,7 +410,7 @@ fn test_rescale_convert() {
     let from = vec![Zn::new(17), Zn::new(31), Zn::new(23), Zn::new(29), Zn::new(19)];
     let to = vec![Zn::new(31), Zn::new(29)];
     let q = 17 * 31 * 23 * 29 * 19;
-    let rescaling = AlmostExactRescalingConvert::new_with(
+    let rescaling = AlmostExactRescalingConvert::new_with_alloc(
         from.clone(), 
         vec![Zn::new(5)], 
         vec![1, 3], 
@@ -432,7 +446,7 @@ fn test_rescale_small_num() {
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(113)];
     let q = 17 * 97 * 113;
 
-    let rescaling = AlmostExactRescaling::new_with(
+    let rescaling = AlmostExactRescaling::new_with_alloc(
         from.clone(), 
         num.clone(), 
         vec![0, 1],
@@ -463,7 +477,7 @@ fn test_rescale_small() {
     let num = vec![Zn::new(29)];
     let q = 17 * 19 * 23;
 
-    let rescaling = AlmostExactRescaling::new_with(
+    let rescaling = AlmostExactRescaling::new_with_alloc(
         from.clone(), 
         num.clone(), 
         vec![0, 1, 2],

@@ -28,7 +28,7 @@ use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::cyclotomic::*;
 use crate::gadget_product::digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
-use crate::ntt::{HERingConvolution, HERingNegacyclicNTT};
+use crate::ntt::{HERingConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
@@ -475,8 +475,8 @@ pub trait BGVCiphertextParams {
         where Self: 'a
     {
         assert_eq!(C.base_ring().len(), digits.rns_base_len());
-        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
-        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for digit_i in 0..digits.len() {
             let base = Self::enc_sym_zero(P, C, &mut rng, new_sk);
             let digit_range = res0.gadget_vector_digits().at(digit_i).clone();
@@ -868,7 +868,7 @@ pub trait BGVCiphertextParams {
         if drop_moduli.len() == 0 {
             return ct;
         } else {
-            let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with(
+            let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
                 drop_moduli.iter().map(|i| *Cold.base_ring().at(*i)).collect(),
                 Cnew.base_ring().as_iter().cloned().collect(),
                 *P.base_ring(),
@@ -967,7 +967,7 @@ pub trait BGVCiphertextParams {
         assert!(signed_gcd(*P.base_ring().modulus(), *target.base_ring().modulus(), ZZi64) == 1, "can only mod-switch to ciphertext moduli that are coprime to t");
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
 
-        let mod_switch = CongruencePreservingRescaling::new_with(
+        let mod_switch = CongruencePreservingRescaling::new_with_alloc(
             C.base_ring().as_iter().map(|Zp| *Zp).collect(),
             vec![*target.base_ring()],
             (0..C.base_ring().len()).collect(),
@@ -990,7 +990,7 @@ pub trait BGVCiphertextParams {
 }
 
 #[derive(Debug)]
-pub struct Pow2BGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + HERingNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     pub log2_q_min: usize,
     pub log2_q_max: usize,
     pub log2_N: usize,
@@ -998,7 +998,7 @@ pub struct Pow2BGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocat
     pub negacyclic_ntt: PhantomData<C>
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -1011,19 +1011,19 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV(m = 2^{}, log2(q) in {}..{})", self.log2_N + 1, self.log2_q_min, self.log2_q_max)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> BGVCiphertextParams for Pow2BGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> BGVCiphertextParams for Pow2BGV<A, C> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
     fn number_ring(&self) -> Pow2CyclotomicNumberRing<C> {
-        Pow2CyclotomicNumberRing::new_with(2 << self.log2_N)
+        Pow2CyclotomicNumberRing::new(2 << self.log2_N)
     }
 
     #[instrument(skip_all)]
@@ -1051,7 +1051,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 
     #[instrument(skip_all)]
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
-        return ManagedDoubleRNSRingBase::new_with(
+        return ManagedDoubleRNSRingBase::new_with_alloc(
             self.number_ring(),
             rns_base,
             self.ciphertext_allocator.clone()
@@ -1114,7 +1114,7 @@ impl<A: Allocator + Clone + Send + Sync> BGVCiphertextParams for CompositeBGV<A>
 
     #[instrument(skip_all)]
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
-        return ManagedDoubleRNSRingBase::new_with(
+        return ManagedDoubleRNSRingBase::new_with_alloc(
             self.number_ring(),
             rns_base,
             self.ciphertext_allocator.clone()
@@ -1199,7 +1199,7 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVCiphertext
     fn create_ciphertext_ring(&self, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> CiphertextRing<Self> {
         let max_log2_n = 1 + ZZi64.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
         let convolutions = rns_base.as_iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
-        return SingleRNSRingBase::new_with(
+        return SingleRNSRingBase::new_with_alloc(
             self.number_ring(),
             rns_base,
             self.ciphertext_allocator.clone(),

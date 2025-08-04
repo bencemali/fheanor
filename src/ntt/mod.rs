@@ -70,7 +70,7 @@ impl HERingConvolution<zn_64::Zn> for feanor_math_hexl::conv::HEXLConvolution {
 /// An object that supports computing a negacyclic NTT, i.e the evaluation of a polynomial
 /// at all primitive `m`-th roots of unity, where `m` is a power of two.
 /// 
-pub trait HERingNegacyclicNTT<R>: PartialEq
+pub trait FheanorNegacyclicNTT<R>: PartialEq
     where R: RingStore
 {
     ///
@@ -113,7 +113,7 @@ impl<R> PartialEq for RustNegacyclicNTT<R>
     }
 }
 
-impl<R> HERingNegacyclicNTT<R> for RustNegacyclicNTT<R> 
+impl<R> FheanorNegacyclicNTT<R> for RustNegacyclicNTT<R> 
     where R: RingStore + Clone,
         R::Type: ZnRing
 {
@@ -173,7 +173,7 @@ impl<R> HERingNegacyclicNTT<R> for RustNegacyclicNTT<R>
 }
 
 #[cfg(feature = "use_hexl")]
-impl HERingNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
+impl FheanorNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
 
     fn bitreversed_negacyclic_fft_base<const INV: bool>(&self, input: &mut [El<Zn>], output: &mut [El<Zn>]) {
         feanor_math_hexl::hexl::HEXLNegacyclicNTT::unordered_negacyclic_fft_base::<INV>(self, input, output)
@@ -197,7 +197,7 @@ impl HERingNegacyclicNTT<Zn> for feanor_math_hexl::hexl::HEXLNegacyclicNTT {
 /// of a polynomial at all primitive `m`-th roots of unity, for an arbitrary `m`
 /// which usually is not a power of two.
 /// 
-pub trait HERingGeneralNTT<R>: PartialEq
+pub trait FheanorGeneralNTT<R>: PartialEq
     where R: RingStore
 {
     ///
@@ -218,21 +218,21 @@ pub trait HERingGeneralNTT<R>: PartialEq
     fn new(ring: R, m: usize) -> Self;
 }
 
-impl<R_main, R_twiddle> HERingGeneralNTT<R_main> for BluesteinFFT<R_main::Type, R_twiddle, CanHom<RingValue<R_twiddle>, R_main>>
+impl<R_main, R_twiddle> FheanorGeneralNTT<R_main> for BluesteinFFT<R_main::Type, R_twiddle, CanHom<RingValue<R_twiddle>, R_main>>
     where R_main: RingStore + Clone,
         R_twiddle: ZnRing + FromModulusCreateableZnRing + Clone,
         R_main::Type: FiniteRing + CanHomFrom<R_twiddle>
 {
     fn fft_base<const INV: bool>(&self, input: &mut [El<R_main>], output: &mut [El<R_main>]) {
-        assert_eq!(input.len(), HERingGeneralNTT::len(self));
-        assert_eq!(output.len(), HERingGeneralNTT::len(self));
+        assert_eq!(input.len(), FheanorGeneralNTT::len(self));
+        assert_eq!(output.len(), FheanorGeneralNTT::len(self));
         if INV {
-            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::inv_fft(&self, &mut *input, HERingGeneralNTT::ring(self));
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::inv_fft(&self, &mut *input, FheanorGeneralNTT::ring(self));
         } else {
-            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::fft(&self, &mut *input, HERingGeneralNTT::ring(self));
+            <BluesteinFFT<_, _, _> as FFTAlgorithm<R_main::Type>>::fft(&self, &mut *input, FheanorGeneralNTT::ring(self));
         }
         for i in 0..input.len() {
-            output[i] = HERingGeneralNTT::ring(self).clone_el(&input[i]);
+            output[i] = FheanorGeneralNTT::ring(self).clone_el(&input[i]);
         }
     }
 

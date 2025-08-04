@@ -118,7 +118,7 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
         let max_log2_len = StaticRing::<i64>::RING.abs_log2_ceil(&(number_ring.m() as i64 * 2)).unwrap();
         let convolutions = rns_base.as_iter().map(|Zp| Arc::new(C::new(Zp.clone(), max_log2_len))).collect();
-        Self::new_with(number_ring, rns_base, Global, convolutions)
+        Self::new_with_alloc(number_ring, rns_base, Global, convolutions)
     }
 }
 
@@ -152,7 +152,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
     /// all pointing to this one convolution object.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A, convolutions: Vec<Arc<C>>) -> RingValue<Self> {
+    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A, convolutions: Vec<Arc<C>>) -> RingValue<Self> {
         assert!(rns_base.len() > 0);
         assert_eq!(rns_base.len(), convolutions.len());
         for i in 0..rns_base.len() {

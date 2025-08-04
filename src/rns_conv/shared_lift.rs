@@ -30,6 +30,22 @@ pub struct AlmostExactSharedBaseConversion<A = Global>
     out_moduli: Vec<Zn>
 }
 
+impl AlmostExactSharedBaseConversion {
+
+    ///
+    /// Creates a new [`AlmostExactSharedBaseConversion`], where
+    ///  - `a` is the product of `shared_moduli`
+    ///  - `q` is the product of `additional_in_moduli`
+    ///  - `a'` is the product of `additional_out_moduli`
+    /// 
+    /// The input resp. output moduli are ordered as in `shared_moduli`, followed
+    /// by `additional_in_moduli` resp. `additional_out_moduli`. In other words, the
+    /// additional moduli are appended at the end to the shared moduli.
+    /// 
+    pub fn new(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>) -> Self {
+        Self::new_with_alloc(shared_moduli, additional_in_moduli, additional_out_moduli, Global)
+    }
+}
 impl<A> AlmostExactSharedBaseConversion<A>
     where A: Allocator + Clone
 {
@@ -44,10 +60,10 @@ impl<A> AlmostExactSharedBaseConversion<A>
     /// additional moduli are appended at the end to the shared moduli.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>, allocator: A) -> Self {
+    pub fn new_with_alloc(shared_moduli: Vec<Zn>, additional_in_moduli: Vec<Zn>, additional_out_moduli: Vec<Zn>, allocator: A) -> Self {
         let in_moduli = shared_moduli.iter().cloned().chain(additional_in_moduli.into_iter()).collect::<Vec<_>>();
         let out_moduli = shared_moduli.into_iter().chain(additional_out_moduli.iter().cloned()).collect::<Vec<_>>();
-        let conversion = UsedBaseConversion::new_with(in_moduli, additional_out_moduli, allocator);
+        let conversion = UsedBaseConversion::new_with_alloc(in_moduli, additional_out_moduli, allocator);
         Self {
             out_moduli: out_moduli,
             conversion: conversion
@@ -100,7 +116,7 @@ use feanor_math::seq::*;
 fn test_rns_shared_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = AlmostExactSharedBaseConversion::new_with(from.clone(), Vec::new(), vec![to[3]], Global);
+    let table = AlmostExactSharedBaseConversion::new_with_alloc(from.clone(), Vec::new(), vec![to[3]], Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();

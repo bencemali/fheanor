@@ -31,7 +31,7 @@ use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::cyclotomic::*;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::gadget_product::digits::*;
-use crate::ntt::{HERingNegacyclicNTT, HERingConvolution};
+use crate::ntt::{FheanorNegacyclicNTT, HERingConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
@@ -522,8 +522,8 @@ pub trait BFVInstantiation {
     fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
-        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk, noise_sigma);
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
@@ -581,7 +581,7 @@ pub trait BFVInstantiation {
     fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         let num_moduli = Cnew.base_ring().as_iter().filter(|Zp| Cold.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).cloned().collect::<Vec<_>>();
         let den_moduli_indices = Cold.base_ring().as_iter().enumerate().filter(|(_, Zp)| Cnew.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).map(|(i, _)| i).collect::<Vec<_>>();
-        let mod_switch = AlmostExactRescaling::new_with(
+        let mod_switch = AlmostExactRescaling::new_with_alloc(
             Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
             num_moduli,
             den_moduli_indices,
@@ -684,20 +684,20 @@ pub trait BFVInstantiation {
 /// (i.e. fastest) solution.
 /// 
 #[derive(Debug)]
-pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + HERingNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     pub log2_N: usize,
     pub ciphertext_allocator: A,
     pub negacyclic_ntt: PhantomData<C>
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BFV(m = 2^{})", self.log2_N + 1)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> Clone for Pow2BFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Clone for Pow2BFV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -708,7 +708,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> BFVInstantiation for Pow2BFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2BFV<A, C> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
     type PlaintextRing = NumberRingQuotientBase<Pow2CyclotomicNumberRing<C>, Zn>;
@@ -716,7 +716,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
 
     #[instrument(skip_all)]
     fn number_ring(&self) -> Pow2CyclotomicNumberRing<C> {
-        Pow2CyclotomicNumberRing::new_with(2 << self.log2_N)
+        Pow2CyclotomicNumberRing::new(2 << self.log2_N)
     }
 
     #[instrument(skip_all)]
@@ -735,7 +735,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let C_mul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
@@ -806,7 +806,7 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let C_mul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
@@ -889,13 +889,13 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
             None => Arc::new(C::new(*Zp, max_log2_n))
         }).collect();
 
-        let C = SingleRNSRingBase::new_with(
+        let C = SingleRNSRingBase::new_with_alloc(
             self.number_ring(),
             zn_rns::Zn::new(C_rns_base.clone(), ZZbig),
             self.ciphertext_allocator.clone(),
             C_convolutions
         );
-        let C_mul = SingleRNSRingBase::new_with(
+        let C_mul = SingleRNSRingBase::new_with_alloc(
             number_ring,
             zn_rns::Zn::new(Cmul_rns_base.clone(), ZZbig),
             self.ciphertext_allocator.clone(),
@@ -943,7 +943,7 @@ pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El
 }
 
 fn lift_to_Cmul<'a, Params: ?Sized + BFVInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
-    let lift = UsedBaseConversion::new_with(
+    let lift = UsedBaseConversion::new_with_alloc(
         C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         Global
@@ -969,7 +969,7 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
 
     let ZZ = P.base_ring().integer_ring();
     let result: Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>> = if ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap() <= 50 {
-        let rescale = AlmostExactRescalingConvert::new_with(
+        let rescale = AlmostExactRescalingConvert::new_with_alloc(
             C_mul.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
             vec![ Zn::new(int_cast(ZZ.clone_el(P.base_ring().modulus()), ZZi64, ZZ) as u64) ], 
             (0..C.base_ring().len()).collect(),
@@ -986,13 +986,13 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
             57,
             |bound| prev_prime(ZZbig, bound)
         ).unwrap().into_iter().map(|modulus| Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
-        let to_extended = AlmostExactSharedBaseConversion::new_with(
+        let to_extended = AlmostExactSharedBaseConversion::new_with_alloc(
             extended_rns_base[..C_mul.base_ring().len()].iter().cloned().collect::<Vec<_>>(),
             Vec::new(),
             extended_rns_base[C_mul.base_ring().len()..].iter().cloned().collect::<Vec<_>>(),
             Global
         );
-        let rescale = AlmostExactRescalingConvert::new_with(
+        let rescale = AlmostExactRescalingConvert::new_with_alloc(
             to_extended.output_rings().to_owned(), 
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
@@ -1024,7 +1024,7 @@ fn rescale_to_P<'a, Params: ?Sized + BFVInstantiation>(P: &'a PlaintextRing<Para
     assert_eq!(P.rank(), C.rank());
     assert_eq!(P.m(), C.m());
 
-    let mod_switch = AlmostExactRescaling::new_with(
+    let mod_switch = AlmostExactRescaling::new_with_alloc(
         C.base_ring().as_iter().map(|Zp| *Zp).collect(),
         vec![RingValue::from(*P.base_ring().get_ring())],
         (0..C.base_ring().len()).collect(),

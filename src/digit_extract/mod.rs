@@ -64,7 +64,7 @@ impl DigitExtract {
     pub fn new_precomputed_p_is_2(p: i64, e: usize, r: usize) -> Self {
         assert_eq!(2, p);
         assert!(is_prime(&StaticRing::<i64>::RING, &p, 10));
-        return Self::new_with(
+        return Self::new_with_circuits(
             int_cast(p, ZZbig, ZZi64), 
             e, 
             r, 
@@ -97,7 +97,7 @@ impl DigitExtract {
         }).collect::<Vec<_>>();
         assert!(digit_extraction_circuits.is_sorted_by_key(|(digits, _)| *digits.last().unwrap()));
         
-        return Self::new_with(int_cast(p, ZZbig, ZZi64), e, r, StaticRing::<i64>::RING, digit_extraction_circuits);
+        return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, r, StaticRing::<i64>::RING, digit_extraction_circuits);
     }
 }
 
@@ -113,7 +113,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// 
     /// If you want to use the default choice of circuits, consider using [`DigitExtract::new_default()`].
     /// 
-    pub fn new_with<S: Copy + RingStore<Type = R>>(p: El<BigIntRing>, e: usize, r: usize, ring: S, extraction_circuits: Vec<(Vec<usize>, PlaintextCircuit<R>)>) -> Self {
+    pub fn new_with_circuits<S: Copy + RingStore<Type = R>>(p: El<BigIntRing>, e: usize, r: usize, ring: S, extraction_circuits: Vec<(Vec<usize>, PlaintextCircuit<R>)>) -> Self {
         assert!(is_prime(ZZbig, &p, 10));
         assert!(e > r);
         for (digits, circuit) in &extraction_circuits {

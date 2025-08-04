@@ -109,7 +109,7 @@ impl<NumberRing> DoubleRNSRingBase<NumberRing>
     /// 
     #[instrument(skip_all)]
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>) -> RingValue<Self> {
-        Self::new_with(number_ring, rns_base, Global)
+        Self::new_with_alloc(number_ring, rns_base, Global)
     }
 }
 
@@ -153,7 +153,7 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
     /// as specified by [`HENumberRing::mod_p_required_root_of_unity()`].
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A) -> RingValue<Self> {
+    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<Zn, BigIntRing>, allocator: A) -> RingValue<Self> {
         assert!(rns_base.len() > 0);
         RingValue::from(Self {
             ring_decompositions: rns_base.as_iter().map(|Fp| Arc::new(number_ring.mod_p(Fp.clone()))).collect(),

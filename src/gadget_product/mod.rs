@@ -279,7 +279,7 @@ fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S)
     for i in 0..digits.len() {
         
         let digit = digits.at(i);
-        let conversion = UsedBaseConversion::new_with(
+        let conversion = UsedBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
             Global
@@ -312,7 +312,7 @@ fn gadget_decompose_doublerns<NumberRing, A, V>(ring: &DoubleRNSRingBase<NumberR
     for i in 0..digits.len() {
         
         let digit = digits.at(i);
-        let conversion = UsedBaseConversion::new_with(
+        let conversion = UsedBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
             Global
@@ -428,7 +428,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
         where R: RingExtension,
             R::BaseRing: RingStore<Type = zn_rns::ZnBase<zn_64::Zn, BigIntRing>>
     {
-        Self::new_with(ring, RNSGadgetVectorDigitIndices::select_digits(digits, ring.base_ring().get_ring().len()))
+        Self::new_with_digits(ring, RNSGadgetVectorDigitIndices::select_digits(digits, ring.base_ring().get_ring().len()))
     }
 
     /// 
@@ -438,7 +438,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
     /// 
     /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
     /// 
-    pub fn new_with(_ring: &R, digits: Box<RNSGadgetVectorDigitIndices>) -> Self 
+    pub fn new_with_digits(_ring: &R, digits: Box<RNSGadgetVectorDigitIndices>) -> Self 
         where R: RingExtension,
             R::BaseRing: RingStore<Type = zn_rns::ZnBase<zn_64::Zn, BigIntRing>>
     {

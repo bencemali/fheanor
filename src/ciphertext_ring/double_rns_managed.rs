@@ -90,7 +90,7 @@ impl<NumberRing> ManagedDoubleRNSRingBase<NumberRing, Global>
     where NumberRing: HENumberRing,
 {
     pub fn new(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>) -> RingValue<Self> {
-        Self::new_with(number_ring, rns_base, Global)
+        Self::new_with_alloc(number_ring, rns_base, Global)
     }
 }
 
@@ -162,8 +162,8 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: HENumberRing,
         A: Allocator + Clone
 {
-    pub fn new_with(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
-        let result = DoubleRNSRingBase::new_with(number_ring, rns_base, allocator);
+    pub fn new_with_alloc(number_ring: NumberRing, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<ManagedDoubleRNSRingBase<NumberRing, A>> {
+        let result = DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, allocator);
         let zero = result.get_ring().zero_non_fft();
         ManagedDoubleRNSRing::from(ManagedDoubleRNSRingBase { base: result.into(), zero: zero })
     }

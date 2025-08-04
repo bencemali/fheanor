@@ -16,7 +16,7 @@ use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::Zn;
 
 use crate::cyclotomic::*;
-use crate::ntt::HERingNegacyclicNTT;
+use crate::ntt::FheanorNegacyclicNTT;
 use crate::DefaultNegacyclicNTT;
 use crate::ZZi64;
 
@@ -27,16 +27,9 @@ pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     ntt: PhantomData<N>
 }
 
-impl Pow2CyclotomicNumberRing {
-
-    pub fn new(m: usize) -> Self {
-        Self::new_with(m)
-    }
-}
-
 impl<N> Pow2CyclotomicNumberRing<N> {
 
-    pub fn new_with(m: usize) -> Self {
+    pub fn new(m: usize) -> Self {
         assert!(m > 2);
         let log2_m = StaticRing::<i64>::RING.abs_log2_floor(&(m as i64)).unwrap();
         assert_eq!(m, 1 << log2_m);
@@ -48,8 +41,9 @@ impl<N> Pow2CyclotomicNumberRing<N> {
 }
 
 impl<N> Clone for Pow2CyclotomicNumberRing<N> {
+    
     fn clone(&self) -> Self {
-        Self::new_with(1 << self.log2_m)
+        Self::new(1 << self.log2_m)
     }
 }
 
@@ -61,7 +55,7 @@ impl<N> PartialEq for Pow2CyclotomicNumberRing<N> {
 }
 
 impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
-    where N: Send + Sync + HERingNegacyclicNTT<zn_64::Zn>
+    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
 {
     type Decomposed = Pow2CyclotomicDecomposedNumberRing<N, Global>;
 
@@ -104,7 +98,7 @@ impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
 }
 
 impl<N> HECyclotomicNumberRing for Pow2CyclotomicNumberRing<N>
-    where N: Send + Sync + HERingNegacyclicNTT<zn_64::Zn>
+    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
 {
     fn m(&self) -> usize {
         1 << self.log2_m
@@ -112,7 +106,7 @@ impl<N> HECyclotomicNumberRing for Pow2CyclotomicNumberRing<N>
 }
 
 pub struct Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: HERingNegacyclicNTT<zn_64::Zn>,
+    where N: FheanorNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
     ntt: N,
@@ -120,7 +114,7 @@ pub struct Pow2CyclotomicDecomposedNumberRing<N, A>
 }
 
 impl<N, A> HECyclotomicNumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: Send + Sync + HERingNegacyclicNTT<zn_64::Zn>,
+    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
         A: Send + Sync + Allocator
 {
     fn m(&self) -> usize {
@@ -152,7 +146,7 @@ impl<N, A> HECyclotomicNumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A
 }
 
 impl<N, A> PartialEq for Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: HERingNegacyclicNTT<zn_64::Zn>,
+    where N: FheanorNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
     fn eq(&self, other: &Self) -> bool {
@@ -161,7 +155,7 @@ impl<N, A> PartialEq for Pow2CyclotomicDecomposedNumberRing<N, A>
 }
 
 impl<N, A> HENumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: Send + Sync + HERingNegacyclicNTT<zn_64::Zn>,
+    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
         A: Send + Sync + Allocator
 {
     #[instrument(skip_all)]
@@ -224,26 +218,26 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 
 #[test]
 fn test_pow2_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::new(8));
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::new(16));
+    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
+    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::new(8));
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::new(16));
+    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
+    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
 }
 
 #[test]
 fn test_pow2_cyclotomic_decomposition_ring() {
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::new(8));
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::new(16));
+    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(8));
+    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<>::new(16));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
     let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let R = double_rns_ring::DoubleRNSRingBase::new_with(Pow2CyclotomicNumberRing::new(16), rns_base, Global);
+    let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(Pow2CyclotomicNumberRing::new(16), rns_base, Global);
     assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), R.get_ring().galois_group().from_representative(3)));
     assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), R.get_ring().galois_group().from_representative(3)));
 }

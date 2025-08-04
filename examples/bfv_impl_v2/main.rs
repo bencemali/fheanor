@@ -145,7 +145,7 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
 
-    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new_with(
+    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new_with_alloc(
         ciphertext_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(),
         Global
@@ -167,7 +167,7 @@ fn hom_mul_three_component(
         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
     );
 
-    let scale_down_rnsconv = AlmostExactRescalingConvert::new_with(
+    let scale_down_rnsconv = AlmostExactRescalingConvert::new_with_alloc(
         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>(),

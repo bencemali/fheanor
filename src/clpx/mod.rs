@@ -26,7 +26,7 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::cyclotomic::*;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ciphertext_ring::double_rns_managed::*;
-use crate::ntt::HERingNegacyclicNTT;
+use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
 use crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion;
@@ -309,8 +309,8 @@ pub trait CLPXInstantiation {
     fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
-        let mut res1 = GadgetProductRhsOperand::new_with(C.get_ring(), digits.to_owned());
+        let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk);
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
@@ -419,7 +419,7 @@ pub trait CLPXInstantiation {
     }
     
     fn create_lift_to_C_mul(C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>) -> AlmostExactSharedBaseConversion {
-        AlmostExactSharedBaseConversion::new_with(
+        AlmostExactSharedBaseConversion::new_with_alloc(
             C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
             Vec::new(),
             C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
@@ -428,7 +428,7 @@ pub trait CLPXInstantiation {
     }
 
     fn create_scale_down_to_C(_P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>) -> AlmostExactRescalingConvert {
-        AlmostExactRescalingConvert::new_with(
+        AlmostExactRescalingConvert::new_with_alloc(
             C_mul.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
@@ -448,12 +448,12 @@ pub trait CLPXInstantiation {
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
     fn number_ring(&self) -> NumberRing<Self> {
-        Pow2CyclotomicNumberRing::new_with(2 << self.log2_N)
+        Pow2CyclotomicNumberRing::new(2 << self.log2_N)
     }
 
     #[instrument(skip_all)]
@@ -471,7 +471,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingNegacyclicNTT<Zn
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let C_mul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
@@ -508,7 +508,7 @@ impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> 
         let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
         let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let C_mul = ManagedDoubleRNSRingBase::new_with(
+        let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
             number_ring,
             Cmul_rns_base,
             self.ciphertext_allocator.clone()

@@ -58,6 +58,17 @@ fn pad_to_block(len: usize) -> usize {
     ((len - 1) / (1 << BLOCK_SIZE_LOG2) + 1) * (1 << BLOCK_SIZE_LOG2)
 }
 
+impl AlmostExactMatrixBaseConversion {
+
+    ///
+    /// Creates a new [`AlmostExactMatrixBaseConversion`] from `q` to `q'`. The moduli belonging to `q'`
+    /// are expected to be sorted.
+    /// 
+    pub fn new(in_rings: Vec<Zn>, out_rings: Vec<Zn>) -> Self {
+        Self::new_with_alloc(in_rings, out_rings, Global)
+    }
+}
+
 impl<A> AlmostExactMatrixBaseConversion<A> 
     where A: Allocator + Clone
 {
@@ -66,7 +77,7 @@ impl<A> AlmostExactMatrixBaseConversion<A>
     /// are expected to be sorted.
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
+    pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
         
         let Q = ZZbig.prod((0..in_rings.len()).map(|i| int_cast(*in_rings.at(i).modulus(), ZZbig, ZZi64)));
 
@@ -239,7 +250,7 @@ fn test_rns_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
 
-    let table = AlmostExactMatrixBaseConversion::new_with(from.clone(), to.clone(), Global);
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     // within this area, we guarantee that no error occurs
     for k in -(17 * 97 / 4)..=(17 * 97 / 4) {
@@ -281,7 +292,7 @@ fn test_rns_base_conversion() {
 fn test_rns_base_conversion_small() {
     let from = vec![Zn::new(3), Zn::new(97)];
     let to = vec![Zn::new(17)];
-    let table = AlmostExactMatrixBaseConversion::new_with(from.clone(), to.clone(), Global);
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
     
     for k in -(97 * 3 / 2)..(97 * 3 / 2) {
         let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
@@ -302,7 +313,7 @@ fn test_rns_base_conversion_small() {
 fn test_rns_base_conversion_not_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = AlmostExactMatrixBaseConversion::new_with(from.clone(), to.clone(), Global);
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
@@ -324,7 +335,7 @@ fn test_rns_base_conversion_not_coprime() {
 fn test_rns_base_conversion_not_coprime_permuted() {
     let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
-    let table = AlmostExactMatrixBaseConversion::new_with(from.clone(), to.clone(), Global);
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
@@ -346,7 +357,7 @@ fn test_rns_base_conversion_not_coprime_permuted() {
 fn test_rns_base_conversion_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
-    let table = AlmostExactMatrixBaseConversion::new_with(from.clone(), to.clone(), Global);
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
     for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
         let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
@@ -372,7 +383,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
     let mut primes = ((1 << 30)..).map(|k| (1 << 10) * k + 1).filter(|p| is_prime(&StaticRing::<i64>::RING, p, 10)).map(|p| Zn::new(p as u64));
     let in_moduli = primes.by_ref().take(in_moduli_count).collect::<Vec<_>>();
     let out_moduli = primes.take(out_moduli_count).collect::<Vec<_>>();
-    let conv = AlmostExactMatrixBaseConversion::new_with(in_moduli.clone(), out_moduli.clone(), Global);
+    let conv = AlmostExactMatrixBaseConversion::new_with_alloc(in_moduli.clone(), out_moduli.clone(), Global);
     
     let mut rng = oorandom::Rand64::new(1);
     let mut in_data = (0..(in_moduli_count * cols)).map(|idx| in_moduli[idx / cols].zero()).collect::<Vec<_>>();
@@ -442,7 +453,7 @@ fn test_base_conversion_large() {
     
     let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
     let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let conversion = AlmostExactMatrixBaseConversion::new_with(from, to, Global);
+    let conversion = AlmostExactMatrixBaseConversion::new_with_alloc(from, to, Global);
 
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();

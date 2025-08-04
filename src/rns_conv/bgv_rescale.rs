@@ -54,11 +54,24 @@ pub struct CongruencePreservingRescaling<A = Global>
     b_inv_mod_aq_over_b: Vec<El<Zn>>
 }
 
+impl CongruencePreservingRescaling {
+
+    ///
+    /// Creates a new [`CongruencePreservingRescaling`], where
+    ///  - `q` is the product of `in_moduli`
+    ///  - `a` is the product of `num_moduli`
+    ///  - `b` is the product of the moduli of `in_moduli` indexed by `den_moduli_indices`
+    /// 
+    pub fn new(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn) -> Self {
+        Self::new_with_alloc(in_moduli, num_moduli, den_moduli_indices, plaintext_modulus, Global)
+    }
+}
+
 impl<A> CongruencePreservingRescaling<A>
     where A: Allocator + Clone
 {
     pub fn scale_down(q_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn, allocator: A) -> Self {
-        Self::new_with(q_moduli, Vec::new(), den_moduli_indices, plaintext_modulus, allocator)
+        Self::new_with_alloc(q_moduli, Vec::new(), den_moduli_indices, plaintext_modulus, allocator)
     }
 
     ///
@@ -68,7 +81,7 @@ impl<A> CongruencePreservingRescaling<A>
     ///  - `b` is the product of the moduli of `in_moduli` indexed by `den_moduli_indices`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn, allocator: A) -> Self {
+    pub fn new_with_alloc(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn, allocator: A) -> Self {
         let ZZ = plaintext_modulus.integer_ring();
         for ring in &in_moduli {
             assert!(ring.integer_ring().get_ring() == ZZ.get_ring());
@@ -84,7 +97,7 @@ impl<A> CongruencePreservingRescaling<A>
         let output_rings = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| in_moduli[i]).chain(num_moduli.into_iter()).collect::<Vec<_>>();
         let output_input_permutation = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| Some(i)).chain((0..a_moduli_len).map(|_| None)).collect::<Vec<_>>();
 
-        let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with(
+        let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
             den_moduli_indices.iter().map(|i| in_moduli[*i]).collect(), 
             output_rings, 
             plaintext_modulus, 
@@ -214,6 +227,19 @@ pub struct CongruencePreservingAlmostExactBaseConversion<A = Global>
     b_mod_q: Vec<El<Zn>>
 }
 
+impl CongruencePreservingAlmostExactBaseConversion {
+
+    ///
+    /// Creates a new [`CongruencePreservingAlmostExactBaseConversion`], where
+    ///  - `b` is the product of the moduli in `in_moduli`
+    ///  - `q` is the product of the moduli in `out_moduli`
+    ///  - `t` is the modulus of `plaintext_modulus`
+    /// 
+    pub fn new(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, plaintext_modulus: Zn) -> Self {
+        Self::new_with_alloc(in_moduli, out_moduli, plaintext_modulus, Global)
+    }
+}
+
 impl<A> CongruencePreservingAlmostExactBaseConversion<A>
     where A: Allocator + Clone
 {
@@ -224,7 +250,7 @@ impl<A> CongruencePreservingAlmostExactBaseConversion<A>
     ///  - `t` is the modulus of `plaintext_modulus`
     /// 
     #[instrument(skip_all)]
-    pub fn new_with(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, plaintext_modulus: Zn, allocator: A) -> Self {
+    pub fn new_with_alloc(in_moduli: Vec<Zn>, out_moduli: Vec<Zn>, plaintext_modulus: Zn, allocator: A) -> Self {
         let ZZ = plaintext_modulus.integer_ring();
         for ring in &in_moduli {
             assert!(ring.integer_ring().get_ring() == ZZ.get_ring());
@@ -258,8 +284,8 @@ impl<A> CongruencePreservingAlmostExactBaseConversion<A>
             q_moduli_count: q_moduli_count,
             b_mod_q: intermediate_moduli[..q_moduli_count].iter().map(|rns_factor| rns_factor.coerce(&ZZbig, ZZbig.clone_el(&b))).collect(),
             b_inv_mod_t: plaintext_modulus.invert(&plaintext_modulus.coerce(&ZZbig, b)).unwrap(),
-            b_to_intermediate_lift: UsedBaseConversion::new_with(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
-            intermediate_to_t_conv: UsedBaseConversion::new_with(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
+            b_to_intermediate_lift: UsedBaseConversion::new_with_alloc(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
+            intermediate_to_t_conv: UsedBaseConversion::new_with_alloc(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
             b_moduli: b_moduli,
             allocator: allocator
         }
@@ -336,7 +362,7 @@ fn test_rescale_complete() {
     let q = 17 * 23 * 29;
     let qprime = 19 * 31 * 37 * 39;
 
-    let rescaling = CongruencePreservingRescaling::new_with(
+    let rescaling = CongruencePreservingRescaling::new_with_alloc(
         from.clone(), 
         to.clone(), 
         vec![0, 1, 2],
@@ -386,7 +412,7 @@ fn test_rescale_partial() {
     let q = 17 * 23 * 29;
     let qprime = 17 * 29 * 13;
 
-    let rescaling = CongruencePreservingRescaling::new_with(
+    let rescaling = CongruencePreservingRescaling::new_with_alloc(
         from.clone(), 
         vec![Zn::new(13)], 
         vec![1],
@@ -477,7 +503,7 @@ fn test_congruence_preserving_baseconv_small() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with(
+    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -517,7 +543,7 @@ fn test_congruence_preserving_baseconv_two_denominators() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with(
+    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -557,7 +583,7 @@ fn test_congruence_preserving_baseconv_unordered() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with(
+    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 

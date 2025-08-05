@@ -1,10 +1,8 @@
 #![allow(non_snake_case)]
-#![feature(allocator_api)]
 
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use std::alloc::Global;
 use std::time::Instant;
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
@@ -145,10 +143,9 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
 
-    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new_with_alloc(
+    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
-        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(),
-        Global
+        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>()
     );
     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -167,11 +164,10 @@ fn hom_mul_three_component(
         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
     );
 
-    let scale_down_rnsconv = AlmostExactRescalingConvert::new_with_alloc(
+    let scale_down_rnsconv = AlmostExactRescalingConvert::new(
         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>(),
-        Global
+        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
     );
     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));

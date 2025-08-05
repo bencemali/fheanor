@@ -138,9 +138,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// as this enables a fast RNS implementation
 /// 
 /// # Examples
-/// ```
-/// #![feature(allocator_api)]
-/// # use std::alloc::Global;
+/// ```rust
 /// # use feanor_math::ring::*;
 /// # use feanor_math::rings::zn::zn_64::*;
 /// # use feanor_math::assert_el_eq;
@@ -151,7 +149,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// let from_modulus = 17 * 19 * 23;
 /// let to = vec![Zn::new(29)];
-/// let rescaling = AlmostExactRescaling::new_with(from.clone(), to.clone(), vec![0, 1, 2], Global);
+/// let rescaling = AlmostExactRescaling::new(from.clone(), to.clone(), vec![0, 1, 2]);
 /// let mut output = [to[0].zero()];
 ///
 /// let x = 1000;
@@ -163,8 +161,6 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// ```
 /// We sometimes get an error of `+/- 1`
 /// ```should_panic
-/// #![feature(allocator_api)]
-/// # use std::alloc::Global;
 /// # use feanor_math::ring::*;
 /// # use feanor_math::rings::zn::zn_64::*;
 /// # use feanor_math::assert_el_eq;
@@ -175,7 +171,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// # let from_modulus = 17 * 19 * 23;
 /// # let to = vec![Zn::new(29)];
-/// # let rescaling = AlmostExactRescaling::new_with(from.clone(), to.clone(), vec![0, 1, 2], Global);
+/// # let rescaling = AlmostExactRescaling::new(from.clone(), to.clone(), vec![0, 1, 2]);
 /// # let mut output = [to[0].zero()];
 /// for x in 1000..2000 {
 ///     rescaling.apply(Submatrix::from_1d(&[from[0].int_hom().map(x), from[1].int_hom().map(x), from[2].int_hom().map(x)], 3, 1), SubmatrixMut::from_1d(&mut output, 1, 1));
@@ -186,7 +182,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// }
 /// ```
 /// 
-pub struct AlmostExactRescaling<A>
+pub struct AlmostExactRescaling<A = Global>
     where A: Allocator + Clone
 {
     a_moduli_count: usize,
@@ -207,6 +203,19 @@ pub struct AlmostExactRescaling<A>
     allocator: A,
     a_bigint: El<BigIntRing>,
     b_bigint: El<BigIntRing>
+}
+
+impl AlmostExactRescaling {
+    
+    ///
+    /// Creates a new [`AlmostExactRescaling`], where
+    ///  - `q` is the product of `in_moduli`
+    ///  - `a` is the product of `num_moduli`
+    ///  - `b` is the product of the first `den_moduli_count` elements of `in_moduli`
+    /// 
+    pub fn new(in_moduli: Vec<Zn>, num_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>) -> Self {
+        Self::new_with_alloc(in_moduli, num_moduli, den_moduli_indices, Global)
+    }
 }
 
 impl<A> AlmostExactRescaling<A>

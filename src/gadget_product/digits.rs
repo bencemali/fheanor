@@ -22,7 +22,7 @@ use feanor_math::seq::VectorFn;
 /// copying the data around).
 /// 
 /// # Example
-/// ```
+/// ```rust
 /// # use feanor_math::seq::*;
 /// # use fheanor::gadget_product::digits::*;
 /// let digits = RNSGadgetVectorDigitIndices::from([3..7, 0..3, 7..10].clone_els());

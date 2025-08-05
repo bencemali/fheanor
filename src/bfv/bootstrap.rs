@@ -1,6 +1,4 @@
 
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::cell::LazyCell;
 
 use feanor_math::algorithms::int_factor::is_prime_power;
@@ -10,15 +8,12 @@ use feanor_math::integer::{int_cast, IntegerRingStore};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 
-use serde::Serialize;
-use serde::de::DeserializeSeed;
-
 use crate::bgv::modswitch::{level_digits, drop_rns_factors_balanced};
+use crate::circuit::read_or_create_circuit;
 use crate::cyclotomic::CyclotomicRingStore;
 use crate::digit_extract::*;
 use crate::lin_transform::pow2;
 use crate::lin_transform::composite;
-use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 
 use super::*;
 
@@ -74,37 +69,6 @@ impl<Params> ThinBootstrapParams<Params>
         Params::PlaintextRing: SerializableElementRing,
         NumberRing<Params>: Clone
 {
-    fn read_or_create_circuit<F, const LOG: bool>(P: &PlaintextRing<Params>, base_name: &str, cache_dir: Option<&str>, create: F) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>
-        where F: FnOnce() -> PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>
-    {
-        if let Some(cache_dir) = cache_dir {
-            let ZZ = P.base_ring().integer_ring();
-            let (p, e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-            let filename = if ZZ.abs_log2_ceil(&p).unwrap() > 30 {
-                format!("{}/{}_m{}_p{}bit_e{}.json", cache_dir, base_name, P.m(), ZZ.abs_log2_ceil(&p).unwrap(), e)
-            } else {
-                format!("{}/{}_m{}_p{}_e{}.json", cache_dir, base_name, P.m(), ZZ.format(&p), e)
-            };
-            if let Ok(file) = File::open(filename.as_str()) {
-                if LOG {
-                    println!("Reading {} from file {}", base_name, filename);
-                }
-                let reader = serde_json::de::IoRead::new(BufReader::new(file));
-                let mut deserializer = serde_json::Deserializer::new(reader);
-                let deserialized = DeserializeSeedPlaintextCircuit::new(P, &P.galois_group()).deserialize(&mut deserializer).unwrap();
-                return deserialized;
-            }
-            let result = log_time::<_, _, LOG, _>(format!("Creating circuit {}", base_name).as_str(), |[]| create());
-            let file = File::create(filename.as_str()).unwrap();
-            let writer = BufWriter::new(file);
-            let mut serializer = serde_json::Serializer::new(writer);
-            SerializablePlaintextCircuit::new(P, &P.galois_group(), &result).serialize(&mut serializer).unwrap();
-            return result;
-        } else {
-            return create();
-        }
-    }
-
     pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
         assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
@@ -114,7 +78,7 @@ impl<Params> ThinBootstrapParams<Params>
         let e = r + v;
         if LOG {
             println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
-            println!("Choosing e = r + v = {} + {}", r, v);
+            println!("Using e = r + v = {} + {}", r, v);
         }
 
         let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
@@ -132,8 +96,8 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
-        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
+        let slots_to_coeffs = read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
+        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
@@ -153,7 +117,7 @@ impl<Params> ThinBootstrapParams<Params>
         let e = r + v;
         if LOG {
             println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
-            println!("Choosing e = r + v = {} + {}", r, v);
+            println!("Using e = r + v = {} + {}", r, v);
         }
 
         let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
@@ -176,8 +140,8 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
-        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
+        let slots_to_coeffs = read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
+        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
@@ -416,11 +380,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let mut rng = rand::rng();
     
     // 8 slots of rank 16
-    let params = Pow2BFV {
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2BFV::new(1 << 8);
     let t = 17;
     let digits = 3;
     let bootstrap_params = ThinBootstrapParams {
@@ -458,11 +418,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let mut rng = rand::rng();
     
     // 4 slots of rank 32
-    let params = Pow2BFV {
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2BFV::new(1 << 8);
     let t = 23;
     let digits = 3;
     let bootstrap_params = ThinBootstrapParams {
@@ -499,11 +455,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
 fn test_composite_bfv_thin_bootstrapping_2() {    
     let mut rng = rand::rng();
     
-    let params = CompositeBFV {
-        m1: 31,
-        m2: 11,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeBFV::new(31, 11);
     let t = 8;
     let digits = 3;
     let bootstrap_params = ThinBootstrapParams {
@@ -545,11 +497,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     
     let mut rng = rand::rng();
     
-    let params = CompositeBFV {
-        m1: 37,
-        m2: 949,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeBFV::new(37, 949);
     let t = 4;
     let sk_hwt = Some(256);
     let digits = 7;
@@ -592,12 +540,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     
     let mut rng = rand::rng();
     
-    let params = CompositeSingleRNSBFV {
-        m1: 37,
-        m2: 949,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        convolution: PhantomData::<DefaultConvolution>
-    };
+    let params = CompositeSingleRNSBFV::new(37, 949);
     let t = 4;
     let sk_hwt = Some(256);
     let digits = 7;

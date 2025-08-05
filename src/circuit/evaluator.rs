@@ -21,7 +21,7 @@ use super::Coefficient;
 /// If you want to evaluate a circuit on ring elements, use [`HomEvaluator`]
 /// or [`HomEvaluatorGal`]. Otherwise, you can build a custom evaluator
 /// using [`DefaultCircuitEvaluator`], for example as follows:
-/// ```
+/// ```rust
 /// # use fheanor::circuit::*;
 /// # use fheanor::circuit::evaluator::*;
 /// # use feanor_math::ring::*;

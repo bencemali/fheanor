@@ -1,16 +1,11 @@
-// Fheanor completely relies on unstable Rust features
-#![feature(allocator_api)]
 #![allow(non_snake_case)]
 
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use std::{alloc::Global, marker::PhantomData};
-
 use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use fheanor::DefaultNegacyclicNTT;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::*;
 use feanor_math::integer::*;
@@ -23,15 +18,9 @@ use feanor_math::assert_el_eq;
 use feanor_math::seq::*;
 
 fn main() {
-    type ChosenCLPXParamType = Pow2CLPX<Global>;
+    let params = Pow2CLPX::new(1 << 13);
 
-    let params = ChosenCLPXParamType {
-        ciphertext_allocator: Global,
-        log2_N: 12,
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
-
-    let (C, C_for_multiplication): (CiphertextRing<ChosenCLPXParamType>, CiphertextRing<ChosenCLPXParamType>) = params.create_ciphertext_rings(105..110);
+    let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, 10);
     let N = C.rank();
     println!("N        = {}", N);
     println!("m        = {}", C.m());
@@ -50,13 +39,13 @@ fn main() {
     println!("G(X)     = {}", FpX.format(&P.plaintext_ring().generating_poly(&FpX, FpX.base_ring().identity())));
 
     let mut rng = rand::rng();
-    let sk = ChosenCLPXParamType::gen_sk(&C, &mut rng, None);
-    let rk = ChosenCLPXParamType::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
+    let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
+    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
     
     let m = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
-    let ct = ChosenCLPXParamType::enc_sym(&P, &C, &mut rng, &m, &sk);
-    let ct_sqr = ChosenCLPXParamType::hom_square(&P, &C, &C_for_multiplication, ct, &rk);
-    let res = ChosenCLPXParamType::dec(&P, &C, ct_sqr, &sk);
+    let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct_sqr = Pow2CLPX::hom_square(&P, &C, &C_for_multiplication, ct, &rk);
+    let res = Pow2CLPX::dec(&P, &C, ct_sqr, &sk);
     
     let res_constant_coeff = P.plaintext_ring().wrt_canonical_basis(&res).at(0);
     assert_el_eq!(BigIntRing::RING, BigIntRing::RING.power_of_two(200), P.plaintext_ring().base_ring().smallest_positive_lift(res_constant_coeff));

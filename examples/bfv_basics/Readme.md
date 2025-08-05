@@ -17,27 +17,16 @@ More concretely, an instantiation of BFV consists of the following:
 While there is no central object storing all of this, Fheanor does use structs to represent an instantiation of BFV over a specific number ring.
 For example, to setup BFV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-let params = Pow2BFV {
-    ciphertext_allocator: Global,
-    log2_N: 12,
-    negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-};
+let log2_N = 12;
+let params = Pow2BFV::new(2 << log2_N);
 ```
 Here, we set the RLWE dimension to `2^log2_N = 2^12 = 4096`.
-Furthermore, we can also specify an allocator - here simply the global allocator [`std::alloc::Global`] - that will be used to allocate memory for ciphertexts, and the type of the NTT implementation to use.
-Here, we choose [`crate::DefaultNegacyclicNTT`], which will point either to the (somewhat slow) native NTT, or the HEXL-based NTT (if the feature `use_hexl`) is enabled.
 
 Once we setup the parameters, we can create plaintext and ciphertext rings:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -45,11 +34,8 @@ Once we setup the parameters, we can create plaintext and ciphertext rings:
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
-# let params = Pow2BFV {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
+# let log2_N = 12;
+# let params = Pow2BFV::new(2 << log2_N);
 let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 ```
@@ -60,21 +46,15 @@ Next, let's generate the keys we will require later.
 Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of [`crate::bfv::Pow2BFV`].
 While it would be preferable for the BFV implementation not to be tied to any specific parameter object, not doing this would prevent some optimizations, see the doc of [`crate::bfv::BFVInstantiation`].
 ```rust
-#![feature(allocator_api)]
 # use feanor_math::seq::VectorView;
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::integer::*;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2BFV {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
+# let log2_N = 12;
+# let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 let mut rng = rand::rng();
@@ -95,7 +75,6 @@ Next, let's encrypt a message.
 The plaintext space of BFV is the ring `R_t = Z[X]/(Phi_m(X), t)`, which we already have created previously.
 To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
-#![feature(allocator_api)]
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::homomorphism::*;
@@ -106,14 +85,9 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2BFV {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
+# let log2_N = 12;
+# let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();
@@ -139,7 +113,6 @@ BFV supports three types of homomorphic operations on ciphertexts:
 
 Since we already have a relinearization key, we can perform a homomorphic multiplication.
 ```rust
-#![feature(allocator_api)]
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::homomorphism::*;
@@ -150,14 +123,9 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2BFV {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
+# let log2_N = 12;
+# let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();
@@ -174,7 +142,6 @@ assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), dec_x_sqr);
 ```
 Note that the plaintext ring is actually quite large - we chose `N = 4096` - so printing the result, e.g. via
 ```rust
-#![feature(allocator_api)]
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::ring::RingExtensionStore;
 # use feanor_math::homomorphism::*;
@@ -185,14 +152,9 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
-# use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2BFV {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
+# let log2_N = 12;
+# let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();

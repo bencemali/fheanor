@@ -4,6 +4,7 @@ use std::alloc::Global;
 use std::ops::Range;
 
 use encoding::CLPXBaseEncoding;
+use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
@@ -12,7 +13,6 @@ use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::primitive_int::StaticRing;
 use feanor_math::integer::*;
-use feanor_math::ordered::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::seq::*;
@@ -28,6 +28,7 @@ use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
+use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
 use crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
@@ -53,9 +54,33 @@ pub type Ciphertext<Params: CLPXInstantiation> = (El<CiphertextRing<Params>>, El
 pub type GadgetProductOperand<'a, Params: CLPXInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
+/// When choosing primes for an RNS base, where the only constraint is that
+/// the total modulus is at least `b` bits, we choose the bitlength to be
+/// within `SAMPLE_PRIMES_MINOFFSET..SAMPLE_PRIMES_MAXOFFSET`
+/// 
+/// This must be `> 0`, since we need a little bit slack to accommodate
+/// for the error and exact-lifting constraints of the RNS base conversion 
+/// algorithms.
+/// 
+const SAMPLE_PRIMES_MINOFFSET: usize = 3;
+
+///
+/// When choosing primes for an RNS base, where the only constraint is that
+/// the total modulus is at least `b` bits, we choose the bitlength to be
+/// within `SAMPLE_PRIMES_MINOFFSET..SAMPLE_PRIMES_MAXOFFSET`
+/// 
+const SAMPLE_PRIMES_MAXOFFSET: usize = SAMPLE_PRIMES_SIZE + SAMPLE_PRIMES_MINOFFSET;
+
+///
+/// When choosing primes for an RNS base, we restrict to primes of this bitlength.
+/// The reason is that the corresponding quotient rings can be represented by [`zn_64::Zn`].
+/// 
+const SAMPLE_PRIMES_SIZE: usize = 57;
+
+///
 /// Trait for types that represent an instantiation of CLPX/GBFV.
 /// 
-/// The design is very similar to [`super::bfv::BFVInstantiation`], for details
+/// The design is very similar to [`crate::bfv::BFVInstantiation`], for details
 /// have a look at that.
 /// 
 /// For a few more details on how this works, see [`crate::examples::clpx_basics`].
@@ -71,7 +96,7 @@ pub trait CLPXInstantiation {
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
     /// the plaintext ring is `R/tR`.
     /// 
-    fn number_ring(&self) -> NumberRing<Self>;
+    fn number_ring(&self) -> &NumberRing<Self>;
      
     ///
     /// Creates the ciphertext ring `R/qR` and the extended-modulus ciphertext ring
@@ -81,7 +106,7 @@ pub trait CLPXInstantiation {
     /// The modulus `q'` is chosen so that `R/qq'R` can represent the result of
     /// the intermediate product of the shortest lifts of two elements of `R/qR`.
     /// 
-    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>);
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_can_bound: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
     ///
     /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
@@ -340,29 +365,28 @@ pub trait CLPXInstantiation {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
-        let lift_to_Cmul = Self::create_lift_to_C_mul(C, C_mul);
-        let lift = |c| perform_rns_op(C_mul.get_ring(), C.get_ring(), &c, &lift_to_Cmul);
-        let c00_lifted = lift(c00);
-        let c01_lifted = lift(c01);
-        let c10_lifted = lift(c10);
-        let c11_lifted = lift(c11);
+        let mut lift = lift_to_Cmul::<Self>(C, C_mul);
+        let c00_lifted = lift(&c00);
+        let c01_lifted = lift(&c01);
+        let c10_lifted = lift(&c10);
+        let c11_lifted = lift(&c11);
 
         let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution([&c00_lifted, &c01_lifted], [&c10_lifted, &c11_lifted]);
-
+        
         let t_in_C_mul = Self::create_t_in_C_mul(P, C_mul);
         C_mul.mul_assign_ref(&mut lifted0, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let scale_down_to_C = Self::create_scale_down_to_C(P, C, C_mul);
-        let scale_down = |c: El<CiphertextRing<Self>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &c, &scale_down_to_C);
-        let res0 = scale_down(lifted0);
-        let res1 = scale_down(lifted1);
-        let res2 = scale_down(lifted2);
+        let mut scale_down = rescale_to_C::<Self>(C, C_mul);
+        let res0 = scale_down(&lifted0);
+        let res1 = scale_down(&lifted1);
+        let res2 = scale_down(&lifted2);
 
         let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
+
     }
     
     ///
@@ -452,34 +476,31 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
-    fn number_ring(&self) -> NumberRing<Self> {
-        Pow2CyclotomicNumberRing::new(2 << self.log2_N)
+    fn number_ring(&self) -> &NumberRing<Self> {
+        crate::bfv::BFVInstantiation::number_ring(self)
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_can_bound: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
+        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let mut C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        C_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-
-        let mut Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2 + 10, log2_q.end * 2 + 67, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        assert!(ZZbig.is_gt(&Cmul_rns_base[Cmul_rns_base.len() - 1], &C_rns_base[C_rns_base.len() - 1]));
-        Cmul_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-
-        let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
+        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
         let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring,
+            number_ring.clone(),
             Cmul_rns_base,
-            self.ciphertext_allocator.clone()
+            self.ciphertext_allocator().clone()
         );
 
         let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
-        debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
+        assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
     }
 }
@@ -490,59 +511,85 @@ impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> 
 
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     
-    fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
+    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+        crate::bfv::BFVInstantiation::number_ring(self)
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_can_bound: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
+        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let mut C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        C_rns_base.sort_unstable_by(|l, r| ZZbig.cmp(l, r));
-
-        let Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2, log2_q.end * 2 + 57, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        assert!(ZZbig.is_gt(&Cmul_rns_base[Cmul_rns_base.len() - 1], &C_rns_base[C_rns_base.len() - 1]));
-
-        let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize + log2_t_can_bound;
+        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
         let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring,
+            number_ring.clone(),
             Cmul_rns_base,
-            self.ciphertext_allocator.clone()
+            self.ciphertext_allocator().clone()
         );
 
         let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
-        debug_assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
+        assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
     }
+}
+
+fn lift_to_Cmul<'a, Params: ?Sized + CLPXInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
+    let lift = UsedBaseConversion::new_with_alloc(
+        C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
+        C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
+        Global
+    );
+    let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    return move |c| {
+        C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
+        let mut result = C_mul.get_ring().add_rns_factor_element(C.get_ring(), &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(), C.clone_el(c));
+        lift.apply(tmp_in.data(), tmp_out.data_mut());
+        C_mul.get_ring().add_assign_from_partial_representation_wrt_small_generating_set(
+            &mut result,
+            &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(),
+            tmp_out.data()
+        );
+        return result;
+    };
+}
+
+fn rescale_to_C<'a, Params: ?Sized + CLPXInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
+    assert!(C.get_ring().number_ring() == C_mul.get_ring().number_ring());
+    assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
+
+    let rescale = AlmostExactRescalingConvert::new_with_alloc(
+        C_mul.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
+        Vec::new(), 
+        (0..C.base_ring().len()).collect(),
+        Global
+    );
+    let result = move |c: &El<CiphertextRing<Params>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &*c, &rescale);
+    return result;
 }
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
-use crate::{log_time, get_default_ciphertext_allocator};
-#[cfg(test)]
-#[cfg(test)]
-use std::marker::PhantomData;
+use crate::log_time;
 
 #[test]
 fn test_composite_clpx_mul() {
     let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X - 2]);
-    let params = CompositeCLPX {
-        m1: 17,
-        m2: 5,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeCLPX::new(17, 5);
     let p = ZZbig.int_hom().map(131071);
 
-    let P = params.create_encoding::<false>(params.m1, ZZi64X.clone(), t, p);
-    let (C, C_mul) = params.create_ciphertext_rings(400..420);
+    let P = params.create_encoding::<false>(params.number_ring().m1(), ZZi64X.clone(), t, p);
+    let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(2);
@@ -556,16 +603,12 @@ fn test_composite_clpx_mul() {
     assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(4), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
 
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let params = CompositeCLPX {
-        m1: 17,
-        m2: 5,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeCLPX::new(17, 5);
     let p = ZZbig.int_hom().map(43691);
     let mut rng = rand::rng();
 
-    let P = params.create_encoding::<false>(params.m1, ZZi64X, t, p);
-    let (C, C_mul) = params.create_ciphertext_rings(400..420);
+    let P = params.create_encoding::<false>(params.number_ring().m1(), ZZi64X, t, p);
+    let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
     let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
     let m = P.plaintext_ring().int_hom().map(210);
@@ -585,15 +628,11 @@ fn test_pow2_clpx_mul() {
     let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
-    let params = Pow2CLPX {
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2CLPX::new(1 << 8);
     let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
 
-    let P = params.create_encoding::<false>(2 << params.log2_N, ZZi64X.clone(), t, p);
-    let (C, C_mul) = params.create_ciphertext_rings(400..420);
+    let P = params.create_encoding::<false>(params.number_ring().m(), ZZi64X.clone(), t, p);
+    let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
     let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
     let m1 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(35)));
@@ -613,19 +652,15 @@ fn measure_time_composite_clpx() {
     let mut rng = rand::rng();
     let ZZi64X = DensePolyRing::new(ZZi64, "X");
     let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let params = CompositeCLPX {
-        m1: 127,
-        m2: 337,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeCLPX::new(127, 337);
     let p = ZZbig.coerce(&StaticRing::<i128>::RING, 56713727820156410577229101238628035243);
     
     let P = log_time::<_, _, true, _>("CreateEncoding", |[]|
-        params.create_encoding::<false>(params.m1, ZZi64X, t, p)
+        params.create_encoding::<false>(params.number_ring().m1(), ZZi64X, t, p)
     );
     let int_to_P = P.plaintext_ring().inclusion().compose(P.plaintext_ring().base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
     let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
-        params.create_ciphertext_rings(790..800)
+        params.create_ciphertext_rings(790..800, 10)
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 

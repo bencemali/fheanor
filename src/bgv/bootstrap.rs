@@ -1,14 +1,12 @@
 use std::cell::LazyCell;
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::ring::*;
 use feanor_math::assert_el_eq;
+use feanor_math::serialization::SerializableElementRing;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
 use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
-use crate::circuit::serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use crate::circuit::*;
 use crate::log_time;
 use crate::digit_extract::DigitExtract;
@@ -16,14 +14,11 @@ use crate::digit_extract::DigitExtract;
 use crate::lin_transform::composite;
 use crate::lin_transform::pow2;
 
-use serde::de::DeserializeSeed;
-use serde::Serialize;
-
 use super::modswitch::*;
 use super::*;
 
 #[derive(Clone, Debug)]
-pub struct ThinBootstrapParams<Params: BGVCiphertextParams> {
+pub struct ThinBootstrapParams<Params: BGVInstantiation> {
     /// Parameters of the scheme to be bootstrapped.
     pub scheme_params: Params,
     /// The additional exponent of the intermediate bootstrapping plaintext modulus.
@@ -37,7 +32,7 @@ pub struct ThinBootstrapParams<Params: BGVCiphertextParams> {
     pub v: usize,
     /// The plaintext modulus w.r.t. which the bootstrapped input is defined. 
     /// Must be a power of a prime 
-    pub t: i64,
+    pub t: El<BigIntRing>,
     /// The first step of thin bootstrapping is the Slots-to-Coeffs transform, which
     /// is still applied to the original ciphertext. Since the ciphertext is homomorphically
     /// decrypted directly afterwards, we don't need much precision at this point anymore.
@@ -47,55 +42,30 @@ pub struct ThinBootstrapParams<Params: BGVCiphertextParams> {
 }
 
 impl<Params> ThinBootstrapParams<Params>
-    where Params: BGVCiphertextParams,
+    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
         NumberRing<Params>: Clone,
+        Params::PlaintextRing: SerializableElementRing,
         <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
 {
-    fn read_or_create_circuit<F, const LOG: bool>(P: &PlaintextRing<Params>, base_name: &str, cache_dir: Option<&str>, create: F) -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
-        where F: FnOnce() -> PlaintextCircuit<<PlaintextRing<Params> as RingStore>::Type>
-    {
-        if let Some(cache_dir) = cache_dir {
-            let (p, e) = is_prime_power(ZZi64, P.base_ring().modulus()).unwrap();
-            let filename = format!("{}/{}_m{}_p{}_e{}.json", cache_dir, base_name, P.m(), p, e);
-            if let Ok(file) = File::open(filename.as_str()) {
-                if LOG {
-                    println!("Reading {} from file {}", base_name, filename);
-                }
-                let reader = serde_json::de::IoRead::new(BufReader::new(file));
-                let mut deserializer = serde_json::Deserializer::new(reader);
-                let deserialized = DeserializeSeedPlaintextCircuit::new(P, &P.galois_group()).deserialize(&mut deserializer).unwrap();
-                return deserialized;
-            }
-            let result = log_time::<_, _, LOG, _>(format!("Creating circuit {}", base_name).as_str(), |[]| create());
-            let file = File::create(filename.as_str()).unwrap();
-            let writer = BufWriter::new(file);
-            let mut serializer = serde_json::Serializer::new(writer);
-            SerializablePlaintextCircuit::new(P, &P.galois_group(), &result).serialize(&mut serializer).unwrap();
-            return result;
-        } else {
-            return create();
-        }
-    }
-
     pub fn build_pow2<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
         let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
         assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
 
-        let (p, r) = is_prime_power(&ZZi64, &self.t).unwrap();
+        let (p, r) = is_prime_power(ZZbig, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
-            println!("Choosing e = r + v = {} + {}", r, v);
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
+            println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, r));
+        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
 
-        let digit_extract = DigitExtract::new_default(p, e, r);
+        let digit_extract = DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r);
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), int_cast(p, ZZbig, ZZi64));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
             if let Some(cache_dir) = cache_dir {
                 HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
             } else {
@@ -104,9 +74,9 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs = Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
-        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
+        let slots_to_coeffs = read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
+        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
+        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
             digit_extract,
@@ -114,7 +84,7 @@ impl<Params> ThinBootstrapParams<Params>
             coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
             plaintext_ring_hierarchy: plaintext_ring_hierarchy,
             modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e) + 1),
+            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
             pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
         };
     }
@@ -122,25 +92,26 @@ impl<Params> ThinBootstrapParams<Params>
     pub fn build_odd<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
         assert!(self.scheme_params.number_ring().m() % 2 != 0);
 
-        let (p, r) = is_prime_power(&ZZi64, &self.t).unwrap();
+        let (p, r) = is_prime_power(ZZbig, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", p, r, self.t, self.scheme_params.number_ring().m());
-            println!("Choosing e = r + v = {} + {}", r, v);
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
+            println!("Using e = r + v = {} + {}", r, v);
         }
 
-        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e));
-        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZi64.pow(p, r));
+        let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
+        let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
 
-        let digit_extract = if p == 2 && e <= 23 {
-            DigitExtract::new_precomputed_p_is_2(p, e, r)
+        let p_i64 = int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig);
+        let digit_extract = if p_i64 == 2 && e <= 23 {
+            DigitExtract::new_precomputed_p_is_2(p_i64, e, r)
         } else {
-            DigitExtract::new_default(p, e, r)
+            DigitExtract::new_default(p_i64, e, r)
         };
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), int_cast(p, ZZbig, ZZi64));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
             if let Some(cache_dir) = cache_dir {
                 HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
             } else {
@@ -149,9 +120,9 @@ impl<Params> ThinBootstrapParams<Params>
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs =  Self::read_or_create_circuit::<_, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
-        let coeffs_to_slots = Self::read_or_create_circuit::<_, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZi64.pow(p, k))).collect();
+        let slots_to_coeffs =  read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
+        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
+        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
             digit_extract,
@@ -159,16 +130,17 @@ impl<Params> ThinBootstrapParams<Params>
             coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
             plaintext_ring_hierarchy: plaintext_ring_hierarchy,
             modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZi64.pow(p, e) + 1),
+            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
             pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
         };
     }
 }
 
 pub struct ThinBootstrapData<Params, Strategy>
-    where Params: BGVCiphertextParams, 
+    where Params: BGVInstantiation, 
         Strategy: BGVModswitchStrategy<Params>,
-        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
     modswitch_strategy: Strategy,
     digit_extract: DigitExtract,
@@ -181,9 +153,10 @@ pub struct ThinBootstrapData<Params, Strategy>
 
 
 impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
-    where Params: BGVCiphertextParams, 
+    where Params: BGVInstantiation, 
         Strategy: BGVModswitchStrategy<Params>,
-        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
     fn r(&self) -> usize {
         self.digit_extract.e() - self.digit_extract.v()
@@ -197,8 +170,8 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         self.digit_extract.v()
     }
 
-    fn p(&self) -> i64 {
-        int_cast(ZZbig.clone_el(self.digit_extract.p()), ZZi64, ZZbig)
+    fn p(&self) -> &El<BigIntRing> {
+        self.digit_extract.p()
     }
 
     pub fn largest_plaintext_ring(&self) -> &PlaintextRing<Params> {
@@ -249,7 +222,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         where Params: 'a
     {
         assert!(LOG || debug_sk.is_none());
-        assert_eq!(ZZi64.pow(self.p(), self.r()), *P_base.base_ring().modulus());
+        assert!(ZZbig.eq_el(&ZZbig.pow(ZZbig.clone_el(self.p()), self.r()), &int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring())));
         if LOG {
             println!("Starting Bootstrapping")
         }
@@ -302,21 +275,23 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         }
 
         let P_main = self.plaintext_ring_hierarchy.last().unwrap();
-        debug_assert_eq!(ZZi64.pow(self.p(), self.e()), *P_main.base_ring().modulus());
+        assert!(ZZbig.eq_el(&ZZbig.pow(ZZbig.clone_el(self.p()), self.e()), &int_cast(P_main.base_ring().integer_ring().clone_el(P_main.base_ring().modulus()), ZZbig, P_main.base_ring().integer_ring())));
 
         let noisy_decryption = log_time::<_, _, LOG, _>("2. Computing noisy decryption c0 + c1 * s", |[]| {
             // this is slightly more complicated than in BFV, since we cannot mod-switch to a ciphertext modulus that is not coprime to `t = p^r`.
             // Instead, we first multiply by `p^v`, then mod-switch to `p^e + 1`, and then reduce the shortest lift of the result modulo `p^e`.
             // This will introduce the overflow modulo `p^e + 1` as error in the lower bits, which we will later remove during digit extraction
+            let ZZbig_to_C_input = C_input.inclusion().compose(C_input.base_ring().can_hom(&ZZbig).unwrap());
             let values_scaled = Ciphertext {
-                c0: C_input.inclusion().mul_map(values_in_coefficients.c0, C_input.base_ring().coerce(&ZZi64, ZZi64.pow(self.p(), self.v()))),
-                c1: C_input.inclusion().mul_map(values_in_coefficients.c1, C_input.base_ring().coerce(&ZZi64, ZZi64.pow(self.p(), self.v()))),
+                c0: ZZbig_to_C_input.mul_map(values_in_coefficients.c0, ZZbig.pow(ZZbig.clone_el(self.p()), self.v())),
+                c1: ZZbig_to_C_input.mul_map(values_in_coefficients.c1, ZZbig.pow(ZZbig.clone_el(self.p()), self.v())),
                 implicit_scale: values_in_coefficients.implicit_scale
             };
             // change to `p^e + 1`
             let (c0, c1) = Params::mod_switch_to_plaintext(P_main, &self.tmp_coprime_modulus_plaintext, &C_input, values_scaled);
+
             // reduce modulo `p^e`, which will introduce additional error in the lower digits
-            let mod_pe = P_main.base_ring().can_hom(&ZZi64).unwrap();
+            let mod_pe = P_main.base_ring().can_hom(self.tmp_coprime_modulus_plaintext.base_ring().integer_ring()).unwrap();
             let (c0, c1) = (
                 P_main.from_canonical_basis(self.tmp_coprime_modulus_plaintext.wrt_canonical_basis(&c0).iter().map(|x| mod_pe.map(self.tmp_coprime_modulus_plaintext.base_ring().smallest_lift(x)))),
                 P_main.from_canonical_basis(self.tmp_coprime_modulus_plaintext.wrt_canonical_basis(&c1).iter().map(|x| mod_pe.map(self.tmp_coprime_modulus_plaintext.base_ring().smallest_lift(x))))
@@ -356,7 +331,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[key_switches]| {
 
             let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
-            let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(int_cast(self.p(), ZZbig, ZZi64), self.v()), &ZZbig.int_hom().map(2)));
+            let rounding_divisor_half = C_current.base_ring().coerce(&ZZbig, ZZbig.rounded_div(ZZbig.pow(ZZbig.clone_el(self.p()), self.v()), &ZZbig.int_hom().map(2)));
             let digit_extraction_input = ModulusAwareCiphertext {
                 data: Params::hom_add_plain_encoded(P_main, &C_current, &C_current.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
                 info: noisy_decryption_in_slots.info,
@@ -385,7 +360,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
 
 impl DigitExtract {
 
-    pub fn evaluate_bgv<'a, Params: BGVCiphertextParams, Strategy: BGVModswitchStrategy<Params>, const LOG: bool>(
+    pub fn evaluate_bgv<'a, Params: BGVInstantiation, Strategy: BGVModswitchStrategy<Params>, const LOG: bool>(
         &self,
         modswitch_strategy: &Strategy, 
         P_base: &PlaintextRing<Params>, 
@@ -395,14 +370,17 @@ impl DigitExtract {
         rk: &RelinKey<'a, Params>,
         key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
-    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>) {
+    ) -> (ModulusAwareCiphertext<Params, Strategy>, ModulusAwareCiphertext<Params, Strategy>)
+        where DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+    {
         assert!(LOG || debug_sk.is_none());
 
-        let (p, actual_r) = is_prime_power(StaticRing::<i64>::RING, P_base.base_ring().modulus()).unwrap();
-        assert_el_eq!(ZZbig, self.p(), int_cast(p, ZZbig, ZZi64));
+        let (p, actual_r) = is_prime_power(ZZbig, &int_cast(P_base.base_ring().integer_ring().clone_el(P_base.base_ring().modulus()), ZZbig, P_base.base_ring().integer_ring())).unwrap();
+        assert_el_eq!(ZZbig, self.p(), &p);
         assert!(actual_r >= self.r());
         for i in 0..(self.e() - self.r()) {
-            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(*P[i].base_ring().modulus(), ZZbig, ZZi64));
+            assert!(P_base.base_ring().integer_ring().get_ring() == P[i].base_ring().integer_ring().get_ring());
+            assert_el_eq!(ZZbig, ZZbig.pow(ZZbig.clone_el(self.p()), actual_r + i + 1), int_cast(P[i].base_ring().integer_ring().clone_el(P[i].base_ring().modulus()), ZZbig, P[i].base_ring().integer_ring()));
         }
         let get_P = |exp: usize| if exp == self.r() {
             P_base
@@ -448,22 +426,16 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let mut rng = StdRng::from_seed([0; 32]);
     
     // 8 slots of rank 16
-    let params = Pow2BGV {
-        log2_q_min: 790,
-        log2_q_max: 800,
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
-    let t = 17;
+    let params = Pow2BGV::new(1 << 7);
+    let t = int_cast(17, ZZbig, ZZi64);
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 2,
-        t: t,
+        t: ZZbig.clone_el(&t),
         pre_bootstrap_rns_factors: 2
     };
     let P = params.create_plaintext_ring(t);
-    let C_master = params.create_initial_ciphertext_ring();
+    let C_master = params.create_ciphertext_ring(790..800);
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(5, C_master.base_ring().len());
 
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
@@ -499,23 +471,17 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     
     let mut rng = StdRng::from_seed([0; 32]);
 
-    let t = 4;
+    let t = int_cast(4, ZZbig, ZZi64);
     let hwt = Some(256);
-    let params = CompositeBGV {
-        log2_q_min: 805,
-        log2_q_max: 820,
-        m1: 37,
-        m2: 949,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let params = CompositeBGV::new(37, 949);
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 7,
-        t: t,
+        t: ZZbig.clone_el(&t),
         pre_bootstrap_rns_factors: 2
     };
     let P = params.create_plaintext_ring(t);
-    let C_master = params.create_initial_ciphertext_ring();
+    let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
 
@@ -553,23 +519,17 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     
     let mut rng = StdRng::from_seed([0; 32]);
 
-    let t = 17;
+    let t = int_cast(17, ZZbig, ZZi64);
     let hwt = Some(256);
-    let params = Pow2BGV {
-        log2_q_min: 805,
-        log2_q_max: 820,
-        log2_N: 15,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2BGV::new(1 << 16);
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 2,
-        t: t,
+        t: ZZbig.clone_el(&t),
         pre_bootstrap_rns_factors: 2
     };
     let P = params.create_plaintext_ring(t);
-    let C_master = params.create_initial_ciphertext_ring();
+    let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
     let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
 

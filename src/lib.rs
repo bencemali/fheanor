@@ -107,10 +107,6 @@ pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings
 /// 
 pub type DefaultCiphertextAllocator = Global;
 
-pub fn get_default_ciphertext_allocator() -> DefaultCiphertextAllocator {
-    Global
-}
-
 ///
 /// Euler's totient function.
 /// 

@@ -46,7 +46,7 @@ use super::PreparedMultiplicationRing;
 /// Internally, elements are stored using [`Arc`] pointers, and the pointees are logically
 /// immutable, which leads to maximal reuse of representations. For example, the following
 /// code only requires a single representation conversion:
-/// ```
+/// ```rust
 /// # use fheanor::ciphertext_ring::double_rns_managed::*;
 /// # use fheanor::ciphertext_ring::*;
 /// # use fheanor::number_ring::*;
@@ -60,7 +60,8 @@ use super::PreparedMultiplicationRing;
 /// # use feanor_math::integer::*;
 /// # use feanor_math::seq::VectorFn;
 /// let rns_base = zn_rns::Zn::new(vec![Zn::new(97), Zn::new(193)], BigIntRing::RING);
-/// let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), rns_base);
+/// let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+/// let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
 /// // `element` is stored in small-basis representation
 /// let element = ring.get_ring().from_small_basis_repr(ring.get_ring().unmanaged_ring().get_ring().from_non_fft(ring.base_ring().int_hom().map(2)));
 /// // this will point to the same payload as `element`
@@ -1080,6 +1081,29 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
             }
         }
         return deserializer.deserialize_enum("ManagedDoubleRNSEl", &["DoubleRNS", "SmallBasis", "Zero"], ResultVisitor { ring: self });
+    }
+}
+
+impl<NumberRing, A> CanHomFrom<BigIntRingBase> for ManagedDoubleRNSRingBase<NumberRing, A>
+    where NumberRing: HECyclotomicNumberRing,
+        A: Allocator + Clone
+{
+    type Homomorphism = <zn_rns::ZnBase<zn_64::Zn, BigIntRing> as CanHomFrom<BigIntRingBase>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &BigIntRingBase) -> Option<Self::Homomorphism> {
+        self.base.base_ring().get_ring().has_canonical_hom(from)
+    }
+
+    fn map_in(&self, from: &BigIntRingBase, el: El<BigIntRing>, hom: &Self::Homomorphism) -> Self::Element {
+        self.from(self.base.base_ring().get_ring().map_in(from, el, hom))
+    }
+
+    fn mul_assign_map_in(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: <BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base.base_ring().get_ring().map_in(from, rhs, hom));
+    }
+
+    fn mul_assign_map_in_ref(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: &<BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base.base_ring().get_ring().map_in_ref(from, rhs, hom));
     }
 }
 

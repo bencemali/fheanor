@@ -69,15 +69,7 @@ impl<NumberRing, ZnTy> NumberRingQuotientBase<NumberRing, ZnTy>
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
 {
     pub fn new(number_ring: NumberRing, base_ring: ZnTy) -> RingValue<Self> {
-        let ZZbig = BigIntRing::RING;
-        let max_product_expansion_factor = ZZbig.from_float_approx(number_ring.product_expansion_factor().ceil()).unwrap();
-        let max_lift_size = ZZbig.ceil_div(int_cast(base_ring.integer_ring().clone_el(base_ring.modulus()), ZZbig, base_ring.integer_ring()), &ZZbig.int_hom().map(2));
-        let max_product_size = ZZbig.mul(ZZbig.pow(max_lift_size, 2), max_product_expansion_factor);
-        let required_bits = ZZbig.abs_log2_ceil(&max_product_size).unwrap();
-        let required_root_of_unity = number_ring.mod_p_required_root_of_unity();
-        let rns_base_primes = sample_primes(required_bits, required_bits + 57, 57, |i| largest_prime_leq_congruent_to_one(int_cast(i, StaticRing::RING, BigIntRing::RING), required_root_of_unity as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::RING))).unwrap();
-        let rns_base = zn_rns::Zn::new(rns_base_primes.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)).collect(), ZZbig);
-        return Self::new_with_alloc(number_ring, base_ring, rns_base, Global);
+        Self::new_with_alloc(number_ring, base_ring, Global)
     }
 }
 
@@ -87,7 +79,7 @@ impl<NumberRing, ZnTy, A> NumberRingQuotientBase<NumberRing, ZnTy, A>
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone
 {
-    pub fn new_with_alloc(number_ring: NumberRing, base_ring: ZnTy, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<Self> {
+    pub fn new_with_rns_base(number_ring: NumberRing, base_ring: ZnTy, rns_base: zn_rns::Zn<zn_64::Zn, BigIntRing>, allocator: A) -> RingValue<Self> {
         assert!(rns_base.len() > 0);
         let ZZbig = BigIntRing::RING;
         let max_product_expansion_factor = ZZbig.from_float_approx(number_ring.product_expansion_factor().ceil()).unwrap();
@@ -102,6 +94,18 @@ impl<NumberRing, ZnTy, A> NumberRingQuotientBase<NumberRing, ZnTy, A>
             rns_base: rns_base,
             allocator: allocator
         })
+    }
+
+    pub fn new_with_alloc(number_ring: NumberRing, base_ring: ZnTy, allocator: A) -> RingValue<Self> {
+        let ZZbig = BigIntRing::RING;
+        let max_product_expansion_factor = ZZbig.from_float_approx(number_ring.product_expansion_factor().ceil()).unwrap();
+        let max_lift_size = ZZbig.ceil_div(int_cast(base_ring.integer_ring().clone_el(base_ring.modulus()), ZZbig, base_ring.integer_ring()), &ZZbig.int_hom().map(2));
+        let max_product_size = ZZbig.mul(ZZbig.pow(max_lift_size, 2), max_product_expansion_factor);
+        let required_bits = ZZbig.abs_log2_ceil(&max_product_size).unwrap();
+        let required_root_of_unity = number_ring.mod_p_required_root_of_unity();
+        let rns_base_primes = sample_primes(required_bits, required_bits + 57, 57, |i| largest_prime_leq_congruent_to_one(int_cast(i, StaticRing::RING, BigIntRing::RING), required_root_of_unity as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::RING))).unwrap();
+        let rns_base = zn_rns::Zn::new(rns_base_primes.into_iter().map(|p| zn_64::Zn::new(int_cast(p, StaticRing::<i64>::RING, BigIntRing::RING) as u64)).collect(), ZZbig);
+        return Self::new_with_rns_base(number_ring, base_ring, rns_base, allocator);
     }
 
     pub fn with_allocator<ANew>(self, new_allocator: ANew) -> NumberRingQuotientBase<NumberRing, ZnTy, ANew>
@@ -630,6 +634,31 @@ impl<NumberRing, ZnTy, A> SerializableElementRing for NumberRingQuotientBase<Num
             number_ring: PhantomData,
             allocator: PhantomData
         });
+    }
+}
+
+impl<NumberRing, ZnTy, A> CanHomFrom<BigIntRingBase> for NumberRingQuotientBase<NumberRing, ZnTy, A>
+    where NumberRing: HECyclotomicNumberRing,
+        ZnTy: RingStore,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone
+{
+    type Homomorphism = <ZnTy::Type as CanHomFrom<BigIntRingBase>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &BigIntRingBase) -> Option<Self::Homomorphism> {
+        self.base_ring().get_ring().has_canonical_hom(from)
+    }
+
+    fn map_in(&self, from: &BigIntRingBase, el: El<BigIntRing>, hom: &Self::Homomorphism) -> Self::Element {
+        self.from(self.base_ring().get_ring().map_in(from, el, hom))
+    }
+
+    fn mul_assign_map_in(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: <BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base_ring().get_ring().map_in(from, rhs, hom));
+    }
+
+    fn mul_assign_map_in_ref(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: &<BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base_ring().get_ring().map_in_ref(from, rhs, hom));
     }
 }
 

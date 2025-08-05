@@ -18,7 +18,7 @@ use serde::Deserializer;
 /// of `#[derive(Deserialize)]` as follows.
 /// 
 /// The function `deserializer()` in
-/// ```
+/// ```rust
 /// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use std::marker::PhantomData;
@@ -34,7 +34,7 @@ use serde::Deserializer;
 /// }
 /// ```
 /// is roughly equivalent to `deserializer()` as in
-/// ```
+/// ```rust
 /// # use serde::*;
 /// # use std::marker::PhantomData;
 /// #[derive(Deserialize)]
@@ -54,7 +54,7 @@ use serde::Deserializer;
 /// "deserialization-tree" must still be implemented manually (this is also the case for `#[derive(Deserialize)]`
 /// of course, but the leaves here are usually std type `i64`, `&[u8]` or `String`, for which the implementation
 /// of [`serde::Deserialize`] is contained in `serde`).
-/// ```
+/// ```rust
 /// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
@@ -100,7 +100,7 @@ use serde::Deserializer;
 /// 
 /// Note that if `FooDeserializeSeed` should have generic parameters, these should be passed
 /// in the following way:
-/// ```
+/// ```rust
 /// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;
@@ -143,7 +143,7 @@ use serde::Deserializer;
 /// ```
 /// However, in these cases, it should suffice to manually convert `Foo` into some self-defined
 /// struct `FooOwned` before returning it.
-/// ```
+/// ```rust
 /// # use fheanor::impl_deserialize_seed_for_dependent_struct;
 /// # use serde::*;
 /// # use serde::de::DeserializeSeed;

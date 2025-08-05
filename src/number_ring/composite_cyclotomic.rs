@@ -1,4 +1,5 @@
 use std::alloc::{Allocator, Global};
+use std::fmt::{Debug, Formatter};
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::fft::bluestein::BluesteinFFT;
@@ -47,6 +48,21 @@ impl CompositeCyclotomicNumberRing {
             tensor_factor1: OddSquarefreeCyclotomicNumberRing::new(m1),
             tensor_factor2: OddSquarefreeCyclotomicNumberRing::new(m2)
         }
+    }
+
+    pub fn m1(&self) -> usize {
+        self.tensor_factor1.m()
+    }
+
+    pub fn m2(&self) -> usize {
+        self.tensor_factor2.m()
+    }
+}
+
+impl Debug for CompositeCyclotomicNumberRing {
+    
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} ⊗ {:?}", self.tensor_factor1, self.tensor_factor2)
     }
 }
 

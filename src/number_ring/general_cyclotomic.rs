@@ -1,4 +1,5 @@
 use std::alloc::{Allocator, Global};
+use std::fmt::{Debug, Formatter};
 use std::ptr::Alignment;
 use std::sync::Arc;
 
@@ -109,6 +110,13 @@ impl OddSquarefreeCyclotomicNumberRing {
         // to behave as `m^(1/r)`, and `m / phi(m) ~ m^((r - 1)/r)`
         let rank = euler_phi_squarefree(&self.m_factorization_squarefree);
         return rank as f64;
+    }
+}
+
+impl Debug for OddSquarefreeCyclotomicNumberRing {
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Z[𝝵_{}]", self.m())
     }
 }
 

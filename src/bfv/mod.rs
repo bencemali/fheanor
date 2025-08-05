@@ -64,6 +64,30 @@ pub type Ciphertext<Params: BFVInstantiation> = (El<CiphertextRing<Params>>, El<
 pub type GadgetProductOperand<'a, Params: BFVInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
+/// When choosing primes for an RNS base, where the only constraint is that
+/// the total modulus is at least `b` bits, we choose the bitlength to be
+/// within `SAMPLE_PRIMES_MINOFFSET..SAMPLE_PRIMES_MAXOFFSET`.
+/// 
+/// This must be `> 0`, since we need a little bit slack to accommodate
+/// for the error and exact-lifting constraints of the RNS base conversion 
+/// algorithms.
+/// 
+const SAMPLE_PRIMES_MINOFFSET: usize = 3;
+
+///
+/// When choosing primes for an RNS base, where the only constraint is that
+/// the total modulus is at least `b` bits, we choose the bitlength to be
+/// within `SAMPLE_PRIMES_MINOFFSET..SAMPLE_PRIMES_MAXOFFSET`
+/// 
+const SAMPLE_PRIMES_MAXOFFSET: usize = SAMPLE_PRIMES_SIZE + SAMPLE_PRIMES_MINOFFSET;
+
+///
+/// When choosing primes for an RNS base, we restrict to primes of this bitlength.
+/// The reason is that the corresponding quotient rings can be represented by [`zn_64::Zn`].
+/// 
+const SAMPLE_PRIMES_SIZE: usize = 57;
+
+///
 /// Trait for types that represent an instantiation of BFV.
 /// 
 /// For a few more details on how this works, see [`crate::examples::bfv_basics`].
@@ -111,7 +135,7 @@ pub trait BFVInstantiation {
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
     /// the plaintext ring is `R/tR`.
     /// 
-    fn number_ring(&self) -> NumberRing<Self>;
+    fn number_ring(&self) -> &NumberRing<Self>;
 
     ///
     /// Creates the ciphertext ring `R/qR` and the extended-modulus ciphertext ring
@@ -568,7 +592,16 @@ pub trait BFVInstantiation {
     /// Modulus-switches from `R/qR` to `R/tR`, where the latter one is given as a plaintext ring.
     /// In particular, this is necessary during bootstrapping.
     /// 
-    fn mod_switch_to_plaintext(target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>);
+    #[instrument(skip_all)]
+    fn mod_switch_to_plaintext(target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>) {
+        // this is not very performance-critical, so implement it using big integers
+        let ZZbig_to_target = target.base_ring().can_hom(&ZZbig).unwrap();
+        let t = int_cast(target.base_ring().integer_ring().clone_el(target.base_ring().modulus()), ZZbig, target.base_ring().integer_ring());
+        let rescale = |x| target.from_canonical_basis(C.wrt_canonical_basis(x).iter().map(|a|
+            ZZbig_to_target.map(ZZbig.rounded_div(ZZbig.mul_ref_snd(C.base_ring().smallest_lift(a), &t), C.base_ring().modulus()))
+        ));
+        (rescale(&ct.0), rescale(&ct.1))
+    }
         
     ///
     /// Modulus-switches a ciphertext.
@@ -685,15 +718,38 @@ pub trait BFVInstantiation {
 /// 
 #[derive(Debug)]
 pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
-    pub log2_N: usize,
-    pub ciphertext_allocator: A,
-    pub negacyclic_ntt: PhantomData<C>
+    number_ring: Pow2CyclotomicNumberRing<C>,
+    ciphertext_allocator: A,
+    negacyclic_ntt: PhantomData<C>
+}
+
+impl Pow2BFV {
+
+    pub fn new(m: usize) -> Self {
+        Self::new_with_convolution(m, DefaultCiphertextAllocator::default())
+    }
+}
+
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
+
+    #[instrument(skip_all)]
+    pub fn new_with_convolution(m: usize, allocator: A) -> Self {
+        return Self {
+            number_ring: Pow2CyclotomicNumberRing::new(m),
+            ciphertext_allocator: allocator,
+            negacyclic_ntt: PhantomData::<C>
+        }
+    }
+    
+    pub fn ciphertext_allocator(&self) -> &A {
+        &self.ciphertext_allocator
+    }
 }
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(m = 2^{})", self.log2_N + 1)
+        write!(f, "BFV({:?})", self.number_ring)
     }
 }
 
@@ -701,7 +757,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 
     fn clone(&self) -> Self {
         Self {
-            log2_N: self.log2_N,
+            number_ring: self.number_ring.clone(),
             ciphertext_allocator: self.ciphertext_allocator.clone(),
             negacyclic_ntt: PhantomData
         }
@@ -715,28 +771,29 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
-    fn number_ring(&self) -> Pow2CyclotomicNumberRing<C> {
-        Pow2CyclotomicNumberRing::new(2 << self.log2_N)
+    fn number_ring(&self) -> &Pow2CyclotomicNumberRing<C> {
+        &self.number_ring
     }
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
     #[instrument(skip_all)]
-    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>)  {
+    fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
+        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let C_rns_base = sample_primes(log2_q.start, log2_q.end, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        let Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2 + 10, log2_q.end * 2 + 67, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-
-        let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
         let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring,
+            number_ring.clone(),
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
         );
@@ -752,12 +809,6 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
         let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
         return C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c))));
     }
-
-    #[instrument(skip_all)]
-    fn mod_switch_to_plaintext(target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>) {
-        let mut scale_down = rescale_to_P::<Self>(target, C);
-        return (scale_down(&ct.0), scale_down(&ct.1));
-    }
 }
 
 ///
@@ -767,15 +818,44 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 /// 
 #[derive(Clone, Debug)]
 pub struct CompositeBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
-    pub m1: usize,
-    pub m2: usize,
-    pub ciphertext_allocator: A
+    number_ring: CompositeCyclotomicNumberRing,
+    ciphertext_allocator: A
 }
 
 impl<A: Allocator + Clone + Send + Sync> Display for CompositeBFV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(m = {} * {})", self.m1, self.m2)
+        write!(f, "BFV({:?})", self.number_ring)
+    }
+}
+
+impl CompositeBFV {
+
+    pub fn new(m1: usize, m2: usize) -> Self {
+        Self::new_with_alloc(m1, m2, DefaultCiphertextAllocator::default())
+    }
+}
+
+impl<A: Allocator + Clone + Send + Sync> CompositeBFV<A> {
+
+    #[instrument(skip_all)]
+    pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
+        Self { 
+            number_ring: CompositeCyclotomicNumberRing::new(m1, m2), 
+            ciphertext_allocator: allocator
+        }
+    }
+
+    pub fn ciphertext_allocator(&self) -> &A {
+        &self.ciphertext_allocator
+    }
+
+    pub fn m1(&self) -> usize {
+        self.number_ring.m1()
+    }
+
+    pub fn m2(&self) -> usize {
+        self.number_ring.m2()
     }
 }
 
@@ -786,28 +866,29 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
-    fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
+    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+        &self.number_ring
     }
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
     
     #[instrument(skip_all)]
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let number_ring = self.number_ring();
         let required_root_of_unity = number_ring.mod_p_required_root_of_unity() as i64;
+        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
+        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        let Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2, log2_q.end * 2 + 57, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        
-        let C_rns_base = zn_rns::Zn::new(C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
-        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
         let C_mul = ManagedDoubleRNSRingBase::new_with_alloc(
-            number_ring,
+            number_ring.clone(),
             Cmul_rns_base,
             self.ciphertext_allocator.clone()
         );
@@ -823,12 +904,6 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
         let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
         return double_rns_repr::<Self, _, _>(C, &C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c)))));
     }
-    
-    #[instrument(skip_all)]
-    fn mod_switch_to_plaintext(target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>) {
-        let mut scale_down = rescale_to_P::<Self>(target, C);
-        return (scale_down(&ct.0), scale_down(&ct.1));
-    }
 }
 
 ///
@@ -842,16 +917,38 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
 /// 
 #[derive(Clone, Debug)]
 pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + HERingConvolution<Zn> = DefaultConvolution> {
-    pub m1: usize,
-    pub m2: usize,
-    pub ciphertext_allocator: A,
-    pub convolution: PhantomData<C>
+    number_ring: CompositeCyclotomicNumberRing,
+    ciphertext_allocator: A,
+    convolution: PhantomData<C>
+}
+
+impl CompositeSingleRNSBFV {
+
+    pub fn new(m1: usize, m2: usize) -> Self {
+        Self::new_with_alloc(m1, m2, DefaultCiphertextAllocator::default())
+    }
+}
+
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> CompositeSingleRNSBFV<A, C> {
+
+    #[instrument(skip_all)]
+    pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
+        Self {
+            number_ring: CompositeCyclotomicNumberRing::new(m1, m2),
+            ciphertext_allocator: alloc,
+            convolution: PhantomData::<C>
+        }
+    }
+
+    pub fn ciphertext_allocator(&self) -> &A {
+        &self.ciphertext_allocator
+    }
 }
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "BFV(m = {} * {})", self.m1, self.m2)
+        write!(f, "BFV({:?})", self.number_ring)
     }
 }
 
@@ -862,52 +959,45 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
-    fn number_ring(&self) -> CompositeCyclotomicNumberRing {
-        CompositeCyclotomicNumberRing::new(self.m1, self.m2)
+    fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
+        &self.number_ring
     }
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
     #[instrument(skip_all)]
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>) {
         let number_ring = self.number_ring();
         let required_root_of_unity = 1 << ZZi64.abs_log2_ceil(&(number_ring.m() as i64 * 4)).unwrap();
+        let next_prime = |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64));
+        let C_rns_base_primes = sample_primes(log2_q.start, log2_q.end, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let C_rns_base = zn_rns::Zn::new(C_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>(), ZZbig);
 
-        let C_rns_base = sample_primes(log2_q.start, log2_q.end, 56, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        let Cmul_rns_base = extend_sampled_primes(&C_rns_base, log2_q.end * 2, log2_q.end * 2 + 57, 57, |bound| largest_prime_leq_congruent_to_one(int_cast(bound, ZZi64, ZZbig), required_root_of_unity).map(|p| int_cast(p, ZZbig, ZZi64))).unwrap();
-        
-        let max_log2_n = 1 + ZZi64.abs_log2_ceil(&((self.m1 * self.m2) as i64)).unwrap();
-        let C_rns_base = C_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
-        let Cmul_rns_base = Cmul_rns_base.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
+        let Cmul_modulus_size = 2 * ZZbig.abs_log2_ceil(C_rns_base.modulus()).unwrap() + number_ring.product_expansion_factor().log2().ceil() as usize;
+        let Cmul_rns_base_primes = extend_sampled_primes(&C_rns_base_primes, Cmul_modulus_size + SAMPLE_PRIMES_MINOFFSET, Cmul_modulus_size + SAMPLE_PRIMES_MAXOFFSET, SAMPLE_PRIMES_SIZE, &next_prime).unwrap();
+        let Cmul_rns_base = zn_rns::Zn::new(Cmul_rns_base_primes.iter().map(|p| Zn::new(int_cast(ZZbig.clone_el(p), ZZi64, ZZbig) as u64)).collect(), ZZbig);
 
-        let C_convolutions = C_rns_base.iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
-        let Cmul_convolutions = Cmul_rns_base.iter().map(|Zp| match C_rns_base.iter().enumerate().filter(|(_, C_Zp)| C_Zp.get_ring() == Zp.get_ring()).next() {
+        let max_log2_n = 1 + ZZi64.abs_log2_ceil(&(self.number_ring().m() as i64)).unwrap();
+        let C_convolutions = C_rns_base.as_iter().map(|Zp| C::new(*Zp, max_log2_n)).map(Arc::new).collect::<Vec<_>>();
+        let Cmul_convolutions = Cmul_rns_base.as_iter().map(|Zp| match C_rns_base.as_iter().enumerate().filter(|(_, C_Zp)| C_Zp.get_ring() == Zp.get_ring()).next() {
             Some((i, _)) => C_convolutions.at(i).clone(),
             None => Arc::new(C::new(*Zp, max_log2_n))
         }).collect();
 
-        let C = SingleRNSRingBase::new_with_alloc(
-            self.number_ring(),
-            zn_rns::Zn::new(C_rns_base.clone(), ZZbig),
-            self.ciphertext_allocator.clone(),
-            C_convolutions
-        );
         let C_mul = SingleRNSRingBase::new_with_alloc(
-            number_ring,
-            zn_rns::Zn::new(Cmul_rns_base.clone(), ZZbig),
+            number_ring.clone(),
+            zn_rns::Zn::new(Cmul_rns_base.as_iter().cloned().collect(), ZZbig),
             self.ciphertext_allocator.clone(),
             Cmul_convolutions
         );
+
+        let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
+        assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
-    }
-    
-    #[instrument(skip_all)]
-    fn mod_switch_to_plaintext(target: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> (El<PlaintextRing<Self>>, El<PlaintextRing<Self>>) {
-        let mut scale_down = rescale_to_P::<Self>(target, C);
-        return (scale_down(&ct.0), scale_down(&ct.1));
     }
 }
 
@@ -942,22 +1032,55 @@ pub fn double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: &El
     C.get_ring().from_double_rns_repr(C.get_ring().to_doublerns(x).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero()))
 }
 
+fn t_fits_zn_64<I>(ZZ: I, t: &El<I>) -> Option<Zn>
+    where I: RingStore,
+        I::Type: IntegerRing
+{
+    if ZZ.abs_log2_ceil(t).unwrap() <= 50 {
+        Some(Zn::new(int_cast(ZZ.clone_el(t), ZZi64, ZZ) as u64))
+    } else {
+        None
+    }
+}
+
+fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_bits: usize) -> AlmostExactSharedBaseConversion {
+    let current_log2_modulus = ZZbig.abs_log2_ceil(current.modulus()).unwrap();
+    let new_log2_modulus = current_log2_modulus + by_bits;
+
+    let extended_rns_base = extend_sampled_primes(
+        &current.as_iter().map(|ring| int_cast(*ring.modulus() as i64, ZZbig, ZZi64)).collect::<Vec<_>>(),
+        new_log2_modulus + 10,
+        new_log2_modulus + 67,
+        57,
+        |bound| prev_prime(ZZbig, bound)
+    ).unwrap().into_iter().map(|modulus| Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
+
+    let to_extended = AlmostExactSharedBaseConversion::new_with_alloc(
+        extended_rns_base[..current.len()].iter().cloned().collect::<Vec<_>>(),
+        Vec::new(),
+        extended_rns_base[current.len()..].iter().cloned().collect::<Vec<_>>(),
+        Global
+    );
+
+    to_extended
+}
+
 fn lift_to_Cmul<'a, Params: ?Sized + BFVInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
     let lift = UsedBaseConversion::new_with_alloc(
         C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
         Global
     );
-    let mut tmp1 = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-    let mut tmp2 = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+    let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
     return move |c| {
-        C.get_ring().as_representation_wrt_small_generating_set(c, tmp1.data_mut());
+        C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
         let mut result = C_mul.get_ring().add_rns_factor_element(C.get_ring(), &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(), C.clone_el(c));
-        lift.apply(tmp1.data(), tmp2.data_mut());
+        lift.apply(tmp_in.data(), tmp_out.data_mut());
         C_mul.get_ring().add_assign_from_partial_representation_wrt_small_generating_set(
             &mut result,
             &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(),
-            tmp2.data()
+            tmp_out.data()
         );
         return result;
     };
@@ -968,80 +1091,44 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
     assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
     let ZZ = P.base_ring().integer_ring();
-    let result: Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>> = if ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap() <= 50 {
+    let result: Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>> = 
+    // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
+    // common and can be mplemented more efficiently
+    if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
         let rescale = AlmostExactRescalingConvert::new_with_alloc(
-            C_mul.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
-            vec![ Zn::new(int_cast(ZZ.clone_el(P.base_ring().modulus()), ZZi64, ZZ) as u64) ], 
+            C_mul.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
+            vec![Zt], 
             (0..C.base_ring().len()).collect(),
             Global
         );
         let result = move |c: &El<CiphertextRing<Params>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &*c, &rescale);
         Box::new(result)
     } else {
-        let log2_extended_modulus = ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap() + ZZbig.abs_log2_ceil(C_mul.base_ring().modulus()).unwrap();
-        let extended_rns_base = extend_sampled_primes(
-            &C_mul.base_ring().as_iter().map(|ring| int_cast(*ring.modulus() as i64, ZZbig, ZZi64)).collect::<Vec<_>>(),
-            log2_extended_modulus + 10,
-            log2_extended_modulus + 67,
-            57,
-            |bound| prev_prime(ZZbig, bound)
-        ).unwrap().into_iter().map(|modulus| Zn::new(int_cast(modulus, ZZi64, ZZbig) as u64)).collect::<Vec<_>>();
-        let to_extended = AlmostExactSharedBaseConversion::new_with_alloc(
-            extended_rns_base[..C_mul.base_ring().len()].iter().cloned().collect::<Vec<_>>(),
-            Vec::new(),
-            extended_rns_base[C_mul.base_ring().len()..].iter().cloned().collect::<Vec<_>>(),
-            Global
-        );
+        let to_extended = temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
         let rescale = AlmostExactRescalingConvert::new_with_alloc(
             to_extended.output_rings().to_owned(), 
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
             Global
         );
-        let t_mod_extended = extended_rns_base.iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
-        let mut tmp = OwnedMatrix::zero(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-        let mut tmp_ex = OwnedMatrix::zero(extended_rns_base.len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        let t_mod_extended = to_extended.output_rings().iter().map(|ring| ring.coerce(ZZ, ZZ.clone_el(P.base_ring().modulus()))).collect::<Vec<_>>();
+        let mut tmp_in_out = OwnedMatrix::zero(C_mul.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        let mut tmp_extended = OwnedMatrix::zero(to_extended.output_rings().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
         let result = move |c: &El<CiphertextRing<Params>>| {
-            C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp.data_mut());
-            to_extended.apply(tmp.data(), tmp_ex.data_mut());
-            for (ring, (row, factor)) in extended_rns_base.iter().zip(tmp_ex.data_mut().row_iter().zip(t_mod_extended.iter())) {
+            C_mul.get_ring().as_representation_wrt_small_generating_set(c, tmp_in_out.data_mut());
+            to_extended.apply(tmp_in_out.data(), tmp_extended.data_mut());
+            for (ring, (row, factor)) in to_extended.output_rings().iter().zip(tmp_extended.data_mut().row_iter().zip(t_mod_extended.iter())) {
                 for x in row {
                     ring.mul_assign_ref(x, factor);
                 }
             }
-            let mut tmp = tmp.data_mut().restrict_rows(0..C.base_ring().len());
-            rescale.apply(tmp_ex.data(), tmp.reborrow());
+            let mut tmp = tmp_in_out.data_mut().restrict_rows(0..C.base_ring().len());
+            rescale.apply(tmp_extended.data(), tmp.reborrow());
             return C.get_ring().from_representation_wrt_small_generating_set(tmp.as_const());
         };
         Box::new(result)
     };
     return result;
-}
-
-fn rescale_to_P<'a, Params: ?Sized + BFVInstantiation>(P: &'a PlaintextRing<Params>, C: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<PlaintextRing<Params>>
-    where <<PlaintextRing<Params> as RingStore>::Type as RingExtension>::BaseRing: RingStore<Type = ZnBase>
-{
-    assert_eq!(P.rank(), C.rank());
-    assert_eq!(P.m(), C.m());
-
-    let mod_switch = AlmostExactRescaling::new_with_alloc(
-        C.base_ring().as_iter().map(|Zp| *Zp).collect(),
-        vec![RingValue::from(*P.base_ring().get_ring())],
-        (0..C.base_ring().len()).collect(),
-        Global
-    );
-    let mut tmp = OwnedMatrix::zero(C.base_ring().len(), C.rank(), C.base_ring().at(0));
-    let mut tmp_res = OwnedMatrix::zero(1, P.rank(), P.base_ring());
-    return move |c| {
-        for (mut col, el) in tmp.data_mut().col_iter().zip(C.wrt_canonical_basis(&*c).iter()) {
-            let rns_parts = C.base_ring().get_congruence(&el);
-            for (i, value) in rns_parts.as_iter().enumerate() {
-                *col.at_mut(i) = C.base_ring().at(i).clone_el(value);
-            }
-        }
-        mod_switch.apply(tmp.data(), tmp_res.data_mut());
-        return P.from_canonical_basis(tmp_res.data().row_at(0).iter().cloned());
-    };
 }
 
 impl<NumberRing: HENumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>> {
@@ -1142,18 +1229,13 @@ use feanor_math::assert_el_eq;
 #[cfg(test)]
 use std::fmt::Debug;
 #[cfg(test)]
-use crate::{log_time, get_default_ciphertext_allocator};
-#[cfg(test)]
+use crate::log_time;
 
 #[test]
 fn test_pow2_bfv_enc_dec() {
     let mut rng = rand::rng();
     
-    let instantiation = Pow2BFV {
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let instantiation = Pow2BFV::new(1 << 8);
     
     let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let (C, _Cmul) = instantiation.create_ciphertext_rings(500..520);
@@ -1169,11 +1251,7 @@ fn test_pow2_bfv_enc_dec() {
 fn test_pow2_bfv_hom_galois() {
     let mut rng = rand::rng();
     
-    let instantiation = Pow2BFV {
-        log2_N: 7,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let instantiation = Pow2BFV::new(1 << 8);
 
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1192,11 +1270,7 @@ fn test_pow2_bfv_hom_galois() {
 fn test_pow2_bfv_mul() {
     let mut rng = rand::rng();
     
-    let instantiation = Pow2BFV {
-        log2_N: 10,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let instantiation = Pow2BFV::new(1 << 11);
 
     let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1215,11 +1289,7 @@ fn test_pow2_bfv_mul() {
 fn test_composite_bfv_mul() {
     let mut rng = rand::rng();
     
-    let instantiation = CompositeBFV {
-        m1: 17,
-        m2: 97,
-        ciphertext_allocator: get_default_ciphertext_allocator()
-    };
+    let instantiation = CompositeBFV::new(17, 97);
 
     let P = instantiation.create_plaintext_ring(int_cast(8, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1238,12 +1308,7 @@ fn test_composite_bfv_mul() {
 fn test_composite_bfv_hom_galois() {
     let mut rng = rand::rng();
     
-    let instantiation = CompositeSingleRNSBFV {
-        m1: 7,
-        m2: 11,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        convolution: PhantomData::<DefaultConvolution>
-    };
+    let instantiation = CompositeSingleRNSBFV::new(7, 11);
 
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
@@ -1262,12 +1327,7 @@ fn test_composite_bfv_hom_galois() {
 fn test_single_rns_composite_bfv_mul() {
     let mut rng = rand::rng();
     
-    let instantiation = CompositeSingleRNSBFV {
-        m1: 7,
-        m2: 11,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        convolution: PhantomData::<DefaultConvolution>
-    };
+    let instantiation = CompositeSingleRNSBFV::new(7, 11);
     
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);  
@@ -1290,11 +1350,7 @@ fn measure_time_pow2_bfv_basic_ops() {
 
     let mut rng = rand::rng();
     
-    let params = Pow2BFV {
-        log2_N: 15,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2BFV::new(1 << 16);
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64))
@@ -1345,11 +1401,7 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
 
     let mut rng = rand::rng();
     
-    let params = CompositeBFV {
-        m1: 127,
-        m2: 337,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-    };
+    let params = CompositeBFV::new(127, 337);
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
@@ -1401,12 +1453,7 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
 
     let mut rng = rand::rng();
     
-    let params = CompositeSingleRNSBFV {
-        m1: 127,
-        m2: 337,
-        ciphertext_allocator: get_default_ciphertext_allocator(),
-        convolution: PhantomData::<DefaultConvolution>
-    };
+    let params = CompositeSingleRNSBFV::new(127, 337);
 
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))

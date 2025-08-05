@@ -1,13 +1,25 @@
 use std::cell::RefCell;
 use std::cmp::max;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::BufWriter;
 
+use serde::de::DeserializeSeed;
+use serde::Serialize;
+
+use serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use evaluator::CircuitEvaluator;
 use evaluator::HomEvaluator;
 use evaluator::HomEvaluatorGal;
+use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::ring::*;
+use feanor_math::rings::zn::*;
+use feanor_math::integer::*;
+use feanor_math::serialization::SerializableElementRing;
 
 use crate::cyclotomic::*;
+use crate::log_time;
 
 ///
 /// Contains [`serialization::DeserializeSeedPlaintextCircuit`], a [`serde::de::DeserializeSeed`] that
@@ -1110,6 +1122,40 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     }
 }
 
+pub fn read_or_create_circuit<R, F, const LOG: bool>(ring: R, base_name: &str, cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy,
+        R::Type: CyclotomicRing + SerializableElementRing,
+        <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
+        F: FnOnce() -> PlaintextCircuit<R::Type>
+{
+    if let Some(cache_dir) = cache_dir {
+        let ZZ = ring.base_ring().integer_ring();
+        let (p, e) = is_prime_power(ZZ, ring.base_ring().modulus()).unwrap();
+        let filename = if ZZ.abs_log2_ceil(&p).unwrap() > 30 {
+            format!("{}/{}_m{}_p{}bit_e{}.json", cache_dir, base_name, ring.m(), ZZ.abs_log2_ceil(&p).unwrap(), e)
+        } else {
+            format!("{}/{}_m{}_p{}_e{}.json", cache_dir, base_name, ring.m(), ZZ.format(&p), e)
+        };
+        if let Ok(file) = File::open(filename.as_str()) {
+            if LOG {
+                println!("Reading {} from file {}", base_name, filename);
+            }
+            let reader = serde_json::de::IoRead::new(BufReader::new(file));
+            let mut deserializer = serde_json::Deserializer::new(reader);
+            let deserialized = DeserializeSeedPlaintextCircuit::new(ring, &ring.galois_group()).deserialize(&mut deserializer).unwrap();
+            return deserialized;
+        }
+        let result = log_time::<_, _, LOG, _>(format!("Creating circuit {}", base_name).as_str(), |[]| create());
+        let file = File::create(filename.as_str()).unwrap();
+        let writer = BufWriter::new(file);
+        let mut serializer = serde_json::Serializer::new(writer);
+        SerializablePlaintextCircuit::new(ring, &ring.galois_group(), &result).serialize(&mut serializer).unwrap();
+        return result;
+    } else {
+        return create();
+    }
+}
+
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
@@ -1122,14 +1168,6 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use crate::number_ring::quotient::NumberRingQuotientBase;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-#[cfg(test)]
-use serde::de::DeserializeSeed;
-#[cfg(test)]
-use serde::Serialize;
-#[cfg(test)]
-use serialization::DeserializeSeedPlaintextCircuit;
-#[cfg(test)]
-use serialization::SerializablePlaintextCircuit;
 
 #[test]
 fn test_circuit_tensor_compose() {

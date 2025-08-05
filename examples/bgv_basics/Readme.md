@@ -38,35 +38,19 @@ While there is no central object storing all of this, Fheanor does provide a sim
 There are multiple structs that represent a set of parameters for BGV each, since each of them will lead to a different type for the involved rings.
 For example, to setup BGV in a power-of-two cyclotomic number ring `Z[X]/(X^N + 1)`, we could proceed as follows:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-type ChosenBGVParamType = Pow2BGV<Global>;
-let params = ChosenBGVParamType {
-    ciphertext_allocator: Global,
-    log2_N: 13,
-    log2_q_min: 210,
-    log2_q_max: 220,
-    negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-};
+let log2_N = 13;
+let params = Pow2BGV::new(2 << log2_N);
 ```
-Here, we set the RLWE dimension to `2^log2_N = 2^13 = 8192` and the size of the RLWE modulus `q` to be between `210` and `220` bits - these choices give 128 bits of security, according to "Security Guidelines for Implementing Homomorphic Encryption" <https://ia.cr/2024/463>.
-Furthermore, we can also specify an allocator - here simply the global allocator [`std::alloc::Global`] - that will be used to allocate memory for ciphertexts, and the type of the NTT implementation to use.
-Moreover, we choose [`crate::DefaultNegacyclicNTT`], which will point either to the (somewhat slow) native NTT, or the HEXL-based NTT (if the feature `use_hexl`) is enabled.
-Finally, `log2_q_min` and `log2_q_max` refer to the allowed range for the bitlength of the largest ciphertext modulus `q`, i.e. the first one in the modulus chain `q > q' > q'' > ...`.
-We will later derive the other moduli `q', q'', ...` from `q` by "dropping" factors of `q`.
-This works, since `q` is chosen as a product of many approximately 57 bit long primes.
-These primes are also known as the RNS base of `q`.
+Here, we set the RLWE dimension to `2^log2_N = 2^13 = 8192`.
 
 Using this, we can now create the plaintext ring and initial ciphertext ring via
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -74,33 +58,29 @@ Using this, we can now create the plaintext ring and initial ciphertext ring via
 # use feanor_math::rings::zn::ZnRingStore;
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-let plaintext_modulus = 17;
-let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 ```
-Note here that the plaintext modulus `t` was not part of the BGV parameters - the rationale behind this is that a BGV ciphertext often is a valid ciphertext (encrypting a different message) for multiple different plaintext moduli.
-Moreover, it is important that `t` must be coprime to `q`, otherwise there is no security.
-However, since `q` is sampled using large primes of up to 56 bits, this is unlikely to be a problem.
+We choose the size of the RLWE modulus `q` to be between `210` and `220` bits - this choice (together with `N = 8192`) gives 128 bits of security, according to "Security Guidelines for Implementing Homomorphic Encryption" <https://ia.cr/2024/463>.
+We will later derive the other moduli in the modulus chain `q', q'', ...` from `q` by "dropping" factors of `q`.
+This works, since `q` is chosen as a product of many approximately 57 bit long primes.
+These primes are also known as the RNS base of `q`.
+
+Note also that the ciphertext and plaintext moduli are not part of the "BGV instantiation" - the rationale behind this is that it is quite reasonable to consider BGV encryptions w.r.t. different plain-or ciphertext moduli in a single use case.
+Moreover, we check that `t` is coprime to `q`, otherwise there is no security (this is also checked at encryption time by the library).
+However, since `q` is sampled using large primes of up to 57 bits, this is unlikely to be a problem.
 
 Next, let's generate the keys we will require later.
-Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `ChosenBGVParamType`.
+Since the type of the ciphertext ring depends on the type of the chosen parameters, all further functions are associated functions of `Pow2BGV`.
 While it would be preferable for the BGV implementation not to be tied to any specific parameter object, not doing this would cause problems, see the doc of [`crate::bfv::BFVInstantiation`].
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -109,21 +89,14 @@ While it would be preferable for the BGV implementation not to be tied to any sp
 # use feanor_math::ring::RingStore;
 # use feanor_math::algorithms::eea::signed_gcd;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 let mut rng = StdRng::from_seed([1; 32]);
-let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
 Fheanor is internally completely deterministic, hence it takes this source as parameter - in form of a [`rand::CryptoRng`].
@@ -139,12 +112,10 @@ Next, let's encrypt a message.
 The plaintext space of BGV is the ring `R_t = Z[X]/(Phi_m(X), t)`, which we already have created previously.
 To encrypt, we now need to encode whatever data we have as an element of this ring (e.g. via [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`] ), and can then encrypt it as follows:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -156,26 +127,19 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
     P.base_ring().int_hom().map(i)
 ));
-let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let dec_x = ChosenBGVParamType::dec(&P, &C_initial, ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), &sk);
+let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let dec_x = Pow2BGV::dec(&P, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), &sk);
 assert_el_eq!(&P, &x, &dec_x);
 ```
 For more info on how to create and operate on ring elements, see `feanor-math`.
@@ -193,12 +157,10 @@ BGV supports three types of homomorphic operations on ciphertexts:
 
 Since we already have a relinearization key, we can perform a homomorphic multiplication.
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -210,30 +172,23 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
-# let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
-let dec_x_sqr = ChosenBGVParamType::dec(&P, &C_initial, enc_x_sqr, &sk);
+# let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+let dec_x_sqr = Pow2BGV::dec(&P, &C_initial, enc_x_sqr, &sk);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 2), &dec_x_sqr);
 ```
-Here we used the function [`crate::bgv::BGVCiphertextParams::hom_mul()`] to multiply two encryped plaintexts.
+Here we used the function [`crate::bgv::BGVInstantiation::hom_mul()`] to multiply two encryped plaintexts.
 Internally, the homomorphic multiplication will perform an operation called "relinearization" (hence the relinearization key).
 Relinearization also makes sense if the relinearization key is defined modulo a larger modulus than the ciphertext, in which case two ciphertext rings, with a smaller and a larger modulus, can be passed to `hom_mul()`.
 The next parameter should then be the list of indices of RNS factors only occuring in the larger modulus, which is in this context called the "special modulus".
@@ -244,12 +199,10 @@ Here, we don't have any special modulus, thus we pass `C_initial` twice, and an 
 Let's assume we want to compute a fourth power, i.e. square `enc_x_sqr` again.
 The naïve way would be to compute
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -261,30 +214,23 @@ The naïve way would be to compute
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::VectorView;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
-# let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
-assert_eq!(96, ChosenBGVParamType::noise_budget(&P, &C_initial, &enc_x_sqr, &sk));
+# let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+assert_eq!(96, Pow2BGV::noise_budget(&P, &C_initial, &enc_x_sqr, &sk));
 
-let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x_sqr), enc_x_sqr, &rk);
-assert_eq!(0, ChosenBGVParamType::noise_budget(&P, &C_initial, &enc_x_pow4, &sk)); // this is 0, i.e. noise overflow
+let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x_sqr), enc_x_sqr, &rk);
+assert_eq!(0, Pow2BGV::noise_budget(&P, &C_initial, &enc_x_pow4, &sk)); // this is 0, i.e. noise overflow
 ```
 By querying the noise budget (note that determining the noise budget requires the secret key), we see that 96 bits are left after the first multiplication, and it is 0 after the second multiplication.
 This means that the noise became too large, and the decryption would just return some random ring element, unrelated to the actual result.
@@ -294,16 +240,14 @@ Note that finding the right size of `q'` is, in general, not so easy, since it r
 In particular, this depends on the size of the ring we work in, and also on the number of digits chosen for relinearization.
 
 Once we decided on the number of factors to drop, we can use the function [`crate::bgv::modswitch::drop_rns_factors_balanced()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
-Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextParams::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
+Alternatively, these can also determined manually: [`crate::bgv::BGVInstantiation::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
 # use fheanor::gadget_product::digits::*;
 # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -315,53 +259,43 @@ Alternatively, these can also determined manually: [`crate::bgv::BGVCiphertextPa
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
-# let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+# let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
 
 let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
-let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
+let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &to_drop);
 
-let enc_x_modswitch = ChosenBGVParamType::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
-let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
-let rk_modswitch = ChosenBGVParamType::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
+let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
+let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
+let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
 
-let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_new, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
-assert_eq!(40, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
-let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
+let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+assert_eq!(40, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
+let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ```
 Indeed, there is no noise overflow anymore!
 
 We can even reduce the noise growth slightly more by using hybrid key switching as follows.
-
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
 # use fheanor::gadget_product::digits::*;
 # use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -373,39 +307,32 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
-# let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
-let enc_x_sqr = ChosenBGVParamType::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), ChosenBGVParamType::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+# let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
 
 let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
-let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &to_drop);
+let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &to_drop);
 
-let enc_x_modswitch = ChosenBGVParamType::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
-let sk_modswitch = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
+let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
+let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
 // don't modswitch the rk!
 
 // pass both the ring `C_new` where the ciphertext lives, and the ring `C_initial` where the `rk` lives
-let enc_x_pow4 = ChosenBGVParamType::hom_mul(&P, &C_new, &C_initial, &to_drop, ChosenBGVParamType::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk);
-assert_eq!(78, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
-let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
+let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_initial, &to_drop, Pow2BGV::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk);
+assert_eq!(78, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
+let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ```
 Note that hybrid key switching work on larger rings, and may take more time.
@@ -419,7 +346,6 @@ The main difficulty here is that a good strategy for modulus-switching requires 
 Nevertheless, I have already used this system with some success.
 For example, we could implement the above evaluation instead as follows:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::bgv::*;
 # use fheanor::bgv::modswitch::*;
 # use fheanor::bgv::noise_estimator::NaiveBGVNoiseEstimator;
@@ -428,7 +354,6 @@ For example, we could implement the above evaluation instead as follows:
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
-# use std::alloc::Global;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -440,25 +365,18 @@ For example, we could implement the above evaluation instead as follows:
 # use feanor_math::rings::extension::FreeAlgebraStore;
 # use feanor_math::seq::VectorView;
 # use feanor_math::assert_el_eq;
-# type ChosenBGVParamType = Pow2BGV<Global>;
-# let params = ChosenBGVParamType {
-#     ciphertext_allocator: Global,
-#     log2_N: 13,
-#     log2_q_min: 210,
-#     log2_q_max: 220,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let C_initial: CiphertextRing<ChosenBGVParamType> = params.create_initial_ciphertext_ring();
-# let plaintext_modulus = 17;
-# let P: PlaintextRing<ChosenBGVParamType> = params.create_plaintext_ring(plaintext_modulus);
-# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(plaintext_modulus, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
+# let log2_N = 13;
+# let params = Pow2BGV::new(2 << log2_N);
+# let C_initial: CiphertextRing<Pow2BGV> = params.create_ciphertext_ring(210..220);
+# let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
+# assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = ChosenBGVParamType::gen_sk(&C_initial, &mut rng, None);
-# let rk = ChosenBGVParamType::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
 # ));
-let enc_x = ChosenBGVParamType::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
+let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
 
 let square_circuit = PlaintextCircuit::mul(StaticRing::<i64>::RING).compose(PlaintextCircuit::select(1, &[0, 0], StaticRing::<i64>::RING), StaticRing::<i64>::RING);
 let pow4_circuit = square_circuit.clone(StaticRing::<i64>::RING).compose(square_circuit, StaticRing::<i64>::RING);
@@ -480,9 +398,9 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     &mut 0,
     None
 ).into_iter().next().unwrap();
-let C_new = ChosenBGVParamType::mod_switch_down_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
-let sk_new = ChosenBGVParamType::mod_switch_down_sk(&C_new, &C_initial, &enc_x_pow4.dropped_rns_factor_indices, &sk);
-assert_eq!(78, ChosenBGVParamType::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
-let dec_x_pow4 = ChosenBGVParamType::dec(&P, &C_new, enc_x_pow4.data, &sk_new);
+let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
+let sk_new = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &enc_x_pow4.dropped_rns_factor_indices, &sk);
+assert_eq!(78, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
+let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4.data, &sk_new);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);
 ```

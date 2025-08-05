@@ -189,7 +189,8 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
     /// # use fheanor::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
     /// # use fheanor::gadget_product::*;
     /// let rns_base = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    /// let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));
+    /// let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+    /// let ring = ManagedDoubleRNSRingBase::new(number_ring, zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));
     /// let mut rng = oorandom::Rand64::new(1);
     /// // we have digits == rns_base.len(), so the gadget vector has entries exactly the "CRT unit vectors" ei with ei = 1 mod pi, ei = 0 mod pj for j != i
     /// let digits = 3;
@@ -227,7 +228,8 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
     /// # use fheanor::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
     /// # use fheanor::gadget_product::*;
     /// # let rns_base = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
-    /// # let ring = ManagedDoubleRNSRingBase::new(Pow2CyclotomicNumberRing::new(16), zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));
+    /// # let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+    /// # let ring = ManagedDoubleRNSRingBase::new(number_ring, zn_rns::Zn::new(rns_base.clone(), BigIntRing::RING));
     /// # let mut rng = oorandom::Rand64::new(1);
     /// # let digits = 3;
     /// // build the ring just as before

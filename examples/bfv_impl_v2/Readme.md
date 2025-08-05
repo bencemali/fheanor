@@ -345,8 +345,6 @@ We can access the coefficients w.r.t. some "short-element" basis of an element o
 Fortunately for us, the returned data is exactly in the right format.
 This leaves us to implement BFV multiplication as follows.
 ```rust
-#![feature(allocator_api)]
-# use std::alloc::Global;
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
@@ -396,10 +394,9 @@ fn hom_mul_three_component(
     let (c0, c1) = (&lhs.0, &lhs.1);
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
     
-    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new_with(
+    let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new(
         ciphertext_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
-        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(),
-        Global
+        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>()
     );
     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -418,11 +415,10 @@ fn hom_mul_three_component(
         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
     );
 
-    let scale_down_rnsconv = AlmostExactRescalingConvert::new_with(
+    let scale_down_rnsconv = AlmostExactRescalingConvert::new(
         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>(),
-        Global
+        ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
     );
     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -451,8 +447,6 @@ In fact, this means we can use the available implementation of gadget product in
 Without going into the details, we just create two [`crate::gadget_product::GadgetProductRhsOperand`] instead of the `Vec<(El<CiphertextRing>, El<CiphertextRing>)>` as the relinearization key, and a single [`crate::gadget_product::GadgetProductLhsOperand`] for `c2` during relinearization.
 We arrive at:
 ```rust
-#![feature(allocator_api)]
-# use std::alloc::Global;
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
@@ -521,8 +515,6 @@ fn relinearize(
 ```
 Finally, let's test this implementation again!
 ```rust
-#![feature(allocator_api)]
-# use std::alloc::Global;
 # use feanor_math::algorithms::miller_rabin::*;
 # use feanor_math::ring::*;
 # use feanor_math::rings::zn::*;
@@ -652,10 +644,9 @@ Finally, let's test this implementation again!
 # ) -> (SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>, SmallBasisEl<Pow2CyclotomicNumberRing>) {
 #     let (c0, c1) = (&lhs.0, &lhs.1);
 #     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
-#     let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new_with(
+#     let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new(
 #         ciphertext_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
-#         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(),
-#         Global
+#         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>()
 #     );
 #     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -672,11 +663,10 @@ Finally, let's test this implementation again!
 #         ),
 #         multiplication_ring.mul(lift_to_multiplication_ring(&c1), lift_to_multiplication_ring(&c1_prime))
 #     );
-#     let scale_down_rnsconv = AlmostExactRescalingConvert::new_with(
+#     let scale_down_rnsconv = AlmostExactRescalingConvert::new(
 #         multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
 #         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
-#         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>(),
-#         Global
+#         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
 #     );
 #     debug_assert!(scale_down_rnsconv.input_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
 #     debug_assert!(scale_down_rnsconv.output_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));

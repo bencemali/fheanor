@@ -8,33 +8,28 @@ In this example, we will then focus on the points that are different from standa
 
 The design of CLPX is exactly as for BFV (or BGV), so we start by choosing a ciphertext ring instantiation (i.e. a type implementing [`crate::clpx::CLPXInstantiation`], which determines the type of the ciphertext ring that will be used) and use it to set up the ciphertext ring.
 ```rust
-#![feature(allocator_api)]
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-let params = Pow2CLPX {
-    ciphertext_allocator: Global,
-    log2_N: 12,
-    negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-};
-let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+let log2_N = 12;
+let params = Pow2CLPX::new(2 << log2_N);
+let log2_t_can_norm_bound = 10;
+let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 ```
 It turns out that a lot of functionality of CLPX is exactly as in BFV, and the type [`crate::clpx::Pow2CLPX`] is actually just type aliases to its BFV equivalent.
+Really the only difference here is that [`crate::clpx::CLPXInstantiation::create_ciphertext_rings()`] takes another parameter - a bound on `log_2(| t |_can)`, which is required to compute how large the modulus of `C_for_multiplication` has to be.
+Here we just set it to `10`, which means we can later choose any `t` with `| t |_can <= 1024`, which is satisfied by all `t` we might be interested in.
+Generally speaking, this can be a rough bound, since its impact on performance is not very large.
 
 Next, we create the plaintext ring(s).
 ```rust,should_panic
-#![feature(allocator_api)]
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2CLPX {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let log2_N = 12;
+# let params = Pow2CLPX::new(2 << log2_N);
+# let log2_t_can_norm_bound = 10;
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 let P = params.create_encoding::</* LOG = */ true>(todo!(), todo!(), todo!(), todo!());
 ```
 This time, the relevant function is called `create_encoding()` instead of `create_plaintext_ring()`, and indeed, it does not produce a ring. 
@@ -63,7 +58,6 @@ More concretely, `create_encoding()` will provide an object of type [`crate::clp
 It also supports computing the isomorphism `Z[X]/(p, G(X)) ~ Z[X]/(p, Phi_m(X), t(X))`, which will be used when encrypting values of this ring.
 Hence, we can use CLPX as follows:
 ```rust
-#![feature(allocator_api)]
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
@@ -73,14 +67,11 @@ Hence, we can use CLPX as follows:
 # use feanor_math::primitive_int::*;
 # use feanor_math::ring::*;
 # use feanor_math::assert_el_eq;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2CLPX {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let log2_N = 12;
+# let params = Pow2CLPX::new(2 << log2_N);
+# let log2_t_can_norm_bound = 10;
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
 let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 // we consider the polynomial X^8 + 2, but write it as `t(X^(2048/m1))` with `t = X + 2`;
@@ -98,7 +89,6 @@ assert_el_eq!(P.plaintext_ring(), &m, &res);
 ```
 Applying homomorphic operations is just as easy as for BFV as well. 
 ```rust
-#![feature(allocator_api)]
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
@@ -112,14 +102,11 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # use feanor_math::ring::*;
 # use feanor_math::assert_el_eq;
 # use feanor_math::seq::*;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2CLPX {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let log2_N = 12;
+# let params = Pow2CLPX::new(2 << log2_N);
+# let log2_t_can_norm_bound = 10;
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 # let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
 # let m1 = 512;
 # let [t] = ZZX.with_wrapped_indeterminate(|X| [X + 2]);
@@ -149,7 +136,6 @@ In such a case, we find that `G(X)` will have degree `[Q(𝝵) : Q(𝝵^m2)]`, w
 Observe that all parameter sets displayed in above table - except the last - are of this form.
 In particular, this is also why we created the encoding as
 ```rust
-#![feature(allocator_api)]
 # use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
 # use fheanor::DefaultNegacyclicNTT;
 # use feanor_math::rings::poly::dense_poly::DensePolyRing;
@@ -159,14 +145,11 @@ In particular, this is also why we created the encoding as
 # use feanor_math::primitive_int::*;
 # use feanor_math::ring::*;
 # use feanor_math::assert_el_eq;
-# use std::alloc::Global;
 # use std::marker::PhantomData;
-# let params = Pow2CLPX {
-#     ciphertext_allocator: Global,
-#     log2_N: 12,
-#     negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-# };
-# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110);
+# let log2_N = 12;
+# let params = Pow2CLPX::new(2 << log2_N);
+# let log2_t_can_norm_bound = 10;
+# let (C, C_for_multiplication): (CiphertextRing<Pow2CLPX>, CiphertextRing<Pow2CLPX>) = params.create_ciphertext_rings(105..110, log2_t_can_norm_bound);
 # let p = BigIntRing::RING.get_ring().parse("93461639715357977769163558199606896584051237541638188580280321", 10).unwrap();
 # let ZZX = DensePolyRing::new(StaticRing::<i64>::RING, "X");
 let m1 = 512;

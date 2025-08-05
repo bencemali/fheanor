@@ -1,11 +1,7 @@
-// Fheanor completely relies on unstable Rust features
-#![feature(allocator_api)]
 #![allow(non_snake_case)]
 
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
-
-use std::{alloc::Global, marker::PhantomData};
 
 use feanor_math::assert_el_eq;
 use feanor_math::homomorphism::Homomorphism;
@@ -19,14 +15,9 @@ use feanor_math::rings::zn::ZnRingStore;
 use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use fheanor::DefaultNegacyclicNTT;
 
 fn main() {    
-    let params = Pow2BFV {
-        ciphertext_allocator: Global,
-        log2_N: 12,
-        negacyclic_ntt: PhantomData::<DefaultNegacyclicNTT>
-    };
+    let params = Pow2BFV::new(1 << 13);
 
     let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 

@@ -1,5 +1,7 @@
 use std::alloc::Allocator;
 use std::alloc::Global;
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use tracing::instrument;
@@ -37,6 +39,14 @@ impl<N> Pow2CyclotomicNumberRing<N> {
             log2_m: log2_m,
             ntt: PhantomData
         }
+    }
+}
+
+impl<N> Debug for Pow2CyclotomicNumberRing<N>
+    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Z[𝝵_{}]", self.m())
     }
 }
 

@@ -26,7 +26,7 @@ use crate::cyclotomic::*;
 use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
 
 ///
-/// Represents `Z[𝝵_m]` for a squarefree `m`.
+/// Represents `Z[𝝵_m]` for an odd and squarefree `m`.
 /// 
 pub struct OddSquarefreeCyclotomicNumberRing {
     m_factorization_squarefree: Vec<i64>,
@@ -40,6 +40,8 @@ impl OddSquarefreeCyclotomicNumberRing {
         // while most of the arithmetic still works with non-squarefree m, our statements about the geometry
         // of the number ring as lattice don't hold anymore (currently this refers to the `norm1_to_norm2_expansion_factor`
         // functions)
+        
+        // why do we only support odd m? Because Bluestein FFT currently does not accept even lengths
         for (_, e) in &factorization {
             assert!(*e == 1, "m = {} is not squarefree", m);
         }

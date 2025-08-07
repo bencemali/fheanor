@@ -31,7 +31,7 @@ use crate::circuit::{Coefficient, PlaintextCircuit};
 use crate::cyclotomic::*;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::gadget_product::digits::*;
-use crate::ntt::{FheanorNegacyclicNTT, HERingConvolution};
+use crate::ntt::{FheanorNegacyclicNTT, FheanorConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
@@ -726,14 +726,14 @@ pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocat
 impl Pow2BFV {
 
     pub fn new(m: usize) -> Self {
-        Self::new_with_convolution(m, DefaultCiphertextAllocator::default())
+        Self::new_with_ntt(m, DefaultCiphertextAllocator::default())
     }
 }
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
 
     #[instrument(skip_all)]
-    pub fn new_with_convolution(m: usize, allocator: A) -> Self {
+    pub fn new_with_ntt(m: usize, allocator: A) -> Self {
         return Self {
             number_ring: Pow2CyclotomicNumberRing::new(m),
             ciphertext_allocator: allocator,
@@ -916,7 +916,7 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
 /// performance.
 /// 
 #[derive(Clone, Debug)]
-pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + HERingConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -929,7 +929,7 @@ impl CompositeSingleRNSBFV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> CompositeSingleRNSBFV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
@@ -945,14 +945,14 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>>
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BFV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + HERingConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
 
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
     type PlaintextRing = NumberRingQuotientBase<CompositeCyclotomicNumberRing, Zn>;
@@ -1340,6 +1340,25 @@ fn test_single_rns_composite_bfv_mul() {
     let result = CompositeSingleRNSBFV::dec(&P, &C, result_ctxt, &sk);
 
     assert_el_eq!(&P, &P.int_hom().map(4), &result);
+}
+
+#[test]
+fn test_pow2_bfv_large_t() {
+    let mut rng = rand::rng();
+    
+    let instantiation = Pow2BFV::new(1 << 11);
+
+    let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(50));
+    let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+
+    let input = P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(ZZbig.add(ZZbig.power_of_two(49), ZZbig.one()));
+    let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
+    let result_ctxt = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ctxt), Pow2BFV::clone_ct(&C, &ctxt), &rk);
+    let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
+
+    assert_el_eq!(&P, &P.one(), &result);
 }
 
 #[test]

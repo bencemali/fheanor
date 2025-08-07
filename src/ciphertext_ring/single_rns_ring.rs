@@ -27,7 +27,7 @@ use crate::number_ring::HECyclotomicNumberRing;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::{cyclotomic::*, DefaultConvolution};
 use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
-use crate::ntt::HERingConvolution;
+use crate::ntt::FheanorConvolution;
 
 use super::serialization::{deserialize_rns_data, serialize_rns_data};
 use super::{BGFVCiphertextRing, PreparedMultiplicationRing};
@@ -106,7 +106,7 @@ pub struct SingleRNSRingPreparedMultiplicant<NumberRing, A, C>
 
 impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C> 
     where NumberRing: HECyclotomicNumberRing,
-        C: HERingConvolution<Zn>
+        C: FheanorConvolution<Zn>
 {
     ///
     /// Creates a new [`SingleRNSRing`].
@@ -125,7 +125,7 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
 impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
     where NumberRing: HECyclotomicNumberRing + Clone,
         A: Allocator + Clone,
-        C: HERingConvolution<Zn>
+        C: FheanorConvolution<Zn>
 {
     fn clone(&self) -> Self {
         Self {

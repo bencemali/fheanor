@@ -27,7 +27,7 @@ use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::{cyclotomic::*, NiceZn};
 use crate::gadget_product::digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
-use crate::ntt::{HERingConvolution, FheanorNegacyclicNTT};
+use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
@@ -1038,14 +1038,14 @@ pub struct Pow2BGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocat
 impl Pow2BGV {
 
     pub fn new(m: usize) -> Self {
-        Self::new_with_alloc(m, DefaultCiphertextAllocator::default())
+        Self::new_with_ntt(m, DefaultCiphertextAllocator::default())
     }
 }
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
 
     #[instrument(skip_all)]
-    pub fn new_with_alloc(m: usize, alloc: A) -> Self {
+    pub fn new_with_ntt(m: usize, alloc: A) -> Self {
         return Self {
             number_ring: Pow2CyclotomicNumberRing::new(m),
             ciphertext_allocator: alloc,
@@ -1269,7 +1269,7 @@ pub fn double_rns_repr<Params, NumberRing, A>(_P: &PlaintextRing<Params>, C: &Ci
 }
 
 #[derive(Clone, Debug)]
-pub struct SingleRNSCompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: HERingConvolution<Zn> = DefaultConvolution> {
+pub struct SingleRNSCompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -1282,7 +1282,7 @@ impl SingleRNSCompositeBGV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> SingleRNSCompositeBGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> SingleRNSCompositeBGV<A, C> {
 
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self {
@@ -1293,7 +1293,7 @@ impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> SingleRNSComp
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: HERingConvolution<Zn>> BGVInstantiation for SingleRNSCompositeBGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> BGVInstantiation for SingleRNSCompositeBGV<A, C> {
 
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
 

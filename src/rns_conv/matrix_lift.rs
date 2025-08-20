@@ -41,9 +41,11 @@ pub struct AlmostExactMatrixBaseConversion<A = Global>
     q_over_Q: Vec<ZnEl>,
     /// shortest lifts of the values `Q/q mod q'` for each RNS factor q dividing Q (ordered 
     /// as `from_summands`, mapped to col index) and q' dividing Q' (ordered as `to_summands`,
-    /// mapped to row index); finally, the last row are the values `gamma/q` for each RNS factor
-    /// q dividing Q (ordered as `from_summands_ordered`)
-    Q_over_q_mod_and_downscaled: OwnedMatrix<i64>,
+    /// mapped to row index)
+    Q_over_q_mod: OwnedMatrix<i64>,
+    /// the values `round( Q/q/gamma )` for each RNS factor `q` dividing `Q`; Unfortunately,
+    /// these sometimes exceed 64 bits, thus cannot store them in the matrix `Q_over_q_mod`
+    Q_over_q_downscaled: Vec<i128>,
     gamma: i128,
     /// `Q mod q'` for every RNS factor q' of Q' (ordered as `to_summands`)
     Q_mod_q: Vec<ZnEl>,
@@ -77,6 +79,26 @@ fn matmul_4x4_i64_to_i128(lhs: [&[i64; BLOCK_SIZE]; BLOCK_SIZE], rhs: [&[i64]; B
             debug_assert!(j < o_r.len());
             *unsafe { o_r.get_unchecked_mut(j) } += value;
         }
+    }
+}
+
+#[inline]
+fn vecmatmul_4_i128_to_i128(lhs: [i128; BLOCK_SIZE], rhs: [&[i64]; BLOCK_SIZE], out: &mut [i128]) {
+    let len = out.len();
+    for i in 0..BLOCK_SIZE {
+        assert_eq!(len, rhs[i].len());
+    }
+
+    for j in 0..len {
+        let mut value = 0;
+        for k in 0..BLOCK_SIZE {
+            // safe since k < len
+            debug_assert!(j < rhs[k].len());
+            value += (unsafe { *rhs[k].get_unchecked(j) } as i128) * (lhs[k] as i128);
+        }
+        // safe since k < len
+        debug_assert!(j < out.len());
+        *unsafe { out.get_unchecked_mut(j) } += value;
     }
 }
 
@@ -123,22 +145,26 @@ impl<A> AlmostExactMatrixBaseConversion<A>
         let gamma_log2 = ZZbig.abs_log2_ceil(&gamma).unwrap();
         assert!(gamma_log2 == ZZbig.abs_log2_floor(&gamma).unwrap());
 
-        let Q_over_q = OwnedMatrix::from_fn_in(pad_to_block(out_rings.len() + 1), pad_to_block(in_rings.len()), |i, j| {
+        let Q_over_q_mod = OwnedMatrix::from_fn_in(pad_to_block(out_rings.len()), pad_to_block(in_rings.len()), |i, j| {
             if i < out_rings.len() && j < in_rings.len() {
                 let ring = out_rings.at(i);
                 ring.smallest_lift(ring.coerce(&ZZbig, ZZbig.checked_div(&Q, &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)).unwrap()))
-            } else if i == out_rings.len() && j < in_rings.len() {
-                int_cast(ZZbig.rounded_div(ZZbig.clone_el(&gamma), &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)), ZZi64, ZZbig)
             } else {
                 0
             }
         }, Global);
+        let Q_over_q_downscaled = (0..pad_to_block(in_rings.len())).map(|j| if j < in_rings.len() {
+            int_cast(ZZbig.rounded_div(ZZbig.clone_el(&gamma), &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)), ZZi128, ZZbig)
+        } else {
+            0
+        }).collect();
         let q_over_Q = (0..(in_rings.len())).map(|i| 
             in_rings.at(i).invert(&in_rings.at(i).coerce(&ZZbig, ZZbig.checked_div(&Q, &int_cast(*in_rings.at(i).modulus(), ZZbig, ZZi64)).unwrap())).unwrap()
         ).collect();
 
         Self {
-            Q_over_q_mod_and_downscaled: Q_over_q,
+            Q_over_q_mod: Q_over_q_mod,
+            Q_over_q_downscaled: Q_over_q_downscaled,
             q_over_Q: q_over_Q,
             Q_mod_q: (0..out_rings.len()).map(|i| out_rings.at(i).coerce(&ZZbig, ZZbig.clone_el(&Q))).collect(),
             gamma: ZZi128.power_of_two(gamma_log2),
@@ -200,16 +226,14 @@ impl<A> RNSOperation for AlmostExactMatrixBaseConversion<A>
                 }
             }
 
-            let mut output_unreduced_data = Vec::with_capacity(pad_to_block(out_len + 1) * pad_to_block(col_count));
-            output_unreduced_data.extend((0..(pad_to_block(out_len + 1) * pad_to_block(col_count))).map(|_| 0));
-            let mut output_unreduced = SubmatrixMut::from_1d(&mut output_unreduced_data, pad_to_block(out_len + 1), pad_to_block(col_count));
+            let mut output_unreduced = OwnedMatrix::zero(pad_to_block(out_len), pad_to_block(col_count), ZZi128);
 
-            assert_eq!(0, self.Q_over_q_mod_and_downscaled.row_count() % BLOCK_SIZE);
-            assert_eq!(0, self.Q_over_q_mod_and_downscaled.col_count() % BLOCK_SIZE);
+            assert_eq!(0, self.Q_over_q_mod.row_count() % BLOCK_SIZE);
+            assert_eq!(0, self.Q_over_q_mod.col_count() % BLOCK_SIZE);
             assert_eq!(0, output_unreduced.row_count() % BLOCK_SIZE);
             assert_eq!(0, lifts.row_count() % BLOCK_SIZE);
-            for (lhs_blocks, mut res_block) in self.Q_over_q_mod_and_downscaled.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
-                output_unreduced.reborrow().row_iter().array_chunks::<BLOCK_SIZE>()
+            for (lhs_blocks, mut res_block) in self.Q_over_q_mod.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
+                output_unreduced.data_mut().row_iter().array_chunks::<BLOCK_SIZE>()
             ) {
                 for (j, rhs_block) in lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>().enumerate() {
                     matmul_4x4_i64_to_i128(
@@ -219,8 +243,16 @@ impl<A> RNSOperation for AlmostExactMatrixBaseConversion<A>
                 }
             }
 
+            let mut output_correction: Vec<i128> = (0..pad_to_block(col_count)).map(|_| 0).collect();
+            assert_eq!(0, self.Q_over_q_downscaled.len() % BLOCK_SIZE);
+            for (lhs_block, rhs_block) in self.Q_over_q_downscaled.iter().copied().array_chunks::<BLOCK_SIZE>().zip(
+                lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>()
+            ) {
+                vecmatmul_4_i128_to_i128(lhs_block, rhs_block, &mut output_correction);
+            }
+
             for j in 0..col_count {
-                let mut correction = *output_unreduced.at(out_len, j);
+                let mut correction = *output_correction.at(j);
                 correction = ZZi128.rounded_div(correction, &self.gamma);
 
                 for i in 0..out_len {

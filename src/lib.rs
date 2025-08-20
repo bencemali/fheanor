@@ -22,7 +22,7 @@
 use std::alloc::Global;
 use std::time::Instant;
 
-use feanor_math::integer::{BigIntRing, BigIntRingBase};
+use feanor_math::integer::*;
 use feanor_math::primitive_int::*;
 use feanor_math::homomorphism::*;
 use feanor_math::serialization::SerializableElementRing;
@@ -171,9 +171,9 @@ const ZZi64: StaticRing<i64> = StaticRing::<i64>::RING;
 const ZZi128: StaticRing<i128> = StaticRing::<i128>::RING;
 
 ///
-/// Contains some macros that mimic `#[derive(Deserialize)]` but for [`serde::de::DeserializeSeed`].
+/// Contains some utilities to cache certain objects on disk.
 /// 
-mod serialization_helper;
+mod cache;
 
 // Uncomment this to log allocations
 // mod allocator;

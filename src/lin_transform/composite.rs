@@ -296,7 +296,7 @@ fn test_slots_to_powcoeffs_thin() {
     // F11[X]/Phi_35(X) ~ F_(11^3)^8
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(11));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(11, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     // first test very simple case
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -322,7 +322,7 @@ fn test_slots_to_powcoeffs_thin() {
     // F71[X]/Phi_35(X) ~ F71^24
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(71));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(71, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut current = H.from_slot_values((1..25).map(|m| H.slot_ring().int_hom().map(m)));
     for transform in slots_to_powcoeffs_thin_impl(&H) {
@@ -335,7 +335,7 @@ fn test_slots_to_powcoeffs_thin() {
     // Z/8Z[X]/Phi_341 ~ GR(2, 3, 10)^30
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(11, 31), Zn::new(8));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(11 * 31), int_cast(2, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut current = H.from_slot_values((1..=30).map(|m| H.slot_ring().int_hom().map(m)));
     for transform in slots_to_powcoeffs_thin_impl(&H) {
@@ -350,7 +350,7 @@ fn test_powcoeffs_to_slots_thin() {
     // F11[X]/Phi_35(X) ~ F_(11^3)^8
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(11));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(11, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(7, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(2, H.hypercube().dim_length(0));
     assert_eq!(5, H.hypercube().factor_of_m(1).unwrap());
@@ -374,7 +374,7 @@ fn test_powcoeffs_to_slots_thin() {
     // F71[X]/Phi_35(X) ~ F71^24
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(71));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(71, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let ring_ref = &ring;
     let mut current = ring.sum((0..4).flat_map(|i| (0..6).map(move |j| ring_ref.mul(ring_ref.pow(ring_ref.canonical_gen(), i * 7 + j * 5), ring_ref.int_hom().map((1 + j + i * 6) as i32)))));
@@ -390,7 +390,7 @@ fn test_slots_to_powcoeffs_fat() {
     // F11[X]/Phi_35(X) ~ F_(11^3)^8
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(11));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(11, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     // first test very simple case
     let mut current = ring_literal(&ring, &[1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -427,7 +427,7 @@ fn test_slots_to_powcoeffs_fat() {
     // F71[X]/Phi_35(X) ~ F71^24
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(71));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(71, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(5, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(4, H.hypercube().dim_length(0));
     assert_eq!(7, H.hypercube().factor_of_m(1).unwrap());
@@ -447,7 +447,7 @@ fn test_powcoeffs_to_slots_fat() {
     // F11[X]/Phi_35(X) ~ F_(11^3)^8
     let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(11));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5 * 7), int_cast(11, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(7, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(2, H.hypercube().dim_length(0));
     assert_eq!(5, H.hypercube().factor_of_m(1).unwrap());
@@ -468,7 +468,7 @@ fn test_powcoeffs_to_slots_fat_large() {
     // let allocator = feanor_mempool::AllocRc(Rc::new(feanor_mempool::dynsize::DynLayoutMempool::<Global>::new(Alignment::of::<u64>())));
     let ring = RingValue::from(NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(337, 127), Zn::new(65536)).into());
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(337 * 127), int_cast(2, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<true>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(337, H.hypercube().factor_of_m(0).unwrap());
     assert_eq!(16, H.hypercube().dim_length(0));
     assert_eq!(127, H.hypercube().factor_of_m(1).unwrap());

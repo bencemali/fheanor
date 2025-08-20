@@ -10,6 +10,8 @@ use feanor_math::rings::zn::*;
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::serialization::*;
 use feanor_math::divisibility::DivisibilityRingStore;
+use feanor_serde::newtype_struct::DeserializeSeedNewtypeStruct;
+use feanor_serde::newtype_struct::SerializableNewtypeStruct;
 use serde::de::DeserializeSeed;
 use serde::Deserialize;
 use serde::Serialize;
@@ -140,7 +142,7 @@ impl<'a> SerializableCyclotomicGaloisGroupEl<'a> {
 
 impl<'a> Serialize for SerializableCyclotomicGaloisGroupEl<'a> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SerializableNewtype::new("CyclotomicGaloisGroupEl", &SerializeOwnedWithRing::new(self.1.value, &self.0.ring)).serialize(serializer)
+        SerializableNewtypeStruct::new("CyclotomicGaloisGroupEl", &SerializeOwnedWithRing::new(self.1.value, &self.0.ring)).serialize(serializer)
     }
 }
 
@@ -157,7 +159,7 @@ impl<'a, 'de> DeserializeSeed<'de> for DeserializeSeedCyclotomicGaloisGroupEl<'a
     type Value = CyclotomicGaloisGroupEl;
 
     fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        DeserializeSeedNewtype::new("CyclotomicGaloisGroupEl", DeserializeWithRing::new(&self.0.ring)).deserialize(deserializer).map(|g| CyclotomicGaloisGroupEl { value: g })
+        Ok(DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroupEl", DeserializeWithRing::new(&self.0.ring)).deserialize(deserializer).map(|g| CyclotomicGaloisGroupEl { value: g }).unwrap())
     }
 }
 
@@ -166,7 +168,7 @@ impl Serialize for CyclotomicGaloisGroup {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
-        SerializableNewtype::new("CyclotomicGaloisGroup", self.ring.modulus()).serialize(serializer)
+        SerializableNewtypeStruct::new("CyclotomicGaloisGroup", self.ring.modulus()).serialize(serializer)
     }
 }
 
@@ -175,7 +177,7 @@ impl<'de> Deserialize<'de> for CyclotomicGaloisGroup {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: serde::Deserializer<'de>
     {
-        DeserializeSeedNewtype::new("CyclotomicGaloisGroup", PhantomData::<i64>).deserialize(deserializer).map(|m| Self {
+        DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroup", PhantomData::<i64>).deserialize(deserializer).map(|m| Self {
             ring: Zn::new(m as u64),
             order: euler_phi(&factor(ZZi64, m as i64)) as usize
         })

@@ -454,7 +454,7 @@ fn test_slots_to_coeffs_thin() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     let mut current = H.from_slot_values((1..17).map(|i| H.slot_ring().int_hom().map(i)));
     for T in slots_to_coeffs_thin_impl(&H) {
@@ -473,7 +473,7 @@ fn test_slots_to_coeffs_thin() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut current = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
     for T in slots_to_coeffs_thin_impl(&H) {
@@ -493,7 +493,7 @@ fn test_slots_to_coeffs_thin_inv() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     for (transform, actual) in slots_to_coeffs_thin_impl(&H).into_iter().rev().zip(slots_to_coeffs_thin_inv(&H).into_iter()) {
         let expected = transform.inverse(&H);
@@ -504,7 +504,7 @@ fn test_slots_to_coeffs_thin_inv() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     for (transform, actual) in slots_to_coeffs_thin_impl(&H).into_iter().rev().zip(slots_to_coeffs_thin_inv(&H).into_iter()) {
         let expected = transform.inverse(&H);
@@ -518,7 +518,7 @@ fn test_coeffs_to_slots_thin() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     let mut input = [0; 32];
     for i in 0..8 {
@@ -537,7 +537,7 @@ fn test_coeffs_to_slots_thin() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&ring, hypercube);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut input = [0; 32];
     input[4] = 1;

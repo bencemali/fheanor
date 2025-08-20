@@ -319,11 +319,7 @@ pub trait BGVInstantiation {
         let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
         let (p, _e) = is_prime_power(ZZbig, &t).unwrap();
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group(), p);
-        let H = if let Some(dir) = cache_dir {
-            HypercubeIsomorphism::new_cache_file::<false>(P, hypercube, dir)
-        } else {
-            HypercubeIsomorphism::new::<false>(P, hypercube)
-        };
+        let H = HypercubeIsomorphism::new::<true>(&P, hypercube, cache_dir);
         let m = Self::dec(P, C, Self::clone_ct(P, C, ct), sk);
         println!("ciphertext (noise budget: {} / {}):", Self::noise_budget(P, C, ct, sk), ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap());
         for a in H.get_slot_values(&m) {
@@ -1269,20 +1265,20 @@ pub fn double_rns_repr<Params, NumberRing, A>(_P: &PlaintextRing<Params>, C: &Ci
 }
 
 #[derive(Clone, Debug)]
-pub struct SingleRNSCompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
 }
 
-impl SingleRNSCompositeBGV {
+impl CompositeSingleRNSBGV {
 
     pub fn new(m1: usize, m2: usize) -> Self {
         Self::new_with_alloc(m1, m2, DefaultCiphertextAllocator::default())
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> SingleRNSCompositeBGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
 
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self {
@@ -1293,7 +1289,7 @@ impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> SingleRNSCom
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> BGVInstantiation for SingleRNSCompositeBGV<A, C> {
+impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
 
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
 
@@ -1689,7 +1685,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
 
     let mut rng = rand::rng();
     
-    let params = SingleRNSCompositeBGV::new(127, 337);
+    let params = CompositeSingleRNSBGV::new(127, 337);
     
     let P = log_time::<_, _, true, _>("CreatePtxtRing", |[]|
         params.create_plaintext_ring(int_cast(4, ZZbig, ZZi64))
@@ -1700,39 +1696,39 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        SingleRNSCompositeBGV::gen_sk(&C, &mut rng, None)
+        CompositeSingleRNSBGV::gen_sk(&C, &mut rng, None)
     );
     
     let m = P.int_hom().map(3);
     let ct = log_time::<_, _, true, _>("EncSym", |[]|
-        SingleRNSCompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk)
+        CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk)
     );
-    assert_el_eq!(&P, &P.int_hom().map(3), &SingleRNSCompositeBGV::dec(&P, &C, SingleRNSCompositeBGV::clone_ct(&P, &C, &ct), &sk));
+    assert_el_eq!(&P, &P.int_hom().map(3), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct), &sk));
 
     let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
-        SingleRNSCompositeBGV::hom_add_plain(&P, &C, &m, SingleRNSCompositeBGV::clone_ct(&P, &C, &ct))
+        CompositeSingleRNSBGV::hom_add_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
     );
-    assert_el_eq!(&P, &P.int_hom().map(2), &SingleRNSCompositeBGV::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &P.int_hom().map(2), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
 
     let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
-        SingleRNSCompositeBGV::hom_mul_plain(&P, &C, &m, SingleRNSCompositeBGV::clone_ct(&P, &C, &ct))
+        CompositeSingleRNSBGV::hom_mul_plain(&P, &C, &m, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct))
     );
-    assert_el_eq!(&P, &P.int_hom().map(1), &SingleRNSCompositeBGV::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        SingleRNSCompositeBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
+        CompositeSingleRNSBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
     );
-    let ct2 = SingleRNSCompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
-        SingleRNSCompositeBGV::hom_mul(&P, &C, &C, RNSFactorIndexList::empty_ref(), ct, ct2, &rk)
+        CompositeSingleRNSBGV::hom_mul(&P, &C, &C, RNSFactorIndexList::empty_ref(), ct, ct2, &rk)
     );
-    assert_el_eq!(&P, &P.int_hom().map(1), &SingleRNSCompositeBGV::dec(&P, &C, SingleRNSCompositeBGV::clone_ct(&P, &C, &res), &sk));
+    assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &res), &sk));
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
-    let C_new = SingleRNSCompositeBGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = SingleRNSCompositeBGV::mod_switch_down_sk(&C_new, &C, &to_drop, &sk);
+    let C_new = CompositeSingleRNSBGV::mod_switch_down_C(&C, &to_drop);
+    let sk_new = CompositeSingleRNSBGV::mod_switch_down_sk(&C_new, &C, &to_drop, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
-        SingleRNSCompositeBGV::mod_switch_down_ct(&P, &C_new, &C, &to_drop, res)
+        CompositeSingleRNSBGV::mod_switch_down_ct(&P, &C_new, &C, &to_drop, res)
     );
-    assert_el_eq!(&P, &P.int_hom().map(1), &SingleRNSCompositeBGV::dec(&P, &C_new, res_new, &sk_new));
+    assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C_new, res_new, &sk_new));
 }

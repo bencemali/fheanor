@@ -4,7 +4,10 @@ trace-*.json
 perf.data
 perf.data.*
 hypercube_*.json
-coeffs_to_slots_*.json
-slots_to_coeffs_*.json
+hypercube_*.pcd
+coeffs2slots_*.json
+slots2coeffs_*.json
+coeffs2slots_*.pcd
+slots2coeffs_*.pcd
 bgv_memtrace
 .vscode

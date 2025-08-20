@@ -7,6 +7,7 @@ use feanor_math::serialization::SerializableElementRing;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
 use crate::circuit::*;
+use crate::filename_keys;
 use crate::log_time;
 use crate::digit_extract::DigitExtract;
 
@@ -65,16 +66,13 @@ impl<Params> ThinBootstrapParams<Params>
 
         let H = LazyCell::new(|| {
             let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
-            if let Some(cache_dir) = cache_dir {
-                HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
-            } else {
-                HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube)
-            }
+            HypercubeIsomorphism::new::<false>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs = read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
-        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || pow2::coeffs_to_slots_thin(&H));
+        let m = plaintext_ring.m();
+        let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
@@ -111,16 +109,13 @@ impl<Params> ThinBootstrapParams<Params>
 
         let H = LazyCell::new(|| {
             let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
-            if let Some(cache_dir) = cache_dir {
-                HypercubeIsomorphism::new_cache_file::<LOG>(&plaintext_ring, hypercube, cache_dir)
-            } else {
-                HypercubeIsomorphism::new::<LOG>(&plaintext_ring, hypercube)
-            }
+            HypercubeIsomorphism::new::<false>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let slots_to_coeffs =  read_or_create_circuit::<_, _, LOG>(&original_plaintext_ring, "slots_to_coeffs", cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
-        let coeffs_to_slots = read_or_create_circuit::<_, _, LOG>(&plaintext_ring, "coeffs_to_slots", cache_dir, || composite::powcoeffs_to_slots_thin(&H));
+        let m = plaintext_ring.m();
+        let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
+        let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
         let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
 
         return ThinBootstrapData {
@@ -173,7 +168,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         self.digit_extract.p()
     }
 
-    pub fn largest_plaintext_ring(&self) -> &PlaintextRing<Params> {
+    pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Params> {
         self.plaintext_ring_hierarchy.last().unwrap()
     }
 
@@ -439,8 +434,8 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, None);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
-    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -486,8 +481,8 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, hwt);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
-    let rk = CompositeBGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = CompositeBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
     let ct = CompositeBGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);
@@ -534,8 +529,8 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, hwt);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
-    let rk = Pow2BGV::gen_rk(bootstrapper.largest_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);

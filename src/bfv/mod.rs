@@ -284,11 +284,7 @@ pub trait BFVInstantiation {
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(P.m() as u64), int_cast(p, ZZbig, ZZ));
 
-        let H = if let Some(dir) = dir {
-            HypercubeIsomorphism::new_cache_file::<false>(P, hypercube, dir)
-        } else {
-            HypercubeIsomorphism::new::<false>(P, hypercube)
-        };
+        let H = HypercubeIsomorphism::new::<false>(&P, hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
         for a in H.get_slot_values(&m) {
@@ -915,7 +911,7 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
 /// algorithm to use to instantiate the ciphertext ring. This has a major impact on 
 /// performance.
 /// 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
@@ -942,6 +938,17 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>
 
     pub fn ciphertext_allocator(&self) -> &A {
         &self.ciphertext_allocator
+    }
+}
+
+impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> Clone for CompositeSingleRNSBFV<A, C> {
+
+    fn clone(&self) -> Self {
+        Self {
+            number_ring: self.number_ring.clone(),
+            ciphertext_allocator: self.ciphertext_allocator.clone(),
+            convolution: self.convolution
+        }
     }
 }
 

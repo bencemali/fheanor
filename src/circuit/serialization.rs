@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
 use feanor_math::ring::*;
-use feanor_math::seq::{VectorFn, VectorView};
-use feanor_math::serialization::{DeserializeSeedSeq, DeserializeWithRing, SerializableElementRing, SerializableSeq, SerializeWithRing};
+use feanor_math::serialization::*;
 use serde::de::DeserializeSeed;
 use serde::Serialize;
+use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
+use feanor_serde::seq::*;
 
 use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl, DeserializeSeedCyclotomicGaloisGroupEl, SerializableCyclotomicGaloisGroupEl};
-use crate::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 
 use super::{Coefficient, LinearCombination, PlaintextCircuit, PlaintextCircuitGate};
 
@@ -88,7 +88,7 @@ impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R>
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
-        fn serialize_constant<'a, R: RingStore>(c: &'a Coefficient<R::Type>, ring: R) -> SerializableCoefficient<'a, R>
+        fn serialize_coefficient<'a, R: RingStore>(c: &'a Coefficient<R::Type>, ring: R) -> SerializableCoefficient<'a, R>
             where R::Type: SerializableElementRing
         {
             match c {
@@ -104,26 +104,26 @@ impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R>
                 R: 'a
         {
             SerializableLinearCombination {
-                constant: serialize_constant(&t.constant, ring),
-                factors: SerializableSeq::new(t.factors.as_fn().map_fn(move |c| serialize_constant(c, ring)))
+                constant: serialize_coefficient(&t.constant, ring),
+                factors: SerializableSeq::new_with_len(t.factors.iter().map(move |c| serialize_coefficient(c, ring)), t.factors.len())
             }
         }
         SerializablePlaintextCircuitData {
             input_count: self.circuit.input_count,
-            gates: SerializableSeq::new(self.circuit.gates.as_fn().map_fn(|gate| match gate {
+            gates: SerializableSeq::new_with_len(self.circuit.gates.iter().map(|gate| match gate {
                 PlaintextCircuitGate::Mul(lhs, rhs) => SerializablePlaintextCircuitGate::Mul(SerializablePlaintextCircuitMulGate {
                     lhs: serialize_lin_transform(lhs, self.ring), 
                     rhs: serialize_lin_transform(rhs, self.ring)
                 }),
                 PlaintextCircuitGate::Gal(gs, val) => SerializablePlaintextCircuitGate::Gal(SerializablePlaintextCircuitGalGate {
-                    automorphisms: SerializableSeq::new(gs.as_fn().map_fn(|g| SerializableCyclotomicGaloisGroupEl::new(self.galois_group.unwrap(), *g))), 
+                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(self.galois_group.unwrap(), *g)), gs.len()), 
                     input: serialize_lin_transform(val, self.ring)
                 }),
                 PlaintextCircuitGate::Square(val) => SerializablePlaintextCircuitGate::Square(SerializablePlaintextCircuitSquareGate { 
                     val: serialize_lin_transform(val, self.ring) 
                 })
-            })),
-            output_transforms: SerializableSeq::new(self.circuit.output_transforms.as_fn().map_fn(|t| serialize_lin_transform(t, self.ring)))
+            }), self.circuit.gates.len()),
+            output_transforms: SerializableSeq::new_with_len(self.circuit.output_transforms.iter().map(|t| serialize_lin_transform(t, self.ring)), self.circuit.output_transforms.len())
         }.serialize(serializer)
     }
 }

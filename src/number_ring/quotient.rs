@@ -14,11 +14,13 @@ use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
 use feanor_math::ring::*;
 use feanor_math::seq::*;
-use feanor_math::serialization::{DeserializeSeedNewtype, DeserializeSeedSeq, DeserializeWithRing, SerializableElementRing, SerializableNewtype, SerializableSeq, SerializeWithRing};
+use feanor_math::serialization::*;
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::rings::finite::*;
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
 
+use feanor_serde::newtype_struct::*;
+use feanor_serde::seq::*;
 use serde::{Deserializer, Serialize, Serializer};
 use crate::serde::de::DeserializeSeed;
 
@@ -70,6 +72,23 @@ impl<NumberRing, ZnTy> NumberRingQuotientBase<NumberRing, ZnTy>
 {
     pub fn new(number_ring: NumberRing, base_ring: ZnTy) -> RingValue<Self> {
         Self::new_with_alloc(number_ring, base_ring, Global)
+    }
+}
+
+impl<NumberRing, ZnTy, A> Clone for NumberRingQuotientBase<NumberRing, ZnTy, A>
+    where NumberRing: HENumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone
+{
+    fn clone(&self) -> Self {
+        Self {
+            allocator: self.allocator.clone(),
+            base_ring: self.base_ring.clone(),
+            number_ring: self.number_ring.clone(),
+            ring_decompositions: self.rns_base.as_iter().map(|Fp| self.number_ring.mod_p(Fp.clone())).collect(),
+            rns_base: self.rns_base.clone()
+        }
     }
 }
 
@@ -615,19 +634,19 @@ impl<NumberRing, ZnTy, A> SerializableElementRing for NumberRingQuotientBase<Num
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
     {
-        SerializableNewtype::new("RingEl", SerializableSeq::new(el.data.as_fn().map_fn(|x| SerializeWithRing::new(x, self.base_ring())))).serialize(serializer)
+        SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(el.data.iter().map(|x| SerializeWithRing::new(x, self.base_ring())), el.data.len())).serialize(serializer)
     }
 
     fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self::Element, D::Error>
         where D: Deserializer<'de> 
     {
-        let result = DeserializeSeedNewtype::new("RingEl", DeserializeSeedSeq::new(
-            (0..self.rank()).map(|_| DeserializeWithRing::new(self.base_ring())),
+        let result = DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSeq::new(
+            (0..(self.rank() + 1)).map(|_| DeserializeWithRing::new(self.base_ring())),
             Vec::with_capacity_in(self.rank(), self.allocator.clone()),
             |mut current, next| { current.push(next); current }
         )).deserialize(deserializer)?;
         if result.len() != self.rank() {
-            return Err(serde::de::Error::custom(format!("expected {} elements, got {}", self.rank(), result.len())));
+            return Err(serde::de::Error::invalid_length(result.len(), &format!("expected {} elements", self.rank()).as_str()));
         }
         return Ok(NumberRingQuotientEl {
             data: result,

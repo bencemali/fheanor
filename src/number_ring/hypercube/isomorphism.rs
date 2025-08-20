@@ -1,6 +1,4 @@
 use std::alloc::{Allocator, Global};
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::sync::Arc;
 
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
@@ -34,10 +32,9 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
 use feanor_math::serialization::SerializableElementRing;
-use serde::de::DeserializeSeed;
-use serde::Serialize;
 use tracing::instrument;
 
+use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
 use crate::cyclotomic::*;
 use crate::*;
 use crate::ntt::dyn_convolution::*;
@@ -193,34 +190,6 @@ impl<R> HypercubeIsomorphism<R>
         BaseRing<R>: NiceZn,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
-    fn new_cache_file_internal<C, const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure, dir: &str, creator: C) -> Self
-        where BaseRing<R>: SerializableElementRing,
-            C: FnOnce(R, HypercubeStructure) -> Self
-    {
-        let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
-        let filename = if ZZbig.abs_log2_ceil(&p).unwrap() > 30 {
-            format!("{}/hypercube_m{}_p{}bit_e{}.json", dir, ring.m(), ZZbig.abs_log2_ceil(&p).unwrap(), e)
-        } else {
-            format!("{}/hypercube_m{}_p{}_e{}.json", dir, ring.m(), ZZbig.format(&p), e)
-        };
-        if let Ok(file) = File::open(filename.as_str()) {
-            if LOG {
-                println!("Reading from file {}", filename);
-            }
-            let reader = serde_json::de::IoRead::new(BufReader::new(file));
-            let mut deserializer = serde_json::Deserializer::new(reader);
-            let deserialized = DeserializeSeedHypercubeIsomorphismWithoutRing::new(ring).deserialize(&mut deserializer).unwrap();
-            assert!(deserialized.hypercube() == &hypercube_structure);
-            return deserialized;
-        }
-        let result = creator(ring, hypercube_structure);
-        let file = File::create(filename.as_str()).unwrap();
-        let writer = BufWriter::new(file);
-        let mut serializer = serde_json::Serializer::new(writer);
-        SerializableHypercubeIsomorphismWithoutRing::new(&result).serialize(&mut serializer).unwrap();
-        return result;
-    }
-
     ///
     /// Most general way to create a new [`HypercubeIsomorphism`].
     /// 
@@ -395,24 +364,31 @@ impl<R> HypercubeIsomorphism<R>
     /// in the given directory. If the file does not exist, a new
     /// [`HypercubeIsomorphism`] is created and stored in the file.
     /// 
-    pub fn new_cache_file<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure, dir: &str) -> Self
-        where BaseRing<R>: SerializableElementRing
+    pub fn new<const LOG: bool>(ring: &R, hypercube_structure: HypercubeStructure, cache_dir: Option<&str>) -> Self
+        where R: Clone,
+            BaseRing<R>: SerializableElementRing
     {
-        Self::new_cache_file_internal::<_, LOG>(ring, hypercube_structure, dir, |ring, hypercube_structure| Self::new::<LOG>(ring, hypercube_structure))
+        let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
+        let m = hypercube_structure.m();
+        let result = create_cached::<_, R, _, LOG>(
+            &ring,
+            || {
+                let d = hypercube_structure.d();  
+                if d * d < hypercube_structure.m() {
+                    return Self::new_small_slot_ring::<LOG>(ring.clone(), hypercube_structure.clone());
+                } else {
+                    return Self::new_large_slot_ring::<LOG>(ring.clone(), hypercube_structure.clone());
+                }
+            },
+            &filename_keys![hypercube, m: m, p: p, e: e],
+            cache_dir,
+            if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard }
+        );
+        assert!(result.hypercube_structure == hypercube_structure, "hypercube structure mismatch");
+
+        return result;
     }
 
-    ///
-    /// Creates a new [`HypercubeIsomorphism`], as induced by the given
-    /// [`HypercubeStructure`].
-    /// 
-    pub fn new<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure) -> Self {      
-        let d = hypercube_structure.d();  
-        if d * d < hypercube_structure.m() {
-            return Self::new_small_slot_ring::<LOG>(ring, hypercube_structure);
-        } else {
-            return Self::new_large_slot_ring::<LOG>(ring, hypercube_structure);
-        }
-    }
 
     ///
     /// Creates a new [`HypercubeIsomorphism`], using algorithms that are
@@ -573,6 +549,26 @@ impl<R> HypercubeIsomorphism<R>
     }
 }
 
+impl<R> SerializeDeserializeWith<R> for HypercubeIsomorphism<R>
+    where R: RingStore + Clone,
+        R::Type: CyclotomicRing,
+        BaseRing<R>: SerializableElementRing,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+{
+    type SerializeWithData<'a> = SerializableHypercubeIsomorphismWithoutRing<'a, R> where Self: 'a, R: 'a;
+    type DeserializeWithData<'a> = DeserializeSeedHypercubeIsomorphismWithoutRing<R> where Self: 'a, R: 'a;
+
+    fn serialize_with<'a>(&'a self, ring: &'a R) -> Self::SerializeWithData<'a> {
+        assert!(self.ring.get_ring() == ring.get_ring());
+        SerializableHypercubeIsomorphismWithoutRing::new(self)
+    }
+
+    fn deserialize_with<'a>(ring: &'a R) -> Self::DeserializeWithData<'a> {
+        DeserializeSeedHypercubeIsomorphismWithoutRing::new(ring.clone())
+    }
+}
+
 #[cfg(test)]
 use feanor_math::rings::finite::*;
 #[cfg(test)]
@@ -583,6 +579,10 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use std::rc::Rc;
 #[cfg(test)]
 use std::ptr::Alignment;
+#[cfg(test)]
+use serde::de::DeserializeSeed;
+#[cfg(test)]
+use serde::Serialize;
 
 #[cfg(test)]
 fn test_ring1() -> (NumberRingQuotient<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
@@ -631,7 +631,7 @@ fn test_hypercube_isomorphism_from_to_slot_vector() {
     let mut rng = oorandom::Rand64::new(1);
 
     let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     assert_eq!(4, isomorphism.slot_count());
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
@@ -644,7 +644,7 @@ fn test_hypercube_isomorphism_from_to_slot_vector() {
     }
 
     let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     assert_eq!(8, isomorphism.slot_count());
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
@@ -657,7 +657,7 @@ fn test_hypercube_isomorphism_from_to_slot_vector() {
     }
 
     let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     assert_eq!(8, isomorphism.slot_count());
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
@@ -675,7 +675,7 @@ fn test_hypercube_isomorphism_is_isomorphic() {
     let mut rng = oorandom::Rand64::new(1);
 
     let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
         let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
@@ -692,7 +692,7 @@ fn test_hypercube_isomorphism_is_isomorphic() {
     }
 
     let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
         let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
@@ -709,7 +709,7 @@ fn test_hypercube_isomorphism_is_isomorphic() {
     }
 
     let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     for _ in 0..10 {
         let slot_ring = isomorphism.slot_ring();
         let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
@@ -731,7 +731,7 @@ fn test_hypercube_isomorphism_rotation() {
     let mut rng = oorandom::Rand64::new(1);
 
     let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     let ring = isomorphism.ring();
     let hypercube = isomorphism.hypercube();
     for _ in 0..10 {
@@ -755,7 +755,7 @@ fn test_hypercube_isomorphism_rotation() {
     }
 
     let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     let ring = isomorphism.ring();
     let hypercube = isomorphism.hypercube();
     for _ in 0..10 {
@@ -779,7 +779,7 @@ fn test_hypercube_isomorphism_rotation() {
     }
 
     let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     let ring = isomorphism.ring();
     let hypercube = isomorphism.hypercube();
     for _ in 0..10 {
@@ -822,7 +822,7 @@ fn time_from_slot_values_large() {
         vec![16, 126],
         vec![galois_group.from_representative(37085), galois_group.from_representative(25276)]
     );
-    let H = HypercubeIsomorphism::new::<true>(ring, hypercube);
+    let H = HypercubeIsomorphism::new::<true>(&ring, hypercube, None);
     let slot_ring = H.slot_ring();
 
     let value = log_time::<_, _, true, _>("from_slot_values", |[]| {
@@ -835,14 +835,15 @@ fn time_from_slot_values_large() {
 fn test_serialization() {
 
     fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
-        where R: RingStore,
+        where R: RingStore + Clone,
             R::Type: CyclotomicRing,
             BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<ZnBase>,
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
-        let hypercube = HypercubeIsomorphism::new::<false>(&ring, hypercube_structure);
+        let hypercube = HypercubeIsomorphism::new::<false>(&ring, hypercube_structure, None);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
         let tokens = SerializableHypercubeIsomorphismWithoutRing::new(&hypercube).serialize(&serializer).unwrap();
+        println!("{:?}", tokens);
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
         let deserialized_hypercube = DeserializeSeedHypercubeIsomorphismWithoutRing::new(&ring).deserialize(&mut deserializer).unwrap();
         assert!(hypercube.slot_ring().get_ring() == deserialized_hypercube.slot_ring().get_ring());

@@ -21,6 +21,10 @@ use feanor_math::seq::*;
 use feanor_math::serialization::*;
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
 
+use feanor_serde::newtype_struct::DeserializeSeedNewtypeStruct;
+use feanor_serde::newtype_struct::SerializableNewtypeStruct;
+use feanor_serde::seq::DeserializeSeedSeq;
+use feanor_serde::seq::SerializableSeq;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::de::DeserializeSeed;
@@ -1061,9 +1065,9 @@ impl<'a, NumberRing, A> serde::Serialize for SerializableSmallBasisElWithRing<'a
         where S: serde::Serializer 
     {
         if serializer.is_human_readable() {
-            SerializableNewtype::new("RingEl", SerializableSeq::new(self.ring.wrt_canonical_basis_non_fft(self.ring.clone_el_non_fft(self.el)).map_fn(|c| SerializeOwnedWithRing::new(c, self.ring.base_ring())))).serialize(serializer)
+            SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(self.ring.wrt_canonical_basis_non_fft(self.ring.clone_el_non_fft(self.el)).iter().map(|c| SerializeOwnedWithRing::new(c, self.ring.base_ring())), self.ring.rank())).serialize(serializer)
         } else {
-            SerializableNewtype::new("SmallBasisEl", &serialize_rns_data(self.ring.base_ring(), self.ring.as_matrix_wrt_small_basis(self.el))).serialize(serializer)
+            SerializableNewtypeStruct::new("SmallBasisEl", &serialize_rns_data(self.ring.base_ring(), self.ring.as_matrix_wrt_small_basis(self.el))).serialize(serializer)
         }
     }
 }
@@ -1093,8 +1097,8 @@ impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeed
         where D: Deserializer<'de>
     {
         if deserializer.is_human_readable() {
-            let data = DeserializeSeedNewtype::new("RingEl", DeserializeSeedSeq::new(
-                (0..self.ring.rank()).map(|_| DeserializeWithRing::new(self.ring.base_ring())),
+            let data = DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSeq::new(
+                (0..(self.ring.rank() + 1)).map(|_| DeserializeWithRing::new(self.ring.base_ring())),
                 Vec::with_capacity_in(self.ring.rank(), &self.ring.allocator),
                 |mut current, next| { current.push(next); current }
             )).deserialize(deserializer)?;
@@ -1104,7 +1108,7 @@ impl<'a, 'de, NumberRing, A> serde::de::DeserializeSeed<'de> for DeserializeSeed
             return Ok(self.ring.from_canonical_basis_non_fft(data.into_iter()));
         } else {
             let mut result = self.ring.zero_non_fft();
-            DeserializeSeedNewtype::new("SmallBasisEl", deserialize_rns_data(self.ring.base_ring(), self.ring.as_matrix_wrt_small_basis_mut(&mut result))).deserialize(deserializer)?;
+            DeserializeSeedNewtypeStruct::new("SmallBasisEl", deserialize_rns_data(self.ring.base_ring(), self.ring.as_matrix_wrt_small_basis_mut(&mut result))).deserialize(deserializer)?;
             return Ok(result);
         }
     }
@@ -1118,9 +1122,9 @@ impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A>
         where S: serde::Serializer
     {
         if serializer.is_human_readable() {
-            SerializableNewtype::new("RingEl", &SerializableSmallBasisElWithRing::new(self, &self.undo_fft(self.clone_el(el)))).serialize(serializer)
+            SerializableNewtypeStruct::new("RingEl", &SerializableSmallBasisElWithRing::new(self, &self.undo_fft(self.clone_el(el)))).serialize(serializer)
         } else {
-            SerializableNewtype::new("DoubleRNSEl", &serialize_rns_data(self.base_ring(), self.as_matrix_wrt_mult_basis(el))).serialize(serializer)
+            SerializableNewtypeStruct::new("DoubleRNSEl", &serialize_rns_data(self.base_ring(), self.as_matrix_wrt_mult_basis(el))).serialize(serializer)
         }
     }
 
@@ -1128,10 +1132,10 @@ impl<NumberRing, A> SerializableElementRing for DoubleRNSRingBase<NumberRing, A>
         where D: serde::Deserializer<'de>
     {
         if deserializer.is_human_readable() {
-            DeserializeSeedNewtype::new("RingEl", DeserializeSeedSmallBasisElWithRing::new(self)).deserialize(deserializer).map(|x| self.do_fft(x))
+            DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSmallBasisElWithRing::new(self)).deserialize(deserializer).map(|x| self.do_fft(x))
         } else {
             let mut result = self.zero();
-            DeserializeSeedNewtype::new("DoubleRNSEl", deserialize_rns_data(self.base_ring(), self.as_matrix_wrt_mult_basis_mut(&mut result))).deserialize(deserializer)?;
+            DeserializeSeedNewtypeStruct::new("DoubleRNSEl", deserialize_rns_data(self.base_ring(), self.as_matrix_wrt_mult_basis_mut(&mut result))).deserialize(deserializer)?;
             return Ok(result);
         }
     }

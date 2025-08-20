@@ -11,8 +11,9 @@ use feanor_math::rings::extension::*;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::VectorView;
-use feanor_math::serialization::{DeserializeSeedNewtype, DeserializeWithRing, SerializableElementRing, SerializableNewtype, SerializeWithRing};
+use feanor_math::serialization::*;
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
+use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNewtypeStruct};
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeSeed;
 use tracing::instrument;
@@ -993,7 +994,7 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
         where S: serde::Serializer
     {
         if serializer.is_human_readable() {
-            return SerializableNewtype::new("ManagedDoubleRNSEl", &SerializableSmallBasisElWithRing::new(&self.base, self.to_small_basis(el).unwrap_or(&self.zero))).serialize(serializer);
+            return SerializableNewtypeStruct::new("ManagedDoubleRNSEl", &SerializableSmallBasisElWithRing::new(&self.base, self.to_small_basis(el).unwrap_or(&self.zero))).serialize(serializer);
         }
         if let ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) = el.internal.get_repr() {
             serializer.serialize_newtype_variant("ManagedDoubleRNSEl", 0, "DoubleRNS", &SerializeWithRing::new(double_rns_repr, RingRef::new(&self.base)))
@@ -1011,7 +1012,7 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
         use serde::de::VariantAccess;
 
         if deserializer.is_human_readable() {
-            return DeserializeSeedNewtype::new("ManagedDoubleRNSEl", DeserializeSeedSmallBasisElWithRing::new(&self.base)).deserialize(deserializer).map(|small_basis_repr| self.from_small_basis_repr(small_basis_repr));
+            return DeserializeSeedNewtypeStruct::new("ManagedDoubleRNSEl", DeserializeSeedSmallBasisElWithRing::new(&self.base)).deserialize(deserializer).map(|small_basis_repr| self.from_small_basis_repr(small_basis_repr));
         }
 
         struct ResultVisitor<'a, NumberRing, A>

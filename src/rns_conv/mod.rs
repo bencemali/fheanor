@@ -8,6 +8,7 @@ use feanor_math::matrix::*;
 /// of elements.
 /// 
 pub mod lift;
+
 ///
 /// Contains the implementation of the rounded rescaling operations used
 /// during BFV multiplication and modulus-switching.

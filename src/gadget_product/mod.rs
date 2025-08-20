@@ -15,7 +15,7 @@ use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, 
 use crate::ciphertext_ring::{BGFVCiphertextRing, PreparedMultiplicationRing};
 use crate::cyclotomic::*;
 use crate::number_ring::HENumberRing;
-use crate::rns_conv::{lift, RNSOperation};
+use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 
 ///
 /// Contains the two basic types [`digits::RNSFactorIndexList`] and [`digits::RNSGadgetVectorDigitIndices`]
@@ -23,7 +23,7 @@ use crate::rns_conv::{lift, RNSOperation};
 /// 
 pub mod digits;
 
-type GadgetProductBaseConversion<A> = lift::AlmostExactBaseConversion<A>;
+type GadgetProductBaseConversion<A> = UsedBaseConversion<A>;
 
 ///
 /// Represents the left-hand side operand of a gadget product.

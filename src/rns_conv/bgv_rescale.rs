@@ -14,6 +14,7 @@ use feanor_math::ordered::OrderedRingStore;
 use feanor_math::seq::*;
 use tracing::instrument;
 
+use crate::rns_conv::UsedBaseConversion;
 use crate::ZZbig;
 use crate::rns_conv::RNSOperation;
 
@@ -22,7 +23,7 @@ use crate::rns_conv::RNSOperation;
 /// for BGV, usually we just use lifts from very small RNS bases (i.e. `t` or a single RNS factor
 /// of `q`).
 /// 
-type UsedBaseConversion<A> = super::lift::AlmostExactBaseConversion<A>;
+type BGVUsedBaseConversion<A> = UsedBaseConversion<A>;
 
 ///
 /// Computes the almost exact rescaling that "preserves" congruence modulo `t`,
@@ -217,9 +218,9 @@ pub struct CongruencePreservingAlmostExactBaseConversion<A = Global>
     /// the first this many moduli of `intermediate_moduli` are the output moduli
     q_moduli_count: usize,
     /// moduli of `q` are sorted as in `intermediate_moduli`
-    b_to_intermediate_lift: UsedBaseConversion<A>,
+    b_to_intermediate_lift: BGVUsedBaseConversion<A>,
     /// moduli of `q` are sorted as in `q_over_b_moduli`
-    intermediate_to_t_conv: UsedBaseConversion<A>,
+    intermediate_to_t_conv: BGVUsedBaseConversion<A>,
     allocator: A,
     /// `b^-1` as an element of `Z/tZ`
     b_inv_mod_t: El<Zn>,
@@ -284,8 +285,8 @@ impl<A> CongruencePreservingAlmostExactBaseConversion<A>
             q_moduli_count: q_moduli_count,
             b_mod_q: intermediate_moduli[..q_moduli_count].iter().map(|rns_factor| rns_factor.coerce(&ZZbig, ZZbig.clone_el(&b))).collect(),
             b_inv_mod_t: plaintext_modulus.invert(&plaintext_modulus.coerce(&ZZbig, b)).unwrap(),
-            b_to_intermediate_lift: UsedBaseConversion::new_with_alloc(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
-            intermediate_to_t_conv: UsedBaseConversion::new_with_alloc(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
+            b_to_intermediate_lift: BGVUsedBaseConversion::new_with_alloc(b_moduli.clone(), intermediate_moduli.clone(), allocator.clone()),
+            intermediate_to_t_conv: BGVUsedBaseConversion::new_with_alloc(intermediate_moduli, vec![plaintext_modulus], allocator.clone()),
             b_moduli: b_moduli,
             allocator: allocator
         }

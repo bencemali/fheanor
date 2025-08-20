@@ -31,6 +31,9 @@ use super::RNSOperation;
 /// unless the shortest lift of the input is bounded by `Q/4`, in which case the result
 /// is always correct.
 /// 
+/// This has been deprecated, use [`crate::rns_conv::matrix_lift::AlmostExactMatrixBaseConversion`]
+/// instead, which has the same functionality and much better performance.
+/// 
 /// # Implementation
 /// 
 /// Implementation is changed to approximating the lifted value using lower precision integers,
@@ -40,6 +43,7 @@ use super::RNSOperation;
 /// ```
 /// modulo some `q'`.
 /// 
+#[deprecated]
 pub struct AlmostExactBaseConversion<A = Global>
     where A: Allocator + Clone
 {
@@ -67,17 +71,20 @@ pub struct AlmostExactBaseConversion<A = Global>
     allocator: A
 }
 
+#[allow(deprecated)]
 impl AlmostExactBaseConversion {
 
     ///
     /// Creates a new [`AlmostExactBaseConversion`] from `q` to `q'`. The moduli belonging to `q'`
     /// are expected to be sorted.
     /// 
+    #[deprecated]
     pub fn new(in_rings: Vec<Zn>, out_rings: Vec<Zn>) -> Self {
         Self::new_with_alloc(in_rings, out_rings, Global)
     }
 }
 
+#[allow(deprecated)]
 impl<A> AlmostExactBaseConversion<A> 
     where A: Allocator + Clone
 {
@@ -85,6 +92,7 @@ impl<A> AlmostExactBaseConversion<A>
     /// Creates a new [`AlmostExactBaseConversion`] from `q` to `q'`.
     /// 
     #[instrument(skip_all)]
+    #[deprecated]
     pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
         for i in 0..in_rings.len() {
             assert!(in_rings.at(i).integer_ring().get_ring() == ZZi64.get_ring());
@@ -137,6 +145,7 @@ impl<A> AlmostExactBaseConversion<A>
     }
 }
 
+#[allow(deprecated)]
 impl<A> RNSOperation for AlmostExactBaseConversion<A> 
     where A: Allocator + Clone
 {
@@ -255,6 +264,7 @@ fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expecte
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
@@ -292,6 +302,7 @@ fn test_rns_base_conversion() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_both_unordered() {
     let from = vec![Zn::new(31), Zn::new(29)];
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
@@ -310,6 +321,7 @@ fn test_rns_base_conversion_both_unordered() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_to_unordered() {
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(257), Zn::new(113)];
@@ -328,6 +340,7 @@ fn test_rns_base_conversion_to_unordered() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_small() {
     let from = vec![Zn::new(3), Zn::new(97)];
     let to = vec![Zn::new(17)];
@@ -347,6 +360,7 @@ fn test_rns_base_conversion_small() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_not_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
@@ -370,6 +384,7 @@ fn test_rns_base_conversion_not_coprime() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_not_coprime_from_unordered() {
     let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
@@ -393,6 +408,7 @@ fn test_rns_base_conversion_not_coprime_from_unordered() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_rns_base_conversion_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
@@ -416,6 +432,7 @@ fn test_rns_base_conversion_coprime() {
 }
 
 #[bench]
+#[allow(deprecated)]
 fn bench_rns_base_conversion(bencher: &mut Bencher) {
     let in_moduli_count = 20;
     let out_moduli_count = 40;
@@ -447,6 +464,7 @@ fn bench_rns_base_conversion(bencher: &mut Bencher) {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_base_conversion_large() {
     let primes: [i64; 34] = [
         72057594040066049,

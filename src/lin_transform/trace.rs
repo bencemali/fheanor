@@ -146,7 +146,7 @@ fn test_extract_coefficient_map() {
     let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn Send + Sync + DynConvolutionAlgorithm<ZnBase>>>::new(Arc::new(STANDARD_CONVOLUTION));
     let base_ring = Zn::new(17 * 17);
     let modulus = (0..4).map(|_| base_ring.neg_one()).collect::<Vec<_>>();
-    let slot_ring = FreeAlgebraImpl::new_with(base_ring, 4, modulus, "a", Global, convolution);
+    let slot_ring = FreeAlgebraImpl::new_with_convolution(base_ring, 4, modulus, "a", Global, convolution);
     let max_ideal_gen = slot_ring.int_hom().map(17);
     let slot_ring = AsLocalPIR::from(AsLocalPIRBase::promise_is_local_pir(slot_ring, max_ideal_gen, Some(2)));
     assert!(is_prim_root_of_unity(&slot_ring, &slot_ring.canonical_gen(), 5));

@@ -136,11 +136,11 @@ impl<A> RNSOperation for CongruencePreservingRescaling<A>
     ///
     /// # Implementation notes
     /// 
-    /// A lot of this code is the same as for [`crate::rnsconv::bfv_rescale::AlmostExactRescaling`], but
+    /// A lot of this code is the same as for [`crate::rns_conv::bfv_rescale::AlmostExactRescaling`], but
     /// some subtle differences make it simpler to re-implement it.
     /// 
     /// In particular, we later refer to `x_mod_b_lift` again, which would not be accessible
-    /// if we used [`crate::rnsconv::bfv_rescale::AlmostExactRescaling`]. Also, we currently lift to `aq`
+    /// if we used [`crate::rns_conv::bfv_rescale::AlmostExactRescaling`]. Also, we currently lift to `aq`
     /// instead of `aq/b`, but I am not sure if that is really necessary.
     /// 
     #[instrument(skip_all)]

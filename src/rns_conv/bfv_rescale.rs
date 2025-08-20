@@ -146,7 +146,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// let from_modulus = 17 * 19 * 23;
 /// let to = vec![Zn::new(29)];
-/// let rescaling = AlmostExactRescaling::new(from.clone(), to.clone(), vec![0, 1, 2]);
+/// let rescaling = AlmostExactRescaling::new(from.clone(), to.clone());
 /// let mut output = [to[0].zero()];
 ///
 /// let x = 1000;
@@ -168,7 +168,7 @@ impl<A> RNSOperation for AlmostExactRescalingConvert<A>
 /// # let from = vec![Zn::new(17), Zn::new(19), Zn::new(23)];
 /// # let from_modulus = 17 * 19 * 23;
 /// # let to = vec![Zn::new(29)];
-/// # let rescaling = AlmostExactRescaling::new(from.clone(), to.clone(), vec![0, 1, 2]);
+/// # let rescaling = AlmostExactRescaling::new(from.clone(), to.clone());
 /// # let mut output = [to[0].zero()];
 /// for x in 1000..2000 {
 ///     rescaling.apply(Submatrix::from_1d(&[from[0].int_hom().map(x), from[1].int_hom().map(x), from[2].int_hom().map(x)], 3, 1), SubmatrixMut::from_1d(&mut output, 1, 1));

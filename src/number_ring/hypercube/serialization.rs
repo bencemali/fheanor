@@ -1,8 +1,6 @@
 use std::marker::PhantomData;
-use std::alloc::Global;
 
 use feanor_math::homomorphism::*;
-use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::ring::*;
 use feanor_math::rings::local::AsLocalPIR;
 use feanor_math::rings::poly::PolyRing;
@@ -143,7 +141,7 @@ impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
         where S: serde::Serializer
     {
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.hypercube_isomorphism.ring().base_ring().get_ring().clone())).unwrap();
-        let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
+        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let hom = ZnReductionMap::new(self.hypercube_isomorphism.slot_ring().base_ring(), ZpeX.base_ring()).unwrap();
         SerializableHypercubeIsomorphismData {
             p: self.hypercube_isomorphism.p(),
@@ -223,7 +221,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
         where D: serde::Deserializer<'de>
     {
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
-        let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
+        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
         assert_eq!(self.ring.m(), deserialized.m);
         assert_eq!(self.ring.characteristic(ZZi64).unwrap(), ZZi64.pow(deserialized.p, deserialized.e));

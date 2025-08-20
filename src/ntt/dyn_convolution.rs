@@ -123,7 +123,7 @@ fn test_dyn_convolution_is_dyn_compatible() {
 fn test_dyn_convolution_convolution_use_build_ring() {
     fn do_test(conv: Box<dyn DynConvolutionAlgorithm<ZnBase>>) {
         let base_ring = Zn::new(2);
-        let ring = FreeAlgebraImpl::new_with(base_ring, 3, [base_ring.one(), base_ring.one()], "a", Global, DynConvolutionAlgorithmConvolution::<ZnBase>::new(conv));
+        let ring = FreeAlgebraImpl::new_with_convolution(base_ring, 3, [base_ring.one(), base_ring.one()], "a", Global, DynConvolutionAlgorithmConvolution::<ZnBase>::new(conv));
         assert_el_eq!(&ring, ring.one(), ring.pow(ring.canonical_gen(), 7));
     }
     do_test(Box::new(STANDARD_CONVOLUTION));

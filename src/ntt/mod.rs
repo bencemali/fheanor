@@ -45,7 +45,7 @@ impl FheanorConvolution<Zn> for NTTConvolution<ZnBase, ZnFastmulBase, CanHom<ZnF
 
     fn new(ring: Zn, max_log2_len: usize) -> Self {
         assert!(ring.integer_ring().is_one(&ring.integer_ring().euclidean_rem(ring.integer_ring().clone_el(ring.modulus()), &ring.integer_ring().power_of_two(max_log2_len))));
-        NTTConvolution::new_with(ring.into_can_hom(ZnFastmul::new(ring).unwrap()).ok().unwrap(), Global)
+        NTTConvolution::new_with_hom(ring.into_can_hom(ZnFastmul::new(ring).unwrap()).ok().unwrap(), Global)
     }
 
     fn ring(&self) -> RingRef<'_, ZnBase> {

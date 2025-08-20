@@ -103,7 +103,11 @@ fn vecmatmul_4_i128_to_i128(lhs: [i128; BLOCK_SIZE], rhs: [&[i64]; BLOCK_SIZE], 
 }
 
 fn pad_to_block(len: usize) -> usize {
-    ((len - 1) / (1 << BLOCK_SIZE_LOG2) + 1) * (1 << BLOCK_SIZE_LOG2)
+    if len == 0 {
+        0
+    } else {
+        ((len - 1) / (1 << BLOCK_SIZE_LOG2) + 1) * (1 << BLOCK_SIZE_LOG2)
+    }
 }
 
 impl AlmostExactMatrixBaseConversion {
@@ -129,16 +133,16 @@ impl<A> AlmostExactMatrixBaseConversion<A>
 
         let max = |l, r| if ZZbig.is_geq(&l, &r) { l } else { r };
         let max_computation_result = ZZbig.prod([
-            in_rings.iter().map(|ring| int_cast(*ring.modulus() * ZN_ANY_LIFT_FACTOR, ZZbig, ZZi64)).reduce(max).unwrap(),
-            out_rings.iter().map(|ring| int_cast(*ring.modulus(), ZZbig, ZZi64)).reduce(max).unwrap(),
+            in_rings.iter().map(|ring| int_cast(*ring.modulus() * ZN_ANY_LIFT_FACTOR, ZZbig, ZZi64)).reduce(max).unwrap_or(ZZbig.zero()),
+            out_rings.iter().map(|ring| int_cast(*ring.modulus(), ZZbig, ZZi64)).reduce(max).unwrap_or(ZZbig.zero()),
             ZZbig.int_hom().map(in_rings.len() as i32)
         ].into_iter());
         assert!(ZZbig.is_lt(&max_computation_result, &ZZbig.power_of_two(i128::BITS as usize - 1)), "temporarily unreduced modular lift sum will overflow");
 
         // When computing the approximate lifted value, we can work with `gamma` in place of `Q`, where `gamma >= 4 r max(q)` (`q` runs through the input factors)
-        let log2_r = ZZi64.abs_log2_ceil(&(in_rings.len() as i64)).unwrap();
-        let log2_qmax = ZZi64.abs_log2_ceil(&(0..in_rings.len()).map(|i| *in_rings.at(i).modulus()).max().unwrap()).unwrap();
-        let log2_any_lift_factor = ZZi64.abs_log2_ceil(&ZN_ANY_LIFT_FACTOR).unwrap();
+        let log2_r = ZZi64.abs_log2_ceil(&(in_rings.len() as i64)).unwrap_or(0);
+        let log2_qmax = ZZi64.abs_log2_ceil(&(0..in_rings.len()).map(|i| *in_rings.at(i).modulus()).max().unwrap_or(0)).unwrap_or(0);
+        let log2_any_lift_factor = ZZi64.abs_log2_ceil(&ZN_ANY_LIFT_FACTOR).unwrap_or(0);
         let gamma = ZZbig.power_of_two(log2_r + log2_qmax + log2_any_lift_factor + 2);
         // we compute a sum of `r` summands, each being a product of a lifted value (mod `q`, `q | Q`) and `gamma/q`; this must not overflow
         assert!(ZZbig.abs_log2_ceil(&gamma).unwrap() + log2_r + log2_any_lift_factor + 1 < ZZi128.get_ring().representable_bits().unwrap(), "correction computation will overflow");
@@ -310,6 +314,28 @@ fn test_matmul() {
         [356, 411, 466, 521]
     ];
     assert_matrix_eq!(ZZi128, expected, from_fn::<_, BLOCK_SIZE, _>(|i| res[i].as_chunks::<BLOCK_SIZE>().0[0]));
+}
+
+#[test]
+fn test_empty_rns_base_conversion() {
+    let from = vec![];
+    let to = vec![Zn::new(17), Zn::new(257)];
+
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+
+    let mut actual = to.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
+    table.apply(Submatrix::from_1d(&[], from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+    for j in 0..to.len() {
+        assert_el_eq!(to.at(j), to.at(j).zero(), actual.at(j));
+    }
+
+    let from = vec![Zn::new(17), Zn::new(257)];
+    let to = vec![];
+
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
+
+    let input = from.iter().map(|Zn| Zn.one()).collect::<Vec<_>>();
+    table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut [], to.len(), 1));
 }
 
 #[test]

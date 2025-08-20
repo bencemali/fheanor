@@ -309,8 +309,8 @@ impl<R: RingBase + Default> PartialEq for PlaintextCircuitGate<R> {
 /// a circuit will allow for much simpler testing, since it can also be executed
 /// on unencrypted data.
 /// 
-/// Simple ways to create circuits are by using [`crate::digitextract::polys::low_depth_paterson_stockmeyer()`]
-/// and [`crate::lintransform::matmul::MatmulTransform::matmul1d()`]. However, you 
+/// Simple ways to create circuits are by using [`crate::digit_extract::polys::low_depth_paterson_stockmeyer()`]
+/// and [`crate::lin_transform::matmul::MatmulTransform::matmul1d()`]. However, you 
 /// can also manually build a circuit using the functions of [`PlaintextCircuit`], in
 /// particular [`PlaintextCircuit::linear_transform()`], [`PlaintextCircuit::select()`],
 /// [`PlaintextCircuit::tensor()`] and [`PlaintextCircuit::compose()`].

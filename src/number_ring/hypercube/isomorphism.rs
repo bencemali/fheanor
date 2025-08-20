@@ -89,7 +89,7 @@ fn get_prim_root_of_unity<F, R>(Fp: F, ring: R, m: usize) -> El<R>
 {
     let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
     assert_el_eq!(Fp.integer_ring(), Fp.modulus(), int_cast(p, Fp.integer_ring(), ZZbig));
-    let galois_field = GaloisField::new_with(
+    let galois_field = GaloisField::new_with_convolution(
         Fp, 
         ring.rank(), 
         Global, 
@@ -116,7 +116,7 @@ fn get_prim_root_of_unity<F, R>(Fp: F, ring: R, m: usize) -> El<R>
 fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgorithmConvolution<R, Arc<dyn Send + Sync + DynConvolutionAlgorithm<R>>>
     where R: ?Sized + ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<StaticRingBase<i64>>
 {
-    let fft_convolution = FFTConvolution::new_with(Global);
+    let fft_convolution = FFTConvolution::new();
     let max_log2_len = ZZi64.abs_log2_ceil(&(d as i64)).unwrap() + 1;
     if d <= 30 {
         DynConvolutionAlgorithmConvolution::new(Arc::new(STANDARD_CONVOLUTION))
@@ -241,7 +241,7 @@ impl<R> HypercubeIsomorphism<R>
         let slot_rings: Vec<SlotRingOf<R>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing slot rings", |[]| slot_ring_moduli.iter().map(|f| {
             let unwrap = UnwrapHom::new(ZpeX.base_ring().get_ring());
             let modulus = (0..d).map(|i| ring.base_ring().negate(unwrap.map_ref(ZpeX.coefficient_at(f, i)))).collect::<Vec<_>>();
-            let slot_ring = FreeAlgebraImpl::new_with(
+            let slot_ring = FreeAlgebraImpl::new_with_convolution(
                 RingValue::from(ring.base_ring().get_ring().clone()),
                 d,
                 modulus,
@@ -278,7 +278,7 @@ impl<R> HypercubeIsomorphism<R>
         let poly_ring = DensePolyRing::new(new_ring.base_ring(), "X");
         let slot_rings = self.slot_rings.iter().map(|slot_ring| {
             let gen_poly = slot_ring.generating_poly(&poly_ring, &red_map);
-            let new_slot_ring = FreeAlgebraImpl::new_with(
+            let new_slot_ring = FreeAlgebraImpl::new_with_convolution(
                 RingValue::from(new_ring.base_ring().get_ring().clone()),
                 d,
                 (0..d).map(|i| new_ring.base_ring().negate(new_ring.base_ring().clone_el(poly_ring.coefficient_at(&gen_poly, i)))).collect::<Vec<_>>(),
@@ -291,7 +291,7 @@ impl<R> HypercubeIsomorphism<R>
         }).collect::<Vec<_>>();
 
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<RNew>> = AsLocalPIR::from_zn(RingValue::from(new_ring.base_ring().get_ring().clone())).unwrap();
-        let base_poly_ring = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
+        let base_poly_ring = DensePolyRing::new(decorated_base_ring, "X");
         return HypercubeIsomorphism {
             slot_to_ring_interpolation: self.slot_to_ring_interpolation.change_modulus(base_poly_ring),
             e: e,
@@ -430,9 +430,9 @@ impl<R> HypercubeIsomorphism<R>
         assert!(galois_group.eq_el(hypercube_structure.frobenius(1), frobenius));
 
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
-        let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
+        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let Fp = RingValue::from(<<<R::Type as RingExtension>::BaseRing as RingStore>::Type as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| Ok(int_cast(ZZbig.clone_el(&p), RingRef::new(ZZ), ZZbig))).unwrap_or_else(no_error)).as_field().ok().unwrap();
-        let FpX = DensePolyRing::new_with(Fp, "X", Global, create_convolution(m as usize, ZZbig.abs_log2_ceil(&p).unwrap()));
+        let FpX = DensePolyRing::new_with_convolution(Fp, "X", Global, create_convolution(m as usize, ZZbig.abs_log2_ceil(&p).unwrap()));
         let ZZX = SparsePolyRing::new(ZZi64, "X");
         let Phi_m = cyclotomic_polynomial(&ZZX, m);
         let Phi_n_mod_pe = ZpeX.lifted_hom(&ZZX, ZpeX.base_ring().can_hom(ring.base_ring()).unwrap().compose(ring.base_ring().can_hom(&ZZX.base_ring()).unwrap())).map_ref(&Phi_m);
@@ -447,7 +447,7 @@ impl<R> HypercubeIsomorphism<R>
 
         let tmp_slot_ring = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_large_slot_ring] Creating temporary slot ring", |[]| {
             let base_ring = AsLocalPIR::<RingRef<_>>::from_zn(RingRef::new(ring.base_ring().get_ring())).unwrap();
-            GaloisField::new_with(
+            GaloisField::new_with_convolution(
                 FpX.base_ring(), 
                 d, 
                 Global, 
@@ -525,7 +525,7 @@ impl<R> HypercubeIsomorphism<R>
 
         let tmp_slot_ring: AsLocalPIR<FreeAlgebraImpl<AsLocalPIR<RingRef<_>>, _, _, _>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Creating temporary slot ring", |[]| {
             let base_ring: AsLocalPIR<RingRef<BaseRing<R>>> = AsLocalPIR::<RingRef<_>>::from_zn(RingRef::new(ring.base_ring().get_ring())).unwrap();
-            GaloisField::new_with(
+            GaloisField::new_with_convolution(
                 &Fp, 
                 d, 
                 Global, 
@@ -542,7 +542,7 @@ impl<R> HypercubeIsomorphism<R>
         );
 
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
-        let ZpeX = DensePolyRing::new_with(decorated_base_ring, "X", Global, STANDARD_CONVOLUTION);
+        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let slot_ring_moduli = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing factorization of cyclotomic polynomial", |[]| {
             let SX = DensePolyRing::new(&tmp_slot_ring, "X");
             let mut slot_ring_moduli = Vec::new();

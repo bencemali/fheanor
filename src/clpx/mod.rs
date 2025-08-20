@@ -30,7 +30,6 @@ use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
-use crate::rns_conv::shared_lift::AlmostExactSharedBaseConversion;
 use crate::bfv::{Pow2BFV, CompositeBFV};
 use crate::{DefaultCiphertextAllocator, DefaultNegacyclicNTT};
 use crate::clpx::encoding::*;
@@ -402,10 +401,9 @@ pub trait CLPXInstantiation {
     {
         let (c0, c1) = val;
 
-        let lift_to_Cmul = Self::create_lift_to_C_mul(C, C_mul);
-        let lift = |c| perform_rns_op(C_mul.get_ring(), C.get_ring(), &c, &lift_to_Cmul);
-        let c0_lifted = lift(c0);
-        let c1_lifted = lift(c1);
+        let mut lift = lift_to_Cmul::<Self>(C, C_mul);
+        let c0_lifted = lift(&c0);
+        let c1_lifted = lift(&c1);
 
         let [mut lifted0, mut lifted1, mut lifted2] = C_mul.get_ring().two_by_two_convolution([&c0_lifted, &c1_lifted], [&c0_lifted, &c1_lifted]);
 
@@ -414,11 +412,10 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let scale_down_to_C = Self::create_scale_down_to_C(P, C, C_mul);
-        let scale_down = |c: El<CiphertextRing<Self>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &c, &scale_down_to_C);
-        let res0 = scale_down(lifted0);
-        let res1 = scale_down(lifted1);
-        let res2 = scale_down(lifted2);
+        let mut scale_down = rescale_to_C::<Self>(C, C_mul);
+        let res0 = scale_down(&lifted0);
+        let res1 = scale_down(&lifted1);
+        let res2 = scale_down(&lifted2);
 
         let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
@@ -440,24 +437,6 @@ pub trait CLPXInstantiation {
             C.add_ref_snd(c0, &op.gadget_product(s0, C.get_ring())),
             op.gadget_product(s1, C.get_ring())
         );
-    }
-    
-    fn create_lift_to_C_mul(C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>) -> AlmostExactSharedBaseConversion {
-        AlmostExactSharedBaseConversion::new_with_alloc(
-            C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
-            Vec::new(),
-            C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
-            Global
-        )
-    }
-
-    fn create_scale_down_to_C(_P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>) -> AlmostExactRescalingConvert {
-        AlmostExactRescalingConvert::new_with_alloc(
-            C_mul.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(), 
-            Vec::new(), 
-            (0..C.base_ring().len()).collect(),
-            Global
-        )
     }
 
     fn create_t_in_C_mul(P: &CLPXEncoding, C_mul: &CiphertextRing<Self>) -> El<CiphertextRing<Self>> {
@@ -566,7 +545,8 @@ fn rescale_to_C<'a, Params: ?Sized + CLPXInstantiation>(C: &'a CiphertextRing<Pa
     assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
     let rescale = AlmostExactRescalingConvert::new_with_alloc(
-        C_mul.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
+        C_mul.base_ring().as_iter().cloned().collect(), 
+        C.base_ring().as_iter().cloned().collect(),
         Vec::new(), 
         (0..C.base_ring().len()).collect(),
         Global

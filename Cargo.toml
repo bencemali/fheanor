@@ -37,7 +37,6 @@ tracing-chrome = "0.7.2"
 [features]
 use_hexl = ["dep:feanor-math-hexl"]
 generic_tests = []
-strassen_rnsconv = ["feanor-math/optimized_matmul"]
 
 [profile.profiling]
 inherits = "bench"

@@ -57,11 +57,11 @@ pub mod bootstrap;
 pub type NumberRing<Params: BFVInstantiation> = <<Params as BFVInstantiation>::CiphertextRing as BGFVCiphertextRing>::NumberRing;
 pub type PlaintextRing<Params: BFVInstantiation> = RingValue<<Params as BFVInstantiation>::PlaintextRing>;
 pub type SecretKey<Params: BFVInstantiation> = El<CiphertextRing<Params>>;
-pub type KeySwitchKey<'a, Params: BFVInstantiation> = (GadgetProductOperand<'a, Params>, GadgetProductOperand<'a, Params>);
-pub type RelinKey<'a, Params: BFVInstantiation> = KeySwitchKey<'a, Params>;
+pub type KeySwitchKey<Params: BFVInstantiation> = (GadgetProductOperand<Params>, GadgetProductOperand<Params>);
+pub type RelinKey<Params: BFVInstantiation> = KeySwitchKey<Params>;
 pub type CiphertextRing<Params: BFVInstantiation> = RingValue<Params::CiphertextRing>;
 pub type Ciphertext<Params: BFVInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
-pub type GadgetProductOperand<'a, Params: BFVInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
+pub type GadgetProductOperand<Params: BFVInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
 /// When choosing primes for an RNS base, where the only constraint is that
@@ -450,9 +450,7 @@ pub trait BFVInstantiation {
     /// The noise is chosen according to the rounded Gaussian distribution with standard deviation `noise_sigma`.
     /// 
     #[instrument(skip_all)]
-    fn gen_rk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> RelinKey<'a, Self>
-        where Self: 'a
-    {
+    fn gen_rk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> RelinKey<Self> {
         Self::gen_switch_key(C, rng, &C.pow(C.clone_el(sk), 2), sk, digits, noise_sigma)
     }
     
@@ -469,9 +467,7 @@ pub trait BFVInstantiation {
     /// performing only the key-switch modulo the larger modulus).
     /// 
     #[instrument(skip_all)]
-    fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
@@ -506,9 +502,7 @@ pub trait BFVInstantiation {
     /// performing only the key-switch modulo the larger modulus).
     /// 
     #[instrument(skip_all)]
-    fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         let (c0, c1) = val;
 
         let mut lift = lift_to_Cmul::<Self>(C, C_mul);
@@ -543,9 +537,7 @@ pub trait BFVInstantiation {
     /// The noise is chosen according to the rounded Gaussian distribution with standard deviation `noise_sigma`.
     /// 
     #[instrument(skip_all)]
-    fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<'a, Self>
-        where Self: 'a
-    {
+    fn gen_switch_key<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
         let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for (i, digit) in digits.iter().enumerate() {
@@ -576,9 +568,7 @@ pub trait BFVInstantiation {
     /// modulus before calling `key_switch()`.
     /// 
     #[instrument(skip_all)]
-    fn key_switch<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn key_switch(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         let (c0, c1) = ct;
         let (s0, s1) = switch_key;
         let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, switch_key.0.gadget_vector_digits());
@@ -602,7 +592,7 @@ pub trait BFVInstantiation {
         ));
         (rescale(&ct.0), rescale(&ct.1))
     }
-        
+
     ///
     /// Modulus-switches a ciphertext.
     /// 
@@ -612,21 +602,37 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_ct(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let num_moduli = Cnew.base_ring().as_iter().filter(|Zp| Cold.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).cloned().collect::<Vec<_>>();
-        let den_moduli_indices = Cold.base_ring().as_iter().enumerate().filter(|(_, Zp)| Cnew.base_ring().as_iter().all(|other_Zp| other_Zp.modulus() != Zp.modulus())).map(|(i, _)| i).collect::<Vec<_>>();
         let mod_switch = AlmostExactRescaling::new_with_alloc(
             Cold.base_ring().as_iter().map(|Zp| *Zp).collect(),
-            num_moduli,
-            den_moduli_indices,
+            Cnew.base_ring().as_iter().map(|Zp| *Zp).collect(),
             Global
         );
-        assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()), "invalid modulus switch");
+        assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+        assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
         return (
             perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.0, &mod_switch),
             perform_rns_op(Cnew.get_ring(), Cold.get_ring(), &ct.1, &mod_switch)
         );
     }
     
+    ///
+    /// Modulus-switches a secret key.
+    /// 
+    /// This requires that in coefficient norm, the secret key is bounded by `q/4`.
+    /// Since the secret key for BFV must be small anyway, this should never a problem.
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_sk(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
+        let mod_switch = UsedBaseConversion::new_with_alloc(
+            Cold.base_ring().as_iter().cloned().collect(),
+            Cnew.base_ring().as_iter().cloned().collect(),
+            Global
+        );
+        assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+        assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+        return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
+    }
+
     ///
     /// Generates a Galois key, usable for homomorphically applying the Galois automorphisms
     /// defined by the given element of the Galois group.
@@ -640,9 +646,7 @@ pub trait BFVInstantiation {
     /// The noise is chosen according to the rounded Gaussian distribution with standard deviation `noise_sigma`.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<'a, Self>
-        where Self: 'a
-    {
+    fn gen_gk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
         Self::gen_switch_key(C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits, noise_sigma)
     }
     
@@ -659,9 +663,7 @@ pub trait BFVInstantiation {
     /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois<'a>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_galois(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         Self::key_switch(C, (
             C.get_ring().apply_galois_action(&ct.0, g),
             C.get_ring().apply_galois_action(&ct.1, g)
@@ -685,11 +687,9 @@ pub trait BFVInstantiation {
     /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois_many<'a, 'b, V>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
-        where V: VectorFn<&'b KeySwitchKey<'a, Self>>,
-            KeySwitchKey<'a, Self>: 'b,
-            'a: 'b,
-            Self: 'a
+    fn hom_galois_many<'b, V>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
+        where V: VectorFn<&'b KeySwitchKey<Self>>,
+            Self: 'b
     {
         let digits = gks.at(0).0.gadget_vector_digits();
         let has_same_digits = |gk: &GadgetProductRhsOperand<_>| gk.gadget_vector_digits().len() == digits.len() && gk.gadget_vector_digits().iter().zip(digits.iter()).all(|(l, r)| l == r);
@@ -1096,7 +1096,8 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
     // common and can be mplemented more efficiently
     if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
         let rescale = AlmostExactRescalingConvert::new_with_alloc(
-            C_mul.base_ring().as_iter().cloned().collect::<Vec<_>>(), 
+            C_mul.base_ring().as_iter().cloned().collect(), 
+            C.base_ring().as_iter().cloned().collect(),
             vec![Zt], 
             (0..C.base_ring().len()).collect(),
             Global
@@ -1107,6 +1108,7 @@ fn rescale_to_C<'a, Params: ?Sized + BFVInstantiation>(P: &PlaintextRing<Params>
         let to_extended = temporarily_extend_rns_base(C_mul.base_ring(), ZZ.abs_log2_ceil(P.base_ring().modulus()).unwrap());
         let rescale = AlmostExactRescalingConvert::new_with_alloc(
             to_extended.output_rings().to_owned(), 
+            C.base_ring().as_iter().cloned().collect(),
             Vec::new(), 
             (0..C.base_ring().len()).collect(),
             Global

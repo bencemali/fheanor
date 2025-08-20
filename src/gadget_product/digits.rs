@@ -1,7 +1,8 @@
 use std::fmt::Display;
 use std::ops::{Deref, Range};
 
-use feanor_math::seq::VectorFn;
+use feanor_math::ring::RingStore;
+use feanor_math::seq::{VectorFn, VectorView};
 
 ///
 /// A decomposition of the numbers `0..rns_len` into ranges, which we call digits.
@@ -219,6 +220,7 @@ impl Deref for RNSFactorIndexList {
 }
 
 impl Display for RNSFactorIndexList {
+
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.rns_factor_indices.len() == 0 {
             return write!(f, "[]");
@@ -269,6 +271,38 @@ impl RNSFactorIndexList {
         Self::check_valid(&indices, rns_base_len);
         indices.sort_unstable();
         return Self::from_unchecked(indices.into_boxed_slice());
+    }
+
+    pub fn missing_from<V1, V2, R>(new: V1, master: V2) -> Box<Self>
+        where V1: VectorView<R>,
+            V2: VectorView<R>,
+            R: RingStore
+    {
+        if master.len() == 0 {
+            return Self::empty();
+        }
+        let mut result = Vec::with_capacity(master.len() - new.len());
+        for i in 0..master.len() {
+            if new.as_iter().any(|ring| ring.get_ring() == master.at(i).get_ring()) {
+                result.push(i);
+            }
+        }
+        return Self::from(result, master.len());
+    }
+
+    pub fn missing_from_subset<V1, V2, R>(subset: V1, master: V2) -> Option<Box<Self>>
+        where V1: VectorView<R>,
+            V2: VectorView<R>,
+            R: RingStore
+    {
+        let subset_len = subset.len();
+        let master_len = master.len();
+        let result = Self::missing_from(subset, master);
+        if result.len() + subset_len == master_len {
+            return Some(result);
+        } else {
+            return None;
+        }
     }
 
     pub fn contains(&self, i: usize) -> bool {

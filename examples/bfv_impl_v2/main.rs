@@ -36,7 +36,10 @@ fn create_ciphertext_ring(ring_degree: usize, bitlength_of_q: usize) -> Cipherte
         bitlength_of_q - 10, 
         bitlength_of_q, 
         57, 
-        |bound| largest_prime_leq_congruent_to_one(int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), number_ring. mod_p_required_root_of_unity() as i64).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
+        |bound| largest_prime_leq_congruent_to_one(
+            int_cast(bound, StaticRing::<i64>::RING, BigIntRing::RING), 
+            number_ring. mod_p_required_root_of_unity() as i64
+        ).map(|p| int_cast(p, BigIntRing::RING, StaticRing::<i64>::RING))
     ).unwrap();
     return <CiphertextRing as RingStore>::Type::new(
         number_ring,
@@ -144,8 +147,8 @@ fn hom_mul_three_component(
     let (c0_prime, c1_prime) = (&rhs.0, &rhs.1);
 
     let lift_to_multiplication_ring_rnsconv = AlmostExactBaseConversion::new(
-        ciphertext_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
-        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>()
+        ciphertext_ring.base_ring().as_iter().cloned().collect(), 
+        multiplication_ring.base_ring().as_iter().cloned().collect()
     );
     debug_assert!(lift_to_multiplication_ring_rnsconv.input_rings().iter().zip(ciphertext_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
     debug_assert!(lift_to_multiplication_ring_rnsconv.output_rings().iter().zip(multiplication_ring.base_ring().as_iter()).all(|(lhs, rhs)| lhs.get_ring() == rhs.get_ring()));
@@ -165,7 +168,8 @@ fn hom_mul_three_component(
     );
 
     let scale_down_rnsconv = AlmostExactRescalingConvert::new(
-        multiplication_ring.base_ring().as_iter().map(|Zp| zn_64::Zn::new(*Zp.modulus() as u64)).collect::<Vec<_>>(), 
+        multiplication_ring.base_ring().as_iter().cloned().collect(), 
+        ciphertext_ring.base_ring().as_iter().cloned().collect(),
         vec![ zn_64::Zn::new(*plaintext_ring.base_ring().modulus() as u64) ], 
         ciphertext_ring.base_ring().as_iter().map(|Zp| multiplication_ring.base_ring().as_iter().position(|Zp2| Zp2.modulus() == Zp.modulus()).unwrap()).collect::<Vec<_>>()
     );

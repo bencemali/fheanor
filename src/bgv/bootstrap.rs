@@ -6,7 +6,6 @@ use feanor_math::assert_el_eq;
 use feanor_math::serialization::SerializableElementRing;
 
 use crate::bgv::modswitch::DefaultModswitchStrategy;
-use crate::bgv::noise_estimator::AlwaysZeroNoiseEstimator;
 use crate::circuit::*;
 use crate::log_time;
 use crate::digit_extract::DigitExtract;
@@ -231,9 +230,8 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         let input_dropped_rns_factors = {
             assert!(C_master.base_ring().len() - ct_dropped_moduli.len() >= self.pre_bootstrap_rns_factors);
             let gk_digits = gks[0].1.gadget_vector_digits();
-            let (drop_additional, _) = DefaultModswitchStrategy::<Params, AlwaysZeroNoiseEstimator, false>::compute_optimal_special_modulus(
-                P_base,
-                C_master,
+            let (drop_additional, _) = compute_optimal_special_modulus(
+                C_master.get_ring(),
                 ct_dropped_moduli,
                 C_master.base_ring().len() - ct_dropped_moduli.len() - self.pre_bootstrap_rns_factors,
                 gk_digits

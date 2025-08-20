@@ -25,8 +25,8 @@ use super::*;
 /// that `sum_i c_i = k` and `a, sum_i d_i >= b - c + d` which minimize the number of
 /// nonzero entries of `b - c + d`.
 /// 
-/// Note that this is a very good heuristic, and will be optimal in most cases.
-/// In general, it will not give the optimal solution, however.
+/// Note that this function implements a very good heuristic, which will be optimal in
+/// most cases. In general, it will not give the optimal solution, however.
 /// 
 /// Clearly this requires that `sum_i b_i >= k`.
 /// 
@@ -718,6 +718,51 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
     }
 }
 
+///
+/// Finds `drop_additional_count` RNS factors outside of `dropped_factors_input` and
+/// a set `special_modulus` of RNS factors, which optimize performance and noise growth
+/// for a key-switch.
+/// 
+/// More concretely, removing the the `drop_additional` RNS factors (together with
+/// `dropped_factors_input`) and adding the `special_modulus` RNS factors results in the
+/// smallest number of digits in `key_switch_key_digits`, under the constraint that
+/// `len(special_modulus)` is larger or equal to the size of the largest digit.
+/// 
+/// The function returns `(drop_additional, special_modulus)`.
+/// 
+/// # The use case
+/// 
+/// Consider the following situation: We have a ciphertext `ct`, which is
+/// defined modulo a set of RNS factors `X \ B_ct`. We also have a key-switch-key
+/// with digits `D_0, ..., D_r`. Now we want to find a superset `B_final' >= B_ct`
+/// of size `|B_ct| + k`, and a set `B_special <= B_final` such that we get minimial
+/// noise and minimal error, if we mod-switch the ciphertext to `X \ B_final`, the
+/// key to `(X \ B_final) u B_special` and then do a key-switch on these values. 
+/// 
+#[instrument(skip_all)]
+pub fn compute_optimal_special_modulus<C: BGFVCiphertextRing>(
+    C_master: &C,
+    dropped_factors_input: &RNSFactorIndexList,
+    drop_additional_count: usize,
+    key_switch_key_digits: &RNSGadgetVectorDigitIndices
+) -> (Box<RNSFactorIndexList>, Box<RNSFactorIndexList>) {
+    let a = key_switch_key_digits.iter().map(|digit| digit.end - digit.start).collect::<Vec<_>>();
+    let b = key_switch_key_digits.iter().map(|digit| digit.end - digit.start - dropped_factors_input.num_within(&digit)).collect::<Vec<_>>();
+    if let Some((c, d)) = level_digits(&a, &b, drop_additional_count) {
+        let B_additional = key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| !dropped_factors_input.contains(*i)).take(c[digit_idx]));
+        let B_final = RNSFactorIndexList::from(dropped_factors_input.iter().copied().chain(B_additional).collect::<Vec<_>>(), C_master.base_ring().len());
+        let B_special = RNSFactorIndexList::from(key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| B_final.contains(*i)).take(d[digit_idx])).collect::<Vec<_>>(), C_master.base_ring().len());
+        assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
+        return (B_final, B_special);
+    } else {
+        let additional_drop = drop_rns_factors_balanced(&key_switch_key_digits.remove_indices(dropped_factors_input), drop_additional_count);
+        let B_final = additional_drop.pullback(dropped_factors_input);
+        let B_special = B_final.clone();
+        assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
+        return (B_final, B_special);
+    }
+}
+
 impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> DefaultModswitchStrategy<Params, N, LOG> {
 
     pub fn new(noise_estimator: N) -> Self {
@@ -813,52 +858,6 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
     }
 
     ///
-    /// Finds `drop_additional_count` RNS factors outside of `dropped_factors_input` and
-    /// a set `special_modulus` of RNS factors, which optimize performance and noise growth
-    /// for a key-switch.
-    /// 
-    /// More concretely, removing the the `drop_additional` RNS factors (together with
-    /// `dropped_factors_input`) and adding the `special_modulus` RNS factors results in the
-    /// smallest number of digits in `key_switch_key_digits`, under the constraint that
-    /// `len(special_modulus)` is larger or equal to the size of the largest digit.
-    /// 
-    /// The function returns `(drop_additional, special_modulus)`.
-    /// 
-    /// # The use case
-    /// 
-    /// Consider the following situation: We have a ciphertext `ct`, which is
-    /// defined modulo a set of RNS factors `X \ B_ct`. We also have a key-switch-key
-    /// with digits `D_0, ..., D_r`. Now we want to find a superset `B_final' >= B_ct`
-    /// of size `|B_ct| + k`, and a set `B_special <= B_final` such that we get minimial
-    /// noise and minimal error, if we mod-switch the ciphertext to `X \ B_final`, the
-    /// key to `(X \ B_final) u B_special` and then do a key-switch on these values. 
-    /// 
-    #[instrument(skip_all)]
-    pub fn compute_optimal_special_modulus(
-        _P: &PlaintextRing<Params>,
-        C_master: &CiphertextRing<Params>,
-        dropped_factors_input: &RNSFactorIndexList,
-        drop_additional_count: usize,
-        key_switch_key_digits: &RNSGadgetVectorDigitIndices
-    ) -> (/* B_final = */ Box<RNSFactorIndexList>, /* B_special = */ Box<RNSFactorIndexList>) {
-        let a = key_switch_key_digits.iter().map(|digit| digit.end - digit.start).collect::<Vec<_>>();
-        let b = key_switch_key_digits.iter().map(|digit| digit.end - digit.start - dropped_factors_input.num_within(&digit)).collect::<Vec<_>>();
-        if let Some((c, d)) = level_digits(&a, &b, drop_additional_count) {
-            let B_additional = key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| !dropped_factors_input.contains(*i)).take(c[digit_idx]));
-            let B_final = RNSFactorIndexList::from(dropped_factors_input.iter().copied().chain(B_additional).collect::<Vec<_>>(), C_master.base_ring().len());
-            let B_special = RNSFactorIndexList::from(key_switch_key_digits.iter().enumerate().flat_map(|(digit_idx, digit)| digit.filter(|i| B_final.contains(*i)).take(d[digit_idx])).collect::<Vec<_>>(), C_master.base_ring().len());
-            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
-            return (B_final, B_special);
-        } else {
-            let additional_drop = drop_rns_factors_balanced(&key_switch_key_digits.remove_indices(dropped_factors_input), drop_additional_count);
-            let B_final = additional_drop.pullback(dropped_factors_input);
-            let B_special = B_final.clone();
-            assert_eq!(B_final.len(), dropped_factors_input.len() + drop_additional_count);
-            return (B_final, B_special);
-        }
-    }
-
-    ///
     /// Computes the RNS base we should switch to before multiplication to
     /// minimize the result noise. The result is returned as the list of RNS
     /// factors of `C_master` that we want to drop. This list corresponds to
@@ -884,7 +883,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
 
         // now try every number of additional RNS factors to drop
         let compute_result_noise = |num_to_drop: usize| {
-            let (total_drop, special_modulus) = Self::compute_optimal_special_modulus(P, C_master, &base_drop, num_to_drop, rk_digits);
+            let (total_drop, special_modulus) = compute_optimal_special_modulus(C_master.get_ring(), &base_drop, num_to_drop, rk_digits);
             let total_drop_without_special = total_drop.subtract(&special_modulus);
             let C_target = Params::mod_switch_down_C(C_master, &total_drop);
             let C_special = Params::mod_switch_down_C(C_master, &total_drop_without_special);
@@ -1287,7 +1286,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
 
                 let gk_digits = get_gk(gs[0]).1.gadget_vector_digits();
                 assert!(gs.iter().all(|g| get_gk(*g).1.gadget_vector_digits() == gk_digits), "when using `gal_many()`, all Galois keys must have the same digits");
-                let (total_drop, special_modulus) = Self::compute_optimal_special_modulus(P, C_master, &x.dropped_rns_factor_indices, 0, gk_digits);
+                let (total_drop, special_modulus) = compute_optimal_special_modulus(C_master.get_ring(), &x.dropped_rns_factor_indices, 0, gk_digits);
                 assert!(total_drop.len() < C_master.base_ring().len());
 
                 let C_target = Params::mod_switch_down_C(&Cx, &total_drop.pushforward(&x.dropped_rns_factor_indices));

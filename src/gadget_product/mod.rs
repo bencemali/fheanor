@@ -23,7 +23,7 @@ use crate::rns_conv::{lift, RNSOperation};
 /// 
 pub mod digits;
 
-type UsedBaseConversion<A> = lift::AlmostExactBaseConversion<A>;
+type GadgetProductBaseConversion<A> = lift::AlmostExactBaseConversion<A>;
 
 ///
 /// Represents the left-hand side operand of a gadget product.
@@ -281,7 +281,7 @@ fn gadget_decompose<R, S, V>(ring: &R, el: &R::Element, digits: V, out_ring: &S)
     for i in 0..digits.len() {
         
         let digit = digits.at(i);
-        let conversion = UsedBaseConversion::new_with_alloc(
+        let conversion = GadgetProductBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
             Global
@@ -314,7 +314,7 @@ fn gadget_decompose_doublerns<NumberRing, A, V>(ring: &DoubleRNSRingBase<NumberR
     for i in 0..digits.len() {
         
         let digit = digits.at(i);
-        let conversion = UsedBaseConversion::new_with_alloc(
+        let conversion = GadgetProductBaseConversion::new_with_alloc(
             digit.iter().map(|idx| *ring.base_ring().at(idx)).collect::<Vec<_>>(),
             homs.iter().map(|h| **h.codomain()).collect::<Vec<_>>(),
             Global

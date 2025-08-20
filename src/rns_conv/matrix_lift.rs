@@ -1,4 +1,3 @@
-use feanor_math::algorithms::matmul::strassen::strassen_mem_size;
 use feanor_math::integer::*;
 use feanor_math::matrix::*;
 use feanor_math::homomorphism::*;
@@ -6,13 +5,13 @@ use feanor_math::seq::*;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::divisibility::DivisibilityRingStore;
-use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::ordered::OrderedRingStore;
 use tracing::instrument;
 
 use std::alloc::Allocator;
 use std::alloc::Global;
+use std::array::from_fn;
 
 use crate::{ZZbig, ZZi64, ZZi128};
 use super::RNSOperation;
@@ -40,11 +39,13 @@ pub struct AlmostExactMatrixBaseConversion<A = Global>
     to_summands: Vec<Zn>,
     /// the values `q/Q mod q` for each RNS factor q dividing Q (ordered as `from_summands`)
     q_over_Q: Vec<ZnEl>,
-    /// shortest lifts of the values `Q/q mod q'` for each RNS factor q dividing Q (ordered as `from_summands_ordered`) and q' dividing Q';
-    /// finally, the last row are the values `gamma/q'` for each RNS factor q dividing Q (ordered as `from_summands_ordered`)
-    Q_over_q_mod_and_downscaled: OwnedMatrix<i128>,
+    /// shortest lifts of the values `Q/q mod q'` for each RNS factor q dividing Q (ordered 
+    /// as `from_summands`, mapped to col index) and q' dividing Q' (ordered as `to_summands`,
+    /// mapped to row index); finally, the last row are the values `gamma/q` for each RNS factor
+    /// q dividing Q (ordered as `from_summands_ordered`)
+    Q_over_q_mod_and_downscaled: OwnedMatrix<i64>,
     gamma: i128,
-    /// `Q mod q'` for every `q'` dividing `Q'`
+    /// `Q mod q'` for every RNS factor q' of Q' (ordered as `to_summands`)
     Q_mod_q: Vec<ZnEl>,
     allocator: A
 }
@@ -52,7 +53,32 @@ pub struct AlmostExactMatrixBaseConversion<A = Global>
 // we currently use `any_lift()`; I haven't yet documented it anywhere, but in fact the largest output of `zn_64::Zn::any_lift()` is currently `6 * modulus()`
 const ZN_ANY_LIFT_FACTOR: i64 = 6;
 
-const BLOCK_SIZE_LOG2: usize = 4;
+const BLOCK_SIZE_LOG2: usize = 2;
+const BLOCK_SIZE: usize = 1 << BLOCK_SIZE_LOG2;
+
+#[inline]
+fn matmul_4x4_i64_to_i128(lhs: [&[i64; BLOCK_SIZE]; BLOCK_SIZE], rhs: [&[i64]; BLOCK_SIZE], out: &mut [&mut [i128]; BLOCK_SIZE]) {
+    let len = rhs[0].len();
+    for i in 0..BLOCK_SIZE {
+        assert_eq!(len, rhs[i].len());
+        assert_eq!(len, out[i].len());
+    }
+
+    for (l_r, o_r) in lhs.into_iter().zip(out.into_iter()) {
+        let o_r = &mut **o_r;
+        for j in 0..len {
+            let mut value = 0;
+            for k in 0..BLOCK_SIZE {
+                // safe since k < len
+                debug_assert!(j < rhs[k].len());
+                value += (unsafe { *rhs[k].get_unchecked(j) } as i128) * (l_r[k] as i128);
+            }
+            // safe since k < len
+            debug_assert!(j < o_r.len());
+            *unsafe { o_r.get_unchecked_mut(j) } += value;
+        }
+    }
+}
 
 fn pad_to_block(len: usize) -> usize {
     ((len - 1) / (1 << BLOCK_SIZE_LOG2) + 1) * (1 << BLOCK_SIZE_LOG2)
@@ -61,8 +87,7 @@ fn pad_to_block(len: usize) -> usize {
 impl AlmostExactMatrixBaseConversion {
 
     ///
-    /// Creates a new [`AlmostExactMatrixBaseConversion`] from `q` to `q'`. The moduli belonging to `q'`
-    /// are expected to be sorted.
+    /// Creates a new [`AlmostExactMatrixBaseConversion`] from `q` to `q'`.
     /// 
     pub fn new(in_rings: Vec<Zn>, out_rings: Vec<Zn>) -> Self {
         Self::new_with_alloc(in_rings, out_rings, Global)
@@ -73,8 +98,7 @@ impl<A> AlmostExactMatrixBaseConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`AlmostExactMatrixBaseConversion`] from `q` to `q'`. The moduli belonging to `q'`
-    /// are expected to be sorted.
+    /// Creates a new [`AlmostExactMatrixBaseConversion`] from `q` to `q'`.
     /// 
     #[instrument(skip_all)]
     pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
@@ -102,9 +126,9 @@ impl<A> AlmostExactMatrixBaseConversion<A>
         let Q_over_q = OwnedMatrix::from_fn_in(pad_to_block(out_rings.len() + 1), pad_to_block(in_rings.len()), |i, j| {
             if i < out_rings.len() && j < in_rings.len() {
                 let ring = out_rings.at(i);
-                ring.smallest_lift(ring.coerce(&ZZbig, ZZbig.checked_div(&Q, &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)).unwrap())) as i128
+                ring.smallest_lift(ring.coerce(&ZZbig, ZZbig.checked_div(&Q, &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)).unwrap()))
             } else if i == out_rings.len() && j < in_rings.len() {
-                int_cast(ZZbig.rounded_div(ZZbig.clone_el(&gamma), &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)), ZZi128, ZZbig)
+                int_cast(ZZbig.rounded_div(ZZbig.clone_el(&gamma), &int_cast(*in_rings.at(j).modulus(), ZZbig, ZZi64)), ZZi64, ZZbig)
             } else {
                 0
             }
@@ -171,53 +195,27 @@ impl<A> RNSOperation for AlmostExactMatrixBaseConversion<A>
 
             for i in 0..in_len {
                 for j in 0..col_count {
-                    // using `any_lift()` here is slightly dangerous, as I haven't documented anywhere that `zn_64::Zn::any_lift()` returns values `<= 6 * modulus()`, but
-                    // it currently does, so this is currently fine
-                    *lifts.at_mut(i, j) = self.from_summands[i].any_lift(self.from_summands[i].mul_ref(input.at(i, j), self.q_over_Q.at(i))) as i128;
-                    debug_assert!(*lifts.at(i, 0) >= 0 && *lifts.at(i, 0) <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_summands[i].modulus() as i128);
+                    *lifts.at_mut(i, j) = self.from_summands[i].any_lift(self.from_summands[i].mul_ref(input.at(i, j), self.q_over_Q.at(i)));
+                    debug_assert!(*lifts.at(i, 0) >= 0 && *lifts.at(i, 0) as i128 <= ZN_ANY_LIFT_FACTOR as i128 * *self.from_summands[i].modulus() as i128);
                 }
             }
 
-            let mut output_unreduced = OwnedMatrix::from_fn_in(pad_to_block(out_len + 1), pad_to_block(col_count), |_, _| 0, self.allocator.clone());
-            let mut output_unreduced = output_unreduced.data_mut();
+            let mut output_unreduced_data = Vec::with_capacity(pad_to_block(out_len + 1) * pad_to_block(col_count));
+            output_unreduced_data.extend((0..(pad_to_block(out_len + 1) * pad_to_block(col_count))).map(|_| 0));
+            let mut output_unreduced = SubmatrixMut::from_1d(&mut output_unreduced_data, pad_to_block(out_len + 1), pad_to_block(col_count));
 
-            // actually using Strassen's algorithm here doesn't make much of a difference, it is basically as fast as without for normal
-            // parameters; however, this way we can claim superior asymptotic performance :)
-            const STRASSEN_THRESHOLD_LOG2: usize = 3;
-            let mem_size = strassen_mem_size(pad_to_block(in_len) > (1 << BLOCK_SIZE_LOG2), BLOCK_SIZE_LOG2, STRASSEN_THRESHOLD_LOG2);
-            let mut memory = Vec::with_capacity_in(mem_size, self.allocator.clone());
-            memory.resize(mem_size, 0);
-
-            {
-                for i in 0..(pad_to_block(out_len + 1) / (1 << BLOCK_SIZE_LOG2)) {
-                    for k in 0..(pad_to_block(in_len) / (1 << BLOCK_SIZE_LOG2)) {
-                        for j in 0..(pad_to_block(col_count) / (1 << BLOCK_SIZE_LOG2)) {
-                            let rows = (i << BLOCK_SIZE_LOG2)..((i + 1) << BLOCK_SIZE_LOG2);
-                            let cols = (j << BLOCK_SIZE_LOG2)..((j + 1) << BLOCK_SIZE_LOG2);
-                            let ks = (k << BLOCK_SIZE_LOG2)..((k + 1) << BLOCK_SIZE_LOG2);
-                            if k == 0 {
-                                feanor_math::algorithms::matmul::strassen::dispatch_strassen_impl::<_, _, _, _, false, false, false, false>(
-                                    BLOCK_SIZE_LOG2, 
-                                    STRASSEN_THRESHOLD_LOG2, 
-                                    TransposableSubmatrix::from(self.Q_over_q_mod_and_downscaled.data().submatrix(rows.clone(), ks.clone())), 
-                                    TransposableSubmatrix::from(lifts.as_const().submatrix(ks, cols.clone())), 
-                                    TransposableSubmatrixMut::from(output_unreduced.reborrow().submatrix(rows, cols)), 
-                                    StaticRing::<i128>::RING, 
-                                    &mut memory
-                                );
-                            } else {   
-                                feanor_math::algorithms::matmul::strassen::dispatch_strassen_impl::<_, _, _, _, true, false, false, false>(
-                                    BLOCK_SIZE_LOG2, 
-                                    STRASSEN_THRESHOLD_LOG2, 
-                                    TransposableSubmatrix::from(self.Q_over_q_mod_and_downscaled.data().submatrix(rows.clone(), ks.clone())), 
-                                    TransposableSubmatrix::from(lifts.as_const().submatrix(ks, cols.clone())), 
-                                    TransposableSubmatrixMut::from(output_unreduced.reborrow().submatrix(rows, cols)), 
-                                    StaticRing::<i128>::RING, 
-                                    &mut memory
-                                );
-                            }
-                        }
-                    }
+            assert_eq!(0, self.Q_over_q_mod_and_downscaled.row_count() % BLOCK_SIZE);
+            assert_eq!(0, self.Q_over_q_mod_and_downscaled.col_count() % BLOCK_SIZE);
+            assert_eq!(0, output_unreduced.row_count() % BLOCK_SIZE);
+            assert_eq!(0, lifts.row_count() % BLOCK_SIZE);
+            for (lhs_blocks, mut res_block) in self.Q_over_q_mod_and_downscaled.data().row_iter().array_chunks::<BLOCK_SIZE>().zip(
+                output_unreduced.reborrow().row_iter().array_chunks::<BLOCK_SIZE>()
+            ) {
+                for (j, rhs_block) in lifts.as_const().row_iter().array_chunks::<BLOCK_SIZE>().enumerate() {
+                    matmul_4x4_i64_to_i128(
+                        from_fn(|i| &lhs_blocks[i].as_chunks::<BLOCK_SIZE>().0[j]), 
+                        rhs_block, 
+                        &mut res_block);
                 }
             }
 
@@ -237,54 +235,97 @@ impl<A> RNSOperation for AlmostExactMatrixBaseConversion<A>
 }
 
 #[cfg(test)]
-use feanor_math::assert_el_eq;
+use feanor_math::{assert_el_eq, assert_matrix_eq};
 #[cfg(test)]
 use test::Bencher;
 #[cfg(test)]
 use feanor_math::algorithms::miller_rabin::is_prime;
 #[cfg(test)]
 use feanor_math::rings::finite::FiniteRingStore;
+#[cfg(test)]
+use feanor_math::primitive_int::StaticRing;
+
+#[cfg(test)]
+fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expected: &[ZnEl]) {
+    for j in 0..to.len() {
+        assert!(
+            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), actual.at(j))) || 
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), actual.at(j)), &to.at(j).int_hom().map(q)) ||
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), actual.at(j)), &to.at(j).int_hom().map(-q)),
+            "Expected {} to be {} +/- {}, input was {}",
+            to.at(j).format(actual.at(j)),
+            to.at(j).format(expected.at(j)),
+            q,
+            k
+        );
+    }
+}
+
+#[test]
+fn test_matmul() {
+    let mat_data = (0..(BLOCK_SIZE * BLOCK_SIZE)).map(|x| x as i64).collect::<Vec<_>>();
+    let mat = mat_data.as_chunks::<BLOCK_SIZE>().0.iter().array_chunks::<BLOCK_SIZE>().next().unwrap();
+
+    let mut res_data = (0..(BLOCK_SIZE * BLOCK_SIZE)).map(|x| x as i128).collect::<Vec<_>>();
+    let mut res = res_data.chunks_mut(BLOCK_SIZE).array_chunks::<BLOCK_SIZE>().next().unwrap();
+
+    matmul_4x4_i64_to_i128(mat, from_fn(|i| &mat[i][..]), &mut res);
+
+    let expected = [
+        [56, 63, 70, 77],
+        [156, 179, 202, 225],
+        [256, 295, 334, 373],
+        [356, 411, 466, 521]
+    ];
+    assert_matrix_eq!(ZZi128, expected, from_fn::<_, BLOCK_SIZE, _>(|i| res[i].as_chunks::<BLOCK_SIZE>().0[0]));
+}
 
 #[test]
 fn test_rns_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+    let q = 17 * 97;
 
     let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    // within this area, we guarantee that no error occurs
-    for k in -(17 * 97 / 4)..=(17 * 97 / 4) {
+    for k in (-q/2)..=(q/2) {
         let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
 
-        table.apply(
-            Submatrix::from_1d(&input, 2, 1), 
-            SubmatrixMut::from_1d(&mut actual, 4, 1)
-        );
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        check_almost_exact_result(&to, k, q, &actual, &expected);
+    }
+    
+    for k in -(q/4)..=(q/4) {
+        let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
 
         for j in 0..to.len() {
             assert_el_eq!(to.at(j), expected.at(j), actual.at(j));
         }
     }
+}
 
-    for k in (-17 * 97 / 2)..=(17 * 97 / 2) {
-        let input = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let expected = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+#[test]
+fn test_rns_base_conversion_both_unordered() {
+    let from = vec![Zn::new(31), Zn::new(29)];
+    let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
+    let q = 31 * 29;
+    let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-        table.apply(
-            Submatrix::from_1d(&input, 2, 1), 
-            SubmatrixMut::from_1d(&mut actual, 4, 1)
-        );
+    for k in -(q/2)..=(q/2) {
+        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        for j in 0..to.len() {
-            assert!(
-                to.at(j).eq_el(expected.at(j), actual.at(j)) ||
-                to.at(j).eq_el(&to.at(j).add_ref_fst(expected.at(j), to.at(j).int_hom().map(17 * 97)), actual.at(j)) ||
-                to.at(j).eq_el(&to.at(j).sub_ref_fst(expected.at(j), to.at(j).int_hom().map(17 * 97)), actual.at(j))
-            );
-        }
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
@@ -292,20 +333,18 @@ fn test_rns_base_conversion() {
 fn test_rns_base_conversion_small() {
     let from = vec![Zn::new(3), Zn::new(97)];
     let to = vec![Zn::new(17)];
+    let q = 3 * 97;
+
     let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
     
-    for k in -(97 * 3 / 2)..(97 * 3 / 2) {
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        table.apply(
-            Submatrix::from_1d(&[from[0].int_hom().map(k), from[1].int_hom().map(k)], 2, 1), 
-            SubmatrixMut::from_1d(&mut actual, 1, 1)
-        );
+    for k in -(q/2)..=(q/2) {
+        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        assert!(
-            to[0].eq_el(&to[0].int_hom().map(k), actual.at(0)) ||
-            to[0].eq_el(&to[0].int_hom().map(k + 97 * 3), actual.at(0)) ||
-            to[0].eq_el(&to[0].int_hom().map(k - 97 * 3), actual.at(0))
-        );
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
@@ -313,42 +352,40 @@ fn test_rns_base_conversion_small() {
 fn test_rns_base_conversion_not_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+    let q = 17 * 97 * 113;
+
     let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
-        let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+    for k in -(q/4)..=(q/4) {
+        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        table.apply(
-            Submatrix::from_1d(&x, 3, 1), 
-            SubmatrixMut::from_1d(&mut actual, 4, 1)
-        );
-        
-        for i in 0..y.len() {
-            assert!(to[i].eq_el(&y[i], actual.at(i)));
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        for i in 0..to.len() {
+            assert_el_eq!(to[i], expected[i], actual.at(i));
         }
     }
 }
 
 #[test]
-fn test_rns_base_conversion_not_coprime_permuted() {
+fn test_rns_base_conversion_not_coprime_from_unordered() {
     let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
+    let q = 113 * 17 * 97;
+
     let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
-        let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+    for k in -(q/4)..=(q/4) {
+        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        table.apply(
-            Submatrix::from_1d(&x, 3, 1), 
-            SubmatrixMut::from_1d(&mut actual, 4, 1)
-        );
-        
-        for i in 0..y.len() {
-            assert!(to[i].eq_el(&y[i], actual.at(i)));
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        for i in 0..to.len() {
+            assert_el_eq!(to[i], expected[i], actual.at(i));
         }
     }
 }
@@ -357,20 +394,19 @@ fn test_rns_base_conversion_not_coprime_permuted() {
 fn test_rns_base_conversion_coprime() {
     let from = vec![Zn::new(17), Zn::new(97), Zn::new(113)];
     let to = vec![Zn::new(19), Zn::new(23), Zn::new(257)];
+    let q = 113 * 17 * 97;
+
     let table = AlmostExactMatrixBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    for k in -(17 * 97 * 113 / 4)..=(17 * 97 * 113 / 4) {
-        let x = from.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let y = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
-        let mut actual = to.iter().map(|Zn| Zn.int_hom().map(k)).collect::<Vec<_>>();
+    for k in -(q/4)..=(q/4) {
+        let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
+        let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
-        table.apply(
-            Submatrix::from_1d(&x, 3, 1), 
-            SubmatrixMut::from_1d(&mut actual, 3, 1)
-        );
-        
-        for i in 0..y.len() {
-            assert!(to[i].eq_el(&y[i], actual.at(i)));
+        table.apply(Submatrix::from_1d(&input, from.len(), 1), SubmatrixMut::from_1d(&mut actual, to.len(), 1));
+
+        for i in 0..to.len() {
+            assert_el_eq!(to[i], expected[i], actual.at(i));
         }
     }
 }
@@ -453,16 +489,22 @@ fn test_base_conversion_large() {
     
     let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
     let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let conversion = AlmostExactMatrixBaseConversion::new_with_alloc(from, to, Global);
+    let conversion = AlmostExactMatrixBaseConversion::new_with_alloc(from, to.clone(), Global);
 
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let mut output = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).zero()).collect::<Vec<_>>();
     conversion.apply(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
 
-    assert!(
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, a)) ||
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, &conversion.output_rings().at(i).add_ref_fst(a, conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&from_prod))))) ||
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, &conversion.output_rings().at(i).sub_ref_fst(a, conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))))
-    );
+    for j in 0..to.len() {
+        assert!(
+            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j))) || 
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))) ||
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))),
+            "Expected {} to be {} +/- {}",
+            to.at(j).format(output.at(j)),
+            to.at(j).format(expected.at(j)),
+            ZZbig.format(&from_prod)
+        );
+    }
 }

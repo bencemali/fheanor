@@ -9,6 +9,7 @@
 #![feature(min_specialization)]
 #![feature(int_roundings)]
 #![feature(mapped_lock_guards)]
+#![feature(iter_array_chunks)]
 
 #![allow(non_snake_case)]
 #![allow(type_alias_bounds)]

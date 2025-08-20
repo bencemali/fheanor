@@ -82,8 +82,7 @@ impl<A> AlmostExactBaseConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`AlmostExactBaseConversion`] from `q` to `q'`. The moduli belonging to `q'`
-    /// are expected to be sorted.
+    /// Creates a new [`AlmostExactBaseConversion`] from `q` to `q'`.
     /// 
     #[instrument(skip_all)]
     pub fn new_with_alloc(in_rings: Vec<Zn>, out_rings: Vec<Zn>, allocator: A) -> Self {
@@ -105,12 +104,12 @@ impl<A> AlmostExactBaseConversion<A>
         permute_inv(&mut out_rings_permutation, |i| out_rings_permutation_inv[i]);
         
         // When computing the approximate lifted value, we can drop `k` bits where `k <= 1 + log(Q/(4 r max(q + 1)))` and `q | Q`
-        let log2_r = ZZi64.abs_log2_ceil(&(in_rings_ordered.len() as i64)).unwrap() as i64;
-        let log2_qmax = ZZi64.abs_log2_ceil(&(0..in_rings_ordered.len()).map(|i| *in_rings_ordered.at(i).modulus()).max().unwrap()).unwrap() as i64;
+        let log2_r = ZZi64.abs_log2_ceil(&(in_rings_ordered.len() as i64)).unwrap_or(0) as i64;
+        let log2_qmax = ZZi64.abs_log2_ceil(&(0..in_rings_ordered.len()).map(|i| *in_rings_ordered.at(i).modulus()).max().unwrap_or(0)).unwrap_or(0) as i64;
         let log2_Q = ZZbig.abs_log2_ceil(&Q).unwrap() as i64;
         let drop_bits = log2_Q - log2_r - log2_qmax - 5;
         let drop_bits = if drop_bits < 0 { 0 } else { drop_bits as usize };
-        assert!((drop_bits as i64) < log2_Q);
+        assert!((drop_bits as i64) <= log2_Q);
         assert!(i128::BITS as i64 - 1 > log2_r + log2_Q - drop_bits as i64);
 
         Self {
@@ -239,6 +238,22 @@ use feanor_math::algorithms::miller_rabin::is_prime;
 #[cfg(test)]
 use feanor_math::rings::finite::FiniteRingStore;
 
+#[cfg(test)]
+fn check_almost_exact_result(to: &[Zn], k: i32, q: i32, actual: &[ZnEl], expected: &[ZnEl]) {
+    for j in 0..to.len() {
+        assert!(
+            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), actual.at(j))) || 
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), actual.at(j)), &to.at(j).int_hom().map(q)) ||
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), actual.at(j)), &to.at(j).int_hom().map(-q)),
+            "Expected {} to be {} +/- {}, input was {}",
+            to.at(j).format(actual.at(j)),
+            to.at(j).format(expected.at(j)),
+            q,
+            k
+        );
+    }
+}
+
 #[test]
 fn test_rns_base_conversion() {
     let from = vec![Zn::new(17), Zn::new(97)];
@@ -271,68 +286,44 @@ fn test_rns_base_conversion() {
             Submatrix::from_1d(&input, 2, 1), 
             SubmatrixMut::from_1d(&mut actual, 4, 1)
         );
-
-        for j in 0..to.len() {
-            assert!(
-                to.at(j).eq_el(expected.at(j), actual.at(j)) ||
-                to.at(j).eq_el(&to.at(j).add_ref_fst(expected.at(j), to.at(j).int_hom().map(17 * 97)), actual.at(j)) ||
-                to.at(j).eq_el(&to.at(j).sub_ref_fst(expected.at(j), to.at(j).int_hom().map(17 * 97)), actual.at(j))
-            );
-        }
+        
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
 #[test]
-fn test_rns_base_conversion_unordered() {
+fn test_rns_base_conversion_both_unordered() {
     let from = vec![Zn::new(31), Zn::new(29)];
     let to = vec![Zn::new(5), Zn::new(17), Zn::new(23), Zn::new(19)];
     let q = 31 * 29;
     let table = AlmostExactBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    for k in -(q/2)..(q/2) {
+    for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
         table.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 4, 1));
 
-        for j in 0..to.len() {
-            assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() == 0 || 
-                    to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() == q as i64,
-                "Expected {} to be {} +/- {}",
-                to.at(j).format(actual.at(j)),
-                to.at(j).format(expected.at(j)),
-                q
-            );
-        }
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
 #[test]
-fn test_rns_base_conversion_unordered_small() {
+fn test_rns_base_conversion_to_unordered() {
     let from = vec![Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(257), Zn::new(113)];
     let q = 17 * 97;
     let table = AlmostExactBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
 
-    for k in -(q/2)..(q/2) {
+    for k in -(q/2)..=(q/2) {
         let input = from.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|ring| ring.zero()).collect::<Vec<_>>();
 
         table.apply(Submatrix::from_1d(&input, 2, 1), SubmatrixMut::from_1d(&mut actual, 2, 1));
 
-        for j in 0..to.len() {
-            assert!(
-                to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() == 0 || 
-                    to.at(j).smallest_lift(to.at(j).sub_ref(expected.at(j), actual.at(j))).abs() == q as i64,
-                "Expected {} to be {} +/- {}",
-                to.at(j).format(actual.at(j)),
-                to.at(j).format(expected.at(j)),
-                q
-            );
-        }
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
@@ -343,7 +334,7 @@ fn test_rns_base_conversion_small() {
     let q = 3 * 97;
     let table = AlmostExactBaseConversion::new_with_alloc(from.clone(), to.clone(), Global);
     
-    for k in -(q/2)..(q/2) {
+    for k in -(q/2)..=(q/2) {
         let expected = to.iter().map(|ring| ring.int_hom().map(k)).collect::<Vec<_>>();
         let mut actual = to.iter().map(|R| R.int_hom().map(k)).collect::<Vec<_>>();
         table.apply(
@@ -351,14 +342,7 @@ fn test_rns_base_conversion_small() {
             SubmatrixMut::from_1d(&mut actual, 1, 1)
         );
 
-        assert!(
-            to.at(0).smallest_lift(to.at(0).sub_ref(expected.at(0), actual.at(0))).abs() == 0 || 
-                to.at(0).smallest_lift(to.at(0).sub_ref(expected.at(0), actual.at(0))).abs() == q as i64,
-            "Expected {} to be {} +/- {}",
-            to.at(0).format(actual.at(0)),
-            to.at(0).format(expected.at(0)),
-            q
-        );
+        check_almost_exact_result(&to, k, q, &actual, &expected);
     }
 }
 
@@ -386,7 +370,7 @@ fn test_rns_base_conversion_not_coprime() {
 }
 
 #[test]
-fn test_rns_base_conversion_not_coprime_permuted() {
+fn test_rns_base_conversion_not_coprime_from_unordered() {
     let from = vec![Zn::new(113), Zn::new(17), Zn::new(97)];
     let to = vec![Zn::new(17), Zn::new(97), Zn::new(113), Zn::new(257)];
     let q = 17 * 97 * 113;
@@ -509,16 +493,22 @@ fn test_base_conversion_large() {
     
     let from = from.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
     let to = to.iter().map(|p| Zn::new(*p as u64)).collect::<Vec<_>>();
-    let conversion = AlmostExactBaseConversion::new_with_alloc(from, to, Global);
+    let conversion = AlmostExactBaseConversion::new_with_alloc(from, to.clone(), Global);
 
     let input = (0..in_len).map(|i| conversion.input_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let expected = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&number))).collect::<Vec<_>>();
     let mut output = (0..(primes.len() - in_len)).map(|i| conversion.output_rings().at(i).zero()).collect::<Vec<_>>();
     conversion.apply(Submatrix::from_1d(&input, in_len, 1), SubmatrixMut::from_1d(&mut output, primes.len() - in_len, 1));
 
-    assert!(
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, a)) ||
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, &conversion.output_rings().at(i).add_ref_fst(a, conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&from_prod))))) ||
-        expected.iter().zip(output.iter()).enumerate().all(|(i, (e, a))| conversion.output_rings().at(i).eq_el(e, &conversion.output_rings().at(i).sub_ref_fst(a, conversion.output_rings().at(i).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))))
-    );
+    for j in 0..to.len() {
+        assert!(
+            to.at(j).is_zero(&to.at(j).sub_ref(expected.at(j), output.at(j))) || 
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod))) ||
+                to.at(j).eq_el(&to.at(j).sub_ref(expected.at(j), output.at(j)), &to.at(j).negate(to.at(j).coerce(&ZZbig, ZZbig.clone_el(&from_prod)))),
+            "Expected {} to be {} +/- {}",
+            to.at(j).format(output.at(j)),
+            to.at(j).format(expected.at(j)),
+            ZZbig.format(&from_prod)
+        );
+    }
 }

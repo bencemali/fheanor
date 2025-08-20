@@ -206,7 +206,7 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
             return x.data;
         };
         let (result, store_json, store_postcard) = if let Ok(mut file) = File::open(filename_postcard.as_str()) {
-            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_json), |[]| {
+            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_postcard), |[]| {
                 let mut content = Vec::new();
                 file.read_to_end(&mut content).unwrap();
                 drop(file);
@@ -216,7 +216,7 @@ pub fn create_cached<T, D, F, const LOG: bool>(data: &D, create_fn: F, keys: &[C
                 (check_result(result), store_format == StoreAs::AlwaysJson || store_format == StoreAs::AlwaysBoth, false)
             })
         } else if let Ok(file) = File::open(filename_json.as_str()) {
-            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_postcard), |[]| {
+            log_time::<_, _, LOG, _>(&format!("Reading {} from {}", identifier_string, filename_json), |[]| {
                 let reader = serde_json::de::IoRead::new(BufReader::new(file));
                 let mut deserializer = serde_json::Deserializer::new(reader);
                 let result = DeserializeSeedKeyedData { data: data, element: PhantomData }.deserialize(&mut deserializer).map_err(|e| e.to_string()).unwrap();

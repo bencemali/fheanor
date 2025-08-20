@@ -1141,7 +1141,7 @@ pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataK
         <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
-    create_cached::<_, _, _, LOG>(&(ring, &ring.galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard })
+    create_cached::<_, _, _, LOG>(&(ring, &ring.galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysBoth })
 }
 
 #[cfg(test)]

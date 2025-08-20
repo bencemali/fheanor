@@ -382,7 +382,7 @@ impl<R> HypercubeIsomorphism<R>
             },
             &filename_keys![hypercube, m: m, p: p, e: e],
             cache_dir,
-            if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard }
+            if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysBoth }
         );
         assert!(result.hypercube_structure == hypercube_structure, "hypercube structure mismatch");
 

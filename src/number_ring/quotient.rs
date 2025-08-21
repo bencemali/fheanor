@@ -14,7 +14,7 @@ use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
 use feanor_math::ring::*;
 use feanor_math::seq::*;
-use feanor_math::serialization::*;
+use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::rings::finite::*;
 use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};

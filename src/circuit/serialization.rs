@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use feanor_math::ring::*;
-use feanor_math::serialization::*;
+use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
 use serde::de::DeserializeSeed;
 use serde::Serialize;
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};

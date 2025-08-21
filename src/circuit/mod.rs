@@ -523,14 +523,36 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// This is a special case of [`PlaintextCircuit::linear_transform()`], in many cases
     /// the latter is more convenient to use.
     /// 
-    pub fn add<S: RingStore<Type = R>>(_ring: S) -> Self {
+    pub fn add<S: RingStore<Type = R>>(ring: S) -> Self {
+        Self::vec_add(1, ring)
+    }
+
+    /// 
+    /// Creates the circuit consisting of `len` addition gates, which perform
+    /// a component-wise addition of two vectors
+    /// ```text
+    ///               | | | | ... | |  
+    ///  |‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾| 
+    ///  | (a, b) -> (a[0], b[0], a[1], b[1], ...) |
+    ///  |_________________________________________|
+    ///           | |     | |           | |  
+    ///          |‾‾‾|   |‾‾‾|         |‾‾‾| 
+    ///          | + |   | + |   ...   | + | 
+    ///          |___|   |___|         |___| 
+    ///            |       |             |   
+    /// ```
+    /// This is a special case of [`PlaintextCircuit::linear_transform()`], in many cases
+    /// the latter is more convenient to use.
+    /// 
+    pub fn vec_add<S: RingStore<Type = R>>(len: usize, _ring: S) -> Self {
         let result = Self {
-            input_count: 2,
+            input_count: 2 * len,
             gates: Vec::new(),
-            output_transforms: vec![LinearCombination {
+            output_transforms: (0..len).map(|i| LinearCombination {
                 constant: Coefficient::Zero,
-                factors: vec![Coefficient::One, Coefficient::One]
-            }]
+                factors: (0..(2 * len)).map(|j|
+                    if (j % len) == i { Coefficient::One } else { Coefficient::Zero }).collect()
+            }).collect()
         };
         return result;
     }

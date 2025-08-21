@@ -33,7 +33,7 @@ fn main() {
     println!("log2(q)  = {}", BigIntRing::RING.abs_log2_ceil(C_initial.base_ring().modulus()).unwrap());
 
     let mut rng = StdRng::from_seed([1; 32]);
-    let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C_initial.base_ring().len()));
 
     let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 

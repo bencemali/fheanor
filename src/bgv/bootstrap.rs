@@ -210,7 +210,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         ct: Ciphertext<Params>,
         rk: &RelinKey<'a, Params>,
         gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<'a, Params>)],
-        sk_hwt: Option<usize>,
+        used_sk: SecretKeyDistribution,
         debug_sk: Option<&SecretKey<Params>>
     ) -> ModulusAwareCiphertext<Params, Strategy>
         where Params: 'a
@@ -251,7 +251,8 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
                 &[ModulusAwareCiphertext {
                     data: ct_input, 
                     info: (), 
-                    dropped_rns_factor_indices: input_dropped_rns_factors.clone()
+                    dropped_rns_factor_indices: input_dropped_rns_factors.clone(),
+                    sk: used_sk
                 }], 
                 None, 
                 gks,
@@ -293,8 +294,9 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             let enc_sk = Params::enc_sk(P_main, C_master);
             return ModulusAwareCiphertext {
                 data: Params::hom_add_plain(P_main, C_master, &c0, Params::hom_mul_plain(P_main, C_master, &c1, enc_sk)),
-                info: self.modswitch_strategy.info_for_fresh_encryption(P_main, C_master, sk_hwt),
-                dropped_rns_factor_indices: RNSFactorIndexList::empty()
+                info: self.modswitch_strategy.info_for_fresh_encryption(P_main, C_master, used_sk),
+                dropped_rns_factor_indices: RNSFactorIndexList::empty(),
+                sk: used_sk
             };
         });
         if let Some(sk) = debug_sk {
@@ -328,7 +330,8 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             let digit_extraction_input = ModulusAwareCiphertext {
                 data: Params::hom_add_plain_encoded(P_main, &C_current, &C_current.inclusion().map(rounding_divisor_half), noisy_decryption_in_slots.data),
                 info: noisy_decryption_in_slots.info,
-                dropped_rns_factor_indices: noisy_decryption_in_slots.dropped_rns_factor_indices
+                dropped_rns_factor_indices: noisy_decryption_in_slots.dropped_rns_factor_indices,
+                sk: noisy_decryption_in_slots.sk
             };
     
             if let Some(sk) = debug_sk {
@@ -403,7 +406,8 @@ impl DigitExtract {
                 let result = ModulusAwareCiphertext {
                     data: Params::change_plaintext_modulus(get_P(exp_new), get_P(exp_old), &C_current, input.data),
                     dropped_rns_factor_indices: input.dropped_rns_factor_indices.clone(),
-                    info: input.info
+                    info: input.info,
+                    sk: input.sk
                 };
                 return result;
             }
@@ -433,7 +437,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
 
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
-    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
@@ -446,7 +450,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
         ct, 
         &rk, 
         &gk,
-        None,
+        SecretKeyDistribution::UniformTernary,
         Some(&sk)
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
@@ -465,7 +469,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let mut rng = StdRng::from_seed([0; 32]);
 
     let t = int_cast(4, ZZbig, ZZi64);
-    let hwt = Some(256);
+    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
     let params = CompositeBGV::new(37, 949);
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
@@ -480,7 +484,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
 
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
-    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, hwt);
+    let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
     let rk = CompositeBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
@@ -493,8 +497,8 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
         ct, 
         &rk, 
         &gk,
-        hwt,
-        None // Some(&sk)
+        sk_distr,
+        None
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
@@ -513,7 +517,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let mut rng = StdRng::from_seed([0; 32]);
 
     let t = int_cast(17, ZZbig, ZZi64);
-    let hwt = Some(256);
+    let sk_distr = SecretKeyDistribution::SparseWithHwt(256);
     let params = Pow2BGV::new(1 << 16);
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
@@ -528,7 +532,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
 
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
-    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, hwt);
+    let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
@@ -541,8 +545,8 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
         ct, 
         &rk, 
         &gk,
-        hwt,
-        None // Some(&sk)
+        sk_distr,
+        None
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);

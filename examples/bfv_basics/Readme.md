@@ -26,7 +26,7 @@ Here, we set the RLWE dimension to `2^log2_N = 2^12 = 4096`.
 
 Once we setup the parameters, we can create plaintext and ciphertext rings:
 ```rust
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::bfv::*;
 # use std::marker::PhantomData;
 # use feanor_math::integer::*;
 # use feanor_math::primitive_int::*;
@@ -51,14 +51,14 @@ While it would be preferable for the BFV implementation not to be tied to any sp
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::integer::*;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 let mut rng = rand::rng();
-let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
@@ -84,14 +84,14 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();
-# let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+# let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
     P.base_ring().int_hom().map(i)
@@ -122,14 +122,14 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # use feanor_math::ring::*;
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();
-# let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+# let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 # let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -151,14 +151,14 @@ Note that the plaintext ring is actually quite large - we chose `N = 4096` - so 
 # use feanor_math::primitive_int::StaticRing;
 # use feanor_math::seq::VectorView;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
-# use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+# use fheanor::bfv::*;
 # use std::marker::PhantomData;
 # let log2_N = 12;
 # let params = Pow2BFV::new(2 << log2_N);
 # let (C, C_for_multiplication): (CiphertextRing<Pow2BFV>, CiphertextRing<Pow2BFV>) = params.create_ciphertext_rings(105..110);
 # let P: PlaintextRing<Pow2BFV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # let mut rng = rand::rng();
-# let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+# let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 # let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 
 #     P.base_ring().int_hom().map(i)

@@ -56,6 +56,32 @@ pub type RelinKey<'a, Params: BGVInstantiation> = KeySwitchKey<'a, Params>;
 const SAMPLE_PRIMES_SIZE: usize = 57;
 
 ///
+/// Represents one of multiple distributions over `R` that are commonly used
+/// to sample the secret key from.
+/// 
+#[derive(Debug, Clone, Copy)]
+pub enum SecretKeyDistribution {
+    /// The constant zero distribution. Clearly such a secret key will be insecure.
+    Zero, 
+    /// Sparse distribution with given hamming weight.
+    /// 
+    /// In other words, a random choice of coefficients of the given size is
+    /// set to a uniformly random value from `{-1, 1}`, and the others
+    /// are set to set.
+    SparseWithHwt(usize), 
+    /// Each coefficient is taken uniformly at random from `{-1, 0, 1}`.
+    UniformTernary, 
+    /// A custom distribution, where the given number is the binary logarithm
+    /// of a (high-probability) bound on the canonical norm of an element sampled
+    /// from this distribution.
+    /// 
+    /// Clearly this cannot be used in [`BGVInstantiation::gen_sk()`], since the
+    /// distribution is not fixed. The main use case of `Custom` is thus to instantiate
+    /// noise estimation functionality with customly generated secret keys.
+    Custom(f64)
+}
+
+///
 /// A key-switching key for BGV. This includes Relinearization and Galois keys.
 /// Note that this implementation does not include an automatic management of
 /// the ciphertext modulus chain, it is up to the user to keep track of the RNS
@@ -232,22 +258,24 @@ pub trait BGVInstantiation {
     /// of the ciphertext ring (if `hwt == None`).
     /// 
     #[instrument(skip_all)]
-    fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: Option<usize>) -> SecretKey<Self> {
-        assert!(hwt.is_none() || hwt.unwrap() * 3 <= C.rank() * 2, "it does not make sense to take more than 2/3 of secret key entries in {{-1, 1}}");
-        if let Some(hwt) = hwt {
-            let mut result_data = (0..C.rank()).map(|_| 0).collect::<Vec<_>>();
-            for _ in 0..hwt {
-                let mut i = rng.next_u32() as usize % C.rank();
-                while result_data[i] != 0 {
-                    i = rng.next_u32() as usize % C.rank();
+    fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: SecretKeyDistribution) -> SecretKey<Self> {
+        match hwt {
+            SecretKeyDistribution::Custom(_) => panic!("cannot create a secret key if the distribution is not specified; consider creating it manually"),
+            SecretKeyDistribution::SparseWithHwt(hwt) => {
+                assert!(hwt > 0, "if you want to use zero as secret key, use SecretKeyDistribution::Zero instead");
+                assert!(hwt * 3 <= C.rank() * 2, "it does not make sense to take more than 2/3 of secret key entries in {{-1, 1}}");
+                let mut result_data = (0..C.rank()).map(|_| 0).collect::<Vec<_>>();
+                for _ in 0..hwt {
+                    let mut i = rng.next_u32() as usize % C.rank();
+                    while result_data[i] != 0 {
+                        i = rng.next_u32() as usize % C.rank();
+                    }
+                    result_data[i] = (rng.next_u32() % 2) as i32 * 2 - 1;
                 }
-                result_data[i] = (rng.next_u32() % 2) as i32 * 2 - 1;
-            }
-            let result = C.from_canonical_basis(result_data.into_iter().map(|c| C.base_ring().int_hom().map(c)));
-            return result;
-        } else {
-            let result = C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.next_u32() % 3) as i32 - 1)));
-            return result;
+                return C.from_canonical_basis(result_data.into_iter().map(|c| C.base_ring().int_hom().map(c)));
+            },
+            SecretKeyDistribution::UniformTernary => C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.next_u32() % 3) as i32 - 1))),
+            SecretKeyDistribution::Zero => C.zero()
         }
     }
 
@@ -1354,7 +1382,7 @@ fn test_pow2_bgv_enc_dec() {
     let params = Pow2BGV::new(1 << 8);
     let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, Some(16));
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
@@ -1369,13 +1397,13 @@ fn test_pow2_bgv_gen_sk() {
     let params = Pow2BGV::new(1 << 8);
     let C = params.create_ciphertext_ring(500..520);
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, Some(0));
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::Zero);
     assert_el_eq!(&C, C.zero(), &sk);
     
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, Some(1));
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(1));
     assert!(C.wrt_canonical_basis(&sk).iter().filter(|c| C.base_ring().is_one(&c) || C.base_ring().is_neg_one(&c)).count() == 1);
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     assert!(C.wrt_canonical_basis(&sk).iter().filter(|c| C.base_ring().is_one(&c)).count() > 32);
     
 }
@@ -1387,7 +1415,7 @@ fn test_pow2_bgv_mul() {
     let params = Pow2BGV::new(1 << 8);
     let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let C = params.create_ciphertext_ring(500..520);
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
 
     let input = P.int_hom().map(2);
@@ -1408,8 +1436,8 @@ fn test_pow2_bgv_hybrid_key_switch() {
 
     let special_modulus_factors = RNSFactorIndexList::from(vec![5], C_special.base_ring().len());
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
-    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, None);
-    let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
+    let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
     let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
 
     let input = P.int_hom().map(2);
@@ -1428,7 +1456,7 @@ fn test_pow2_bgv_hybrid_key_switch() {
 
     let special_modulus_factors = RNSFactorIndexList::from(vec![0, 1], C_special.base_ring().len());
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
-    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
     let input = P.int_hom().map(2);
@@ -1450,7 +1478,7 @@ fn test_pow2_bgv_modulus_switch() {
     let C0 = params.create_ciphertext_ring(500..520);
     assert_eq!(9, C0.base_ring().len());
 
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
@@ -1473,7 +1501,7 @@ fn test_pow2_change_plaintext_modulus() {
     let P0 = params.create_plaintext_ring(int_cast(17 * 17, ZZbig, ZZi64));
     let P1 = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
 
-    let sk = Pow2BGV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P0.int_hom().map(2 * 17);
     let ctxt = Pow2BGV::enc_sym(&P0, &C, &mut rng, &input, &sk);
@@ -1491,7 +1519,7 @@ fn test_pow2_modulus_switch_hom_add() {
     let C0 = params.create_ciphertext_ring(500..520);
     assert_eq!(9, C0.base_ring().len());
 
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
@@ -1519,7 +1547,7 @@ fn test_pow2_bgv_modulus_switch_rk() {
     let C0 = params.create_ciphertext_ring(500..520);
     assert_eq!(9, C0.base_ring().len());
 
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BGV::gen_rk(&P, &C0, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C0.base_ring().len()));
 
     let input = P.int_hom().map(2);
@@ -1554,7 +1582,7 @@ fn test_mod_switch_repeated() {
     let C0 = params.create_ciphertext_ring(790..800);
     assert_eq!(14, C0.base_ring().len());
 
-    let sk = Pow2BGV::gen_sk(&C0, &mut rng, None);
+    let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
     let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk);
     let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
     let ctxt1 = Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14), ctxt);
@@ -1585,7 +1613,7 @@ fn measure_time_pow2_bgv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        Pow2BGV::gen_sk(&C, &mut rng, None)
+        Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(2);
@@ -1640,7 +1668,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        CompositeBGV::gen_sk(&C, &mut rng, None)
+        CompositeBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);
@@ -1696,7 +1724,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        CompositeSingleRNSBGV::gen_sk(&C, &mut rng, None)
+        CompositeSingleRNSBGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);

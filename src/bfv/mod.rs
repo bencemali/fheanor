@@ -88,6 +88,23 @@ const SAMPLE_PRIMES_MAXOFFSET: usize = SAMPLE_PRIMES_SIZE + SAMPLE_PRIMES_MINOFF
 const SAMPLE_PRIMES_SIZE: usize = 57;
 
 ///
+/// Represents one of multiple distributions over `R` that are commonly used
+/// to sample the secret key from.
+/// 
+#[derive(Debug, Clone, Copy)]
+pub enum SecretKeyDistribution {
+    /// The constant zero distribution. Clearly such a secret key will be insecure.
+    Zero, 
+    /// Sparse distribution with given hamming weight.
+    /// 
+    /// In other words, a random choice of coefficients of the given size is
+    /// set to a uniformly random value from `{-1, 1}`, and the others
+    /// are set to set.
+    SparseWithHwt(usize), 
+    /// Each coefficient is taken uniformly at random from `{-1, 0, 1}`.
+    UniformTernary
+}
+///
 /// Trait for types that represent an instantiation of BFV.
 /// 
 /// For a few more details on how this works, see [`crate::examples::bfv_basics`].
@@ -153,31 +170,28 @@ pub trait BFVInstantiation {
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self>;
 
     ///
-    /// Generates a secret key, using the randomness of the given rng.
-    /// 
-    /// If `sk_hwt` is set, the secret will be a random ring element with exactly `sk_hwt` entries (w.r.t.
-    /// coefficient basis) in `{-1, 1}`, and the others as `0`. If `hwt` is not set, the secret will be
-    /// a ring element whose coefficient basis coefficients are drawn uniformly at random from `{-1, 0, 1}`.
-    /// 
-    /// If you need another kind of secret, consider creating the ring element yourself using `C.from_canonical_basis()`.
+    /// Generates a secret key, which is either a sparse ternary element of the
+    /// ciphertext ring (with hamming weight `hwt`), or a uniform ternary element
+    /// of the ciphertext ring (if `hwt == None`).
     /// 
     #[instrument(skip_all)]
-    fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, sk_hwt: Option<usize>) -> SecretKey<Self> {
-        assert!(sk_hwt.is_none() || sk_hwt.unwrap() * 3 <= C.rank() * 2, "it does not make sense to take more than 2/3 of secret key entries in {{-1, 1}}");
-        if let Some(hwt) = sk_hwt {
-            let mut result_data = (0..C.rank()).map(|_| 0).collect::<Vec<_>>();
-            for _ in 0..hwt {
-                let mut i = rng.next_u32() as usize % C.rank();
-                while result_data[i] != 0 {
-                    i = rng.next_u32() as usize % C.rank();
+    fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: SecretKeyDistribution) -> SecretKey<Self> {
+        match hwt {
+            SecretKeyDistribution::SparseWithHwt(hwt) => {
+                assert!(hwt > 0, "if you want to use zero as secret key, use SecretKeyDistribution::Zero instead");
+                assert!(hwt * 3 <= C.rank() * 2, "it does not make sense to take more than 2/3 of secret key entries in {{-1, 1}}");
+                let mut result_data = (0..C.rank()).map(|_| 0).collect::<Vec<_>>();
+                for _ in 0..hwt {
+                    let mut i = rng.next_u32() as usize % C.rank();
+                    while result_data[i] != 0 {
+                        i = rng.next_u32() as usize % C.rank();
+                    }
+                    result_data[i] = (rng.next_u32() % 2) as i32 * 2 - 1;
                 }
-                result_data[i] = (rng.next_u32() % 2) as i32 * 2 - 1;
-            }
-            let result = C.from_canonical_basis(result_data.into_iter().map(|c| C.base_ring().int_hom().map(c)));
-            return result;
-        } else {
-            let result = C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.next_u32() % 3) as i32 - 1)));
-            return result;
+                return C.from_canonical_basis(result_data.into_iter().map(|c| C.base_ring().int_hom().map(c)));
+            },
+            SecretKeyDistribution::UniformTernary => C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.next_u32() % 3) as i32 - 1))),
+            SecretKeyDistribution::Zero => C.zero()
         }
     }
     
@@ -1248,7 +1262,7 @@ fn test_pow2_bfv_enc_dec() {
     
     let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let (C, _Cmul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
@@ -1264,7 +1278,7 @@ fn test_pow2_bfv_hom_galois() {
 
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
@@ -1283,7 +1297,7 @@ fn test_pow2_bfv_mul() {
 
     let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
@@ -1302,7 +1316,7 @@ fn test_composite_bfv_mul() {
 
     let P = instantiation.create_plaintext_ring(int_cast(8, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = CompositeBFV::gen_sk(&C, &mut rng, None);
+    let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
@@ -1321,7 +1335,7 @@ fn test_composite_bfv_hom_galois() {
 
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, None);
+    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
@@ -1340,7 +1354,7 @@ fn test_single_rns_composite_bfv_mul() {
     
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);  
-    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, None);
+    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
@@ -1359,7 +1373,7 @@ fn test_pow2_bfv_large_t() {
 
     let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(50));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(ZZbig.add(ZZbig.power_of_two(49), ZZbig.one()));
@@ -1388,7 +1402,7 @@ fn measure_time_pow2_bfv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        Pow2BFV::gen_sk(&C, &mut rng, None)
+        Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(2);
@@ -1439,7 +1453,7 @@ fn measure_time_double_rns_composite_bfv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        CompositeBFV::gen_sk(&C, &mut rng, None)
+        CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
     
     let m = P.int_hom().map(3);
@@ -1491,7 +1505,7 @@ fn measure_time_single_rns_composite_bfv_basic_ops() {
     );
 
     let sk = log_time::<_, _, true, _>("GenSK", |[]| 
-        CompositeSingleRNSBFV::gen_sk(&C, &mut rng, None)
+        CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary)
     );
 
     let m = P.int_hom().map(3);

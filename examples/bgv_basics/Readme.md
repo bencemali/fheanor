@@ -95,7 +95,7 @@ While it would be preferable for the BGV implementation not to be tied to any sp
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 let mut rng = StdRng::from_seed([1; 32]);
-let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 ```
 To generate the keys (as well as for encryption), we require a source of randomness.
@@ -133,7 +133,7 @@ To encrypt, we now need to encode whatever data we have as an element of this ri
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
     P.base_ring().int_hom().map(i)
@@ -178,7 +178,7 @@ Since we already have a relinearization key, we can perform a homomorphic multip
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -220,7 +220,7 @@ The naïve way would be to compute
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -265,7 +265,7 @@ Alternatively, these can also determined manually: [`crate::bgv::BGVInstantiatio
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -313,7 +313,7 @@ We can even reduce the noise growth slightly more by using hybrid key switching 
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -371,7 +371,7 @@ For example, we could implement the above evaluation instead as follows:
 # let P: PlaintextRing<Pow2BGV> = params.create_plaintext_ring(int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING));
 # assert!(BigIntRing::RING.is_one(&signed_gcd(BigIntRing::RING.clone_el(C_initial.base_ring().modulus()), int_cast(17, BigIntRing::RING, StaticRing::<i64>::RING), BigIntRing::RING)));
 # let mut rng = StdRng::from_seed([1; 32]);
-# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, None);
+# let sk = Pow2BGV::gen_sk(&C_initial, &mut rng, SecretKeyDistribution::UniformTernary);
 # let rk = Pow2BGV::gen_rk(&P, &C_initial, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_initial.base_ring().len()));
 # let x = P.from_canonical_basis((0..(1 << 13)).map(|i| 
 #     P.base_ring().int_hom().map(i)
@@ -389,9 +389,10 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     &P,
     &C_initial,
     &[ModulusAwareCiphertext {
-        info: modswitch_strategy.info_for_fresh_encryption(&P, &C_initial, None),
+        info: modswitch_strategy.info_for_fresh_encryption(&P, &C_initial, SecretKeyDistribution::UniformTernary),
         dropped_rns_factor_indices: RNSFactorIndexList::empty(),
-        data: enc_x
+        data: enc_x,
+        sk: SecretKeyDistribution::UniformTernary
     }],
     Some(&rk),
     &[],

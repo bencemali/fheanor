@@ -24,12 +24,11 @@ use super::*;
 /// 
 const HEURISTIC_FACTOR_MUL_INPUT_NOISE: f64 = 1.2;
 
-pub type SecretKeyDescriptor = Option<usize>;
-
+#[derive(Debug, Clone, Copy)]
 pub struct KeySwitchKeyDescriptor<'a> {
     pub digits: &'a RNSGadgetVectorDigitIndices,
     pub sigma: f64,
-    pub new_sk: SecretKeyDescriptor
+    pub new_sk: SecretKeyDistribution
 }
 
 pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
@@ -52,7 +51,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
     ///
     fn estimate_log2_relative_noise_level(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CiphertextDescriptor) -> f64;
 
-    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDescriptor) -> Self::CiphertextDescriptor;
+    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> Self::CiphertextDescriptor;
 
     fn transparent_zero(&self) -> Self::CiphertextDescriptor;
 
@@ -60,7 +59,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
 
     fn hom_add_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::CiphertextDescriptor, implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor;
 
-    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, sk: SecretKeyDescriptor) -> Self::CiphertextDescriptor {
+    fn enc_sym(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<PlaintextRing<Params>>, sk: SecretKeyDistribution) -> Self::CiphertextDescriptor {
         self.hom_add_plain(P, C, m, &self.enc_sym_zero(P, C, sk), &P.base_ring().one())
     }
 
@@ -92,11 +91,12 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
 ///
 /// An estimate of `log2(|s|_can)` when `s` is sampled from `C`.
 /// 
-fn log2_can_norm_sk_estimate<Params: BGVInstantiation>(C: &CiphertextRing<Params>, hwt: Option<usize>) -> f64 {
-    if let Some(hwt) = hwt {
-        (hwt as f64).log2()
-    } else {
-        (C.rank() as f64).log2()
+fn log2_can_norm_sk_estimate<Params: BGVInstantiation>(C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> f64 {
+    match sk {
+        SecretKeyDistribution::Custom(log2_can_norm) => log2_can_norm,
+        SecretKeyDistribution::SparseWithHwt(hwt) => (hwt as f64).log2(),
+        SecretKeyDistribution::UniformTernary => (C.rank() as f64).log2(),
+        SecretKeyDistribution::Zero => -f64::INFINITY
     }
 }
 
@@ -111,12 +111,16 @@ fn t_log2<Params: BGVInstantiation>(P: &PlaintextRing<Params>) -> f64 {
     P.base_ring().integer_ring().to_float_approx(P.base_ring().modulus()).log2()
 }
 
-fn result_sk_hwt(lhs: Option<usize>, rhs: Option<usize>) -> Option<usize> {
-    assert!(lhs == rhs || lhs == Some(0) || rhs == Some(0));
-    if lhs == Some(0) {
-        rhs
-    } else {
-        lhs
+pub fn assert_sk_distr_match(lhs: SecretKeyDistribution, rhs: SecretKeyDistribution) -> SecretKeyDistribution {
+    match (lhs, rhs) {
+        (SecretKeyDistribution::Zero, rhs) => rhs,
+        (lhs, SecretKeyDistribution::Zero) => lhs,
+        (SecretKeyDistribution::Custom(lhs_can_norm), SecretKeyDistribution::Custom(rhs_can_norm)) => SecretKeyDistribution::Custom(f64::max(lhs_can_norm, rhs_can_norm)),
+        (SecretKeyDistribution::Custom(_), _) => lhs,
+        (_, SecretKeyDistribution::Custom(_)) => rhs,
+        (SecretKeyDistribution::UniformTernary, SecretKeyDistribution::UniformTernary) => SecretKeyDistribution::UniformTernary,
+        (SecretKeyDistribution::SparseWithHwt(lhs_hwt), SecretKeyDistribution::SparseWithHwt(rhs_hwt)) if lhs_hwt == rhs_hwt => SecretKeyDistribution::SparseWithHwt(lhs_hwt),
+        _ => panic!("secret key mismatch")
     }
 }
 
@@ -131,7 +135,7 @@ pub struct NaiveBGVNoiseEstimator;
 pub struct NaiveBGVNoiseEstimatorNoiseDescriptor {
     /// We store `log2(| c0 + c1 s |_can / q)`; this is hopefully `< 0`
     log2_relative_critical_quantity: f64,
-    sk_hwt: Option<usize>
+    sk: SecretKeyDistribution
 }
 
 impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstimator {
@@ -143,12 +147,12 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         noise.log2_relative_critical_quantity - (C.rank() as f64).log2()
     }
 
-    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, hwt: Option<usize>) -> Self::CiphertextDescriptor {
-        let result = t_log2::<Params>(P) + log2_can_norm_sk_estimate::<Params>(C, hwt) - BigIntRing::RING.abs_log2_floor(C.base_ring().modulus()).unwrap() as f64;
+    fn enc_sym_zero(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, sk: SecretKeyDistribution) -> Self::CiphertextDescriptor {
+        let result = t_log2::<Params>(P) + log2_can_norm_sk_estimate::<Params>(C, sk) - BigIntRing::RING.abs_log2_floor(C.base_ring().modulus()).unwrap() as f64;
         assert!(!result.is_nan());
         return NaiveBGVNoiseEstimatorNoiseDescriptor {
             log2_relative_critical_quantity: result,
-            sk_hwt: hwt
+            sk
         };
     }
 
@@ -166,7 +170,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         assert!(!result.is_nan());
         return NaiveBGVNoiseEstimatorNoiseDescriptor{
             log2_relative_critical_quantity: result,
-            sk_hwt: result_sk_hwt(lhs.sk_hwt, rhs.sk_hwt)
+            sk: assert_sk_distr_match(lhs.sk, rhs.sk)
         };
     }
 
@@ -204,7 +208,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
     fn transparent_zero(&self) -> Self::CiphertextDescriptor {
         let result = NaiveBGVNoiseEstimatorNoiseDescriptor {
             log2_relative_critical_quantity: -f64::INFINITY,
-            sk_hwt: Some(0)
+            sk: SecretKeyDistribution::Zero
         };
         debug_assert!(!result.log2_relative_critical_quantity.is_nan());
         return result;
@@ -214,12 +218,12 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         assert_eq!(Cnew.base_ring().len() + drop_moduli.len(), Cold.base_ring().len());
         let result = f64::max(
             ct.log2_relative_critical_quantity,
-            t_log2::<Params>(P) + log2_can_norm_sk_estimate::<Params>(Cnew, None) - BigIntRing::RING.abs_log2_ceil(Cnew.base_ring().modulus()).unwrap() as f64
+            t_log2::<Params>(P) + log2_can_norm_sk_estimate::<Params>(Cnew, ct.sk) - BigIntRing::RING.abs_log2_ceil(Cnew.base_ring().modulus()).unwrap() as f64
         );
         assert!(!result.is_nan());
         return NaiveBGVNoiseEstimatorNoiseDescriptor {
             log2_relative_critical_quantity: result,
-            sk_hwt: ct.sk_hwt
+            sk: ct.sk
         };
     }
 
@@ -227,7 +231,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         let log2_q = BigIntRing::RING.abs_log2_ceil(C.base_ring().modulus()).unwrap() as f64;
         let intermediate_result = NaiveBGVNoiseEstimatorNoiseDescriptor {
             log2_relative_critical_quantity: (lhs.log2_relative_critical_quantity + rhs.log2_relative_critical_quantity + 2. * log2_q) * HEURISTIC_FACTOR_MUL_INPUT_NOISE - log2_q,
-            sk_hwt: result_sk_hwt(lhs.sk_hwt, rhs.sk_hwt)
+            sk: assert_sk_distr_match(lhs.sk, rhs.sk)
         };
 
         let result = <Self as BGVNoiseEstimator<Params>>::key_switch(
@@ -255,7 +259,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         assert!(!result.is_nan());
         return NaiveBGVNoiseEstimatorNoiseDescriptor {
             log2_relative_critical_quantity: result,
-            sk_hwt: key_switch_key.new_sk
+            sk: key_switch_key.new_sk
         };
     }
 
@@ -298,7 +302,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
         0.
     }
 
-    fn enc_sym_zero(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _hwt: Option<usize>) -> Self::CiphertextDescriptor {}
+    fn enc_sym_zero(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _hwt: SecretKeyDistribution) -> Self::CiphertextDescriptor {}
     fn hom_add(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::CiphertextDescriptor, _lhs_implicit_scale: &El<PlaintextZnRing<Params>>, _rhs: &Self::CiphertextDescriptor, _rhs_implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}

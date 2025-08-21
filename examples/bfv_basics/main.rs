@@ -12,7 +12,7 @@ use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::seq::VectorView;
 use feanor_math::integer::*;
 use feanor_math::rings::zn::ZnRingStore;
-use fheanor::bfv::{BFVInstantiation, CiphertextRing, PlaintextRing, Pow2BFV};
+use fheanor::bfv::*;
 use fheanor::cyclotomic::CyclotomicRingStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 
@@ -30,7 +30,7 @@ fn main() {
     
     let mut rng = rand::rng();
 
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, None);
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 
     let x = P.from_canonical_basis((0..(1 << 12)).map(|i| 

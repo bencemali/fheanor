@@ -232,6 +232,7 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
             } else {
                 mod_result = Some(clone_value(e, last_digit_extracted.get_second(), &mut eval_circuit));
             }
+
             for j in (i + 1)..self.v {
                 let digit_extracted_index = use_circuit_digits.iter().enumerate().filter(|(_, cleared_digits)| **cleared_digits > j - i).next().unwrap().0;
                 take_mut::take(partial_floor_divs[j].as_mut().unwrap(), |current| sub_values(e, digit_extracted[digit_extracted_index].with_first_el(current), &mut eval_circuit));
@@ -311,6 +312,35 @@ use feanor_math::rings::zn::ZnRingStore;
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::divisibility::DivisibilityRingStore;
+
+#[test]
+fn test_digit_extract_p2_polys() {
+    let digitextract = DigitExtract::new_default(2, 17, 9);
+    let ring = Zn::new(ZZi64.pow(2, 17) as u64);
+    let hom = ring.can_hom(&ZZi64).unwrap();
+
+    for x in 0..*ring.modulus() {
+        let (quo, rem) = digitextract.evaluate_generic(
+            (17, hom.map(x)),
+            |exp, params, circuit| {
+                assert!(params.iter().all(|(p_exp, _)| *p_exp == exp));
+                circuit.evaluate_no_galois(&params.iter().map(|(_, x)| *x).collect::<Vec<_>>(), &hom).into_iter().map(|x| (exp, x)).collect()
+            },
+            |from, to, (exp, x)| {
+                assert_eq!(from, exp);
+                if from < to {
+                    (to, ring.mul(x, ring.pow(hom.map(2), to - from)))
+                } else {
+                    (to, ring.checked_div(&x, &ring.pow(hom.map(2), from - to)).unwrap())
+                }
+            }
+        );
+        assert_eq!(17, rem.0);
+        assert_el_eq!(&ring, hom.map(x % (1 << 8)), rem.1);
+        assert_eq!(9, quo.0);
+        assert_eq!(x / (1 << 8), ring.smallest_positive_lift(quo.1) % (1 << 9));
+    }
+}
 
 #[test]
 fn test_digit_extract() {

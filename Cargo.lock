@@ -167,6 +167,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
+name = "debugit"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2367905bd536c33554396370f16f7643083a14f95aebadb36572b66c6748f126"
+
+[[package]]
 name = "embedded-io"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -180,13 +186,14 @@ checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "feanor-math"
-version = "3.4.5"
+version = "3.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44ba4bf8eb0640348623ec37f02d059d6446dccd998d5c736ff86d8094d8fdd9"
+checksum = "ad65af493ce3e94eb01dd2e03c1b2cffea696d4a66d433b5a0b7ba382afdf01c"
 dependencies = [
  "append-only-vec",
  "atomicbox",
  "bytemuck",
+ "feanor-serde",
  "libc",
  "oorandom",
  "serde",
@@ -231,6 +238,7 @@ name = "fheanor"
 version = "0.8.0"
 dependencies = [
  "backtrace",
+ "debugit",
  "feanor-math",
  "feanor-math-hexl",
  "feanor-mempool",

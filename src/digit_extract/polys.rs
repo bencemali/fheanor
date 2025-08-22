@@ -392,11 +392,11 @@ fn test_digit_extraction_p_2_complete() {
 
 #[test]
 fn test_digit_extraction_p_2() {
-    let circuit = precomputed_p_2(16);
-    let ring = Zn::new(1 << 16);
+    let circuit = precomputed_p_2(17);
+    let ring = Zn::new(1 << 17);
     let hom = ring.can_hom(&StaticRing::<i64>::RING).unwrap();
-    for x in 0..(1 << 16) {
-        for (e, actual) in [1, 2, 4, 8, 16].into_iter().zip(circuit.evaluate_no_galois(&[hom.map(x)], &hom)) {
+    for x in 0..(1 << 17) {
+        for (e, actual) in [1, 2, 4, 8, 16, 17].into_iter().zip(circuit.evaluate_no_galois(&[hom.map(x)], &hom)) {
             assert_eq!(x % 2, ring.smallest_positive_lift(actual) % (1 << e));
         }
     }

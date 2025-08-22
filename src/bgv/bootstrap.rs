@@ -73,17 +73,8 @@ impl<Params> ThinBootstrapParams<Params>
         let m = plaintext_ring.m();
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
-
-        return ThinBootstrapData {
-            digit_extract,
-            slots_to_coeffs_thin: slots_to_coeffs.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&original_plaintext_ring, C, &x))),
-            coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
-            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
-            modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
-            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
-        };
+        
+        return ThinBootstrapData::new_with_digit_extract_and_lin_transform(self, C, digit_extract, slots_to_coeffs, coeffs_to_slots, modswitch_strategy);
     }
 
     pub fn build_odd<M: BGVModswitchStrategy<Params>, const LOG: bool>(&self, C: &CiphertextRing<Params>, modswitch_strategy: M, cache_dir: Option<&str>) -> ThinBootstrapData<Params, M> {
@@ -116,17 +107,8 @@ impl<Params> ThinBootstrapParams<Params>
         let m = plaintext_ring.m();
         let slots_to_coeffs =  create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
-
-        return ThinBootstrapData {
-            digit_extract,
-            slots_to_coeffs_thin: slots_to_coeffs.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&original_plaintext_ring, C, &x))),
-            coeffs_to_slots_thin: coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&plaintext_ring, C, &x))),
-            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
-            modswitch_strategy: modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
-            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors
-        };
+        
+        return ThinBootstrapData::new_with_digit_extract_and_lin_transform(self, C, digit_extract, slots_to_coeffs, coeffs_to_slots, modswitch_strategy);
     }
 }
 
@@ -141,10 +123,58 @@ pub struct ThinBootstrapData<Params, Strategy>
     slots_to_coeffs_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>,
     coeffs_to_slots_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>,
     plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
+    original_plaintext_ring: PlaintextRing<Params>,
     tmp_coprime_modulus_plaintext: PlaintextRing<Params>,
     pre_bootstrap_rns_factors: usize
 }
 
+impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
+    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
+        Strategy: BGVModswitchStrategy<Params>,
+        <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+{
+    pub fn new_with_digit_extract_and_lin_transform(
+        params: &ThinBootstrapParams<Params>, 
+        C: &CiphertextRing<Params>,
+        digit_extract: DigitExtract, 
+        slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
+        coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
+        modswitch_strategy: Strategy
+    ) -> Self {
+        let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
+        let v = params.v;
+        let e = r + v;
+        assert!(ZZbig.eq_el(&p, digit_extract.p()));
+        assert_eq!(r, digit_extract.r());
+        assert_eq!(e, digit_extract.e());
+        let plaintext_ring_hierarchy: Vec<_> = ((r + 1)..=e).map(|k| params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
+        let original_plaintext_ring = params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        Self {
+            modswitch_strategy: modswitch_strategy,
+            tmp_coprime_modulus_plaintext: params.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
+            coeffs_to_slots_thin: coeffs_to_slots_thin.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(plaintext_ring_hierarchy.last().unwrap(), C, &x))),
+            slots_to_coeffs_thin: slots_to_coeffs_thin.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&original_plaintext_ring, C, &x))),
+            digit_extract: digit_extract,
+            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: params.pre_bootstrap_rns_factors,
+            original_plaintext_ring: original_plaintext_ring
+        }
+    }
+    
+    pub fn with_lin_transform(self, C: &CiphertextRing<Params>, new_slots_to_coeffs: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, new_coeffs_to_slots: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>) -> Self {
+        Self {
+            coeffs_to_slots_thin: new_coeffs_to_slots.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(self.intermediate_plaintext_ring(), C, &x))),
+            slots_to_coeffs_thin: new_slots_to_coeffs.change_ring_uniform(|x| x.change_ring(|x| Params::encode_plain(&self.original_plaintext_ring, C, &x))),
+            digit_extract: self.digit_extract,
+            original_plaintext_ring: self.original_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
+            modswitch_strategy: self.modswitch_strategy,
+            tmp_coprime_modulus_plaintext: self.tmp_coprime_modulus_plaintext
+        }
+    }
+}
 
 impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
     where Params: BGVInstantiation, 
@@ -152,6 +182,33 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         <CiphertextRing<Params> as RingStore>::Type: AsBGVPlaintext<Params>,
         DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
+    pub fn create(
+        params: &ThinBootstrapParams<Params>, 
+        digit_extract: DigitExtract, 
+        slots_to_coeffs_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>, 
+        coeffs_to_slots_thin: PlaintextCircuit<<CiphertextRing<Params> as RingStore>::Type>,
+        modswitch_strategy: Strategy
+    ) -> Self {
+        let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
+        let v = params.v;
+        let e = r + v;
+        assert!(ZZbig.eq_el(&p, digit_extract.p()));
+        assert_eq!(r, digit_extract.r());
+        assert_eq!(e, digit_extract.e());
+        let plaintext_ring_hierarchy: Vec<_> = ((r + 1)..=e).map(|k| params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
+        let original_plaintext_ring = params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
+        Self {
+            modswitch_strategy: modswitch_strategy,
+            tmp_coprime_modulus_plaintext: params.scheme_params.create_plaintext_ring(ZZbig.add(ZZbig.pow(ZZbig.clone_el(&p), e), ZZbig.one())),
+            coeffs_to_slots_thin: coeffs_to_slots_thin,
+            slots_to_coeffs_thin: slots_to_coeffs_thin,
+            digit_extract: digit_extract,
+            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: params.pre_bootstrap_rns_factors,
+            original_plaintext_ring: original_plaintext_ring
+        }
+    }
+
     fn r(&self) -> usize {
         self.digit_extract.e() - self.digit_extract.v()
     }
@@ -170,6 +227,26 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
 
     pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Params> {
         self.plaintext_ring_hierarchy.last().unwrap()
+    }
+
+    pub fn base_plaintext_ring(&self) -> &PlaintextRing<Params> {
+        &self.original_plaintext_ring
+    }
+
+    pub fn with_digit_extraction(self, new: DigitExtract) -> Self {
+        assert!(ZZbig.eq_el(&self.p(), new.p()));
+        assert_eq!(self.r(), new.r());
+        assert_eq!(self.e(), new.e());
+        Self {
+            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
+            digit_extract: new,
+            original_plaintext_ring: self.original_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
+            slots_to_coeffs_thin: self.slots_to_coeffs_thin,
+            modswitch_strategy: self.modswitch_strategy,
+            tmp_coprime_modulus_plaintext: self.tmp_coprime_modulus_plaintext
+        }
     }
 
     pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<CyclotomicGaloisGroupEl> {

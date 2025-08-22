@@ -54,108 +54,6 @@ pub struct ThinBootstrapParams<Params: BFVInstantiation> {
     pub pre_bootstrap_rns_factors: usize
 }
 
-///
-/// Precomputed data required to perform BFV bootstrapping.
-/// 
-/// The standard way to create this data is to use [`ThinBootstrapParams::build_pow2()`]
-/// or [`ThinBootstrapParams::build_odd()`], but note that the involved computation is very expensive.
-/// 
-pub struct ThinBootstrapData<Params: BFVInstantiation> {
-    /// The [`DigitExtract`] object used to compute the digit extraction step
-    /// of BFV bootstrapping
-    pub digit_extract: DigitExtract,
-    /// The circuit used to compute the (thin) Slots-to-Coeffs linear transform
-    /// of BFV bootstrapping
-    pub slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
-    /// The circuit used to compute the (thin) Coeffs-to-Slots linear transform
-    /// of BFV bootstrapping
-    pub coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
-    /// The plaintext rings `R/p^kR` for every `r <= k <= e`, which all are used
-    /// as intermediate plaintext rings during bootstrapping
-    pub plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
-    /// The number of RNS factors required to evaluate the Slots-to-Coeffs transform
-    /// without noise overflow, assuming hybrid key-switching is used for the Galois
-    /// automorphisms. 
-    /// 
-    /// See [`ThinBootstrapParams::pre_bootstrap_rns_factors`] for more details.
-    pub pre_bootstrap_rns_factors: usize
-}
-
-impl<Params> ThinBootstrapData<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
-{
-    pub fn create(
-        params: &ThinBootstrapParams<Params>, 
-        digit_extract: DigitExtract, 
-        slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
-        coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>
-    ) -> Self {
-        let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
-        let v = params.v;
-        let e = r + v;
-        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
-        Self {
-            coeffs_to_slots_thin: coeffs_to_slots_thin,
-            digit_extract: digit_extract,
-            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
-            pre_bootstrap_rns_factors: params.pre_bootstrap_rns_factors,
-            slots_to_coeffs_thin: slots_to_coeffs_thin
-        }
-    }
-}
-
-///
-/// Data required for performing thin bootstrapping with sparse key encapsulation.
-/// 
-/// Sparse key encapsulation refers to key-switching a ciphertext to a sparse secret key
-/// just before homomorphic decryption (which happens at a very low ciphertext modulus,
-/// which can offset the security loss due to key sparsity), and thus introduce much less
-/// noise that has to be homomorphically removed.
-/// 
-pub struct SparseKeyEncapsulationData<Params: BFVInstantiation> {
-    /// A reduced-modulus ciphertext ring `R/q'R`, where we can publish a key-switching key
-    /// from the standard secret key to the sparse secret key. 
-    /// 
-    /// Such a key-switching key (or indeed any ciphertext encrypted with the sparse secret key)
-    /// usually cannot be published for the normal ciphertext ring `R/qR` since a sparse secret key
-    /// provides less security at the same ciphertext modulus. However, for a reduced ciphertext
-    /// modulus, a sparse secret key can still be secure.
-    pub C_switch_to_sparse: CiphertextRing<Params>,
-    /// A key-switch key for switching from the standard secret key to the sparse secret
-    /// key. This should be defined over the ciphertext ring [`SparseKeyEncapsulationData::C_switch_to_sparse`].
-    pub switch_to_sparse_key: KeySwitchKey<Params>,
-    /// An encryption of the sparse secret key w.r.t. the standard secret key. This should be
-    /// defined over the standard BFV ciphertext ring.
-    pub encapsulated_key: Ciphertext<Params>,
-    /// The plaintext modulus w.r.t. which the sparse key is encrypted to get the
-    /// [`SparseKeyEncapsulationData::encapsulated_key`]
-    pub encapsulated_key_plaintext_modulus: El<BigIntRing>
-}
-
-impl<Params> SparseKeyEncapsulationData<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
-{
-    pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_switch_to_sparse: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
-        let switch_to_sparse_key = Params::gen_switch_key(
-            &C_switch_to_sparse, 
-            &mut rng,
-            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, standard_sk),
-            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, &sparse_sk),
-            &RNSGadgetVectorDigitIndices::select_digits(C_switch_to_sparse.base_ring().len(), C_switch_to_sparse.base_ring().len()),
-            noise_sigma
-        );
-        let ZZ_to_Pbase = P.base_ring().can_hom(P.base_ring().integer_ring()).unwrap().compose(P.base_ring().integer_ring().can_hom(&ZZbig).unwrap());
-        let sparse_sk_as_plain = P.from_canonical_basis(C.wrt_canonical_basis(&sparse_sk).iter().map(|x| ZZ_to_Pbase.map(C.base_ring().smallest_lift(x))));
-        let encapsulated_key = Params::enc_sym(P, C, &mut rng, &sparse_sk_as_plain, standard_sk, noise_sigma);
-        SparseKeyEncapsulationData { 
-            C_switch_to_sparse: C_switch_to_sparse, 
-            switch_to_sparse_key: switch_to_sparse_key, 
-            encapsulated_key: encapsulated_key,
-            encapsulated_key_plaintext_modulus: int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring())
-        }
-    }
-}
-
 impl<Params> ThinBootstrapParams<Params>
     where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
         Params::PlaintextRing: SerializableElementRing,
@@ -226,10 +124,112 @@ impl<Params> ThinBootstrapParams<Params>
     }
 }
 
-impl<Params> ThinBootstrapData<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>,
-        NumberRing<Params>: Clone
+///
+/// Data required for performing thin bootstrapping with sparse key encapsulation.
+/// 
+/// Sparse key encapsulation refers to key-switching a ciphertext to a sparse secret key
+/// just before homomorphic decryption (which happens at a very low ciphertext modulus,
+/// which can offset the security loss due to key sparsity), and thus introduce much less
+/// noise that has to be homomorphically removed.
+/// 
+pub struct SparseKeyEncapsulationData<Params: BFVInstantiation> {
+    /// A reduced-modulus ciphertext ring `R/q'R`, where we can publish a key-switching key
+    /// from the standard secret key to the sparse secret key. 
+    /// 
+    /// Such a key-switching key (or indeed any ciphertext encrypted with the sparse secret key)
+    /// usually cannot be published for the normal ciphertext ring `R/qR` since a sparse secret key
+    /// provides less security at the same ciphertext modulus. However, for a reduced ciphertext
+    /// modulus, a sparse secret key can still be secure.
+    pub C_switch_to_sparse: CiphertextRing<Params>,
+    /// A key-switch key for switching from the standard secret key to the sparse secret
+    /// key. This should be defined over the ciphertext ring [`SparseKeyEncapsulationData::C_switch_to_sparse`].
+    pub switch_to_sparse_key: KeySwitchKey<Params>,
+    /// An encryption of the sparse secret key w.r.t. the standard secret key. This should be
+    /// defined over the standard BFV ciphertext ring.
+    pub encapsulated_key: Ciphertext<Params>,
+    /// The plaintext modulus w.r.t. which the sparse key is encrypted to get the
+    /// [`SparseKeyEncapsulationData::encapsulated_key`]
+    pub encapsulated_key_plaintext_modulus: El<BigIntRing>
+}
+
+impl<Params> SparseKeyEncapsulationData<Params>
+    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
 {
+    pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_switch_to_sparse: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
+        let switch_to_sparse_key = Params::gen_switch_key(
+            &C_switch_to_sparse, 
+            &mut rng,
+            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, standard_sk),
+            &Params::mod_switch_sk(P, &C_switch_to_sparse, C, &sparse_sk),
+            &RNSGadgetVectorDigitIndices::select_digits(C_switch_to_sparse.base_ring().len(), C_switch_to_sparse.base_ring().len()),
+            noise_sigma
+        );
+        let ZZ_to_Pbase = P.base_ring().can_hom(P.base_ring().integer_ring()).unwrap().compose(P.base_ring().integer_ring().can_hom(&ZZbig).unwrap());
+        let sparse_sk_as_plain = P.from_canonical_basis(C.wrt_canonical_basis(&sparse_sk).iter().map(|x| ZZ_to_Pbase.map(C.base_ring().smallest_lift(x))));
+        let encapsulated_key = Params::enc_sym(P, C, &mut rng, &sparse_sk_as_plain, standard_sk, noise_sigma);
+        SparseKeyEncapsulationData { 
+            C_switch_to_sparse: C_switch_to_sparse, 
+            switch_to_sparse_key: switch_to_sparse_key, 
+            encapsulated_key: encapsulated_key,
+            encapsulated_key_plaintext_modulus: int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring())
+        }
+    }
+}
+
+///
+/// Precomputed data required to perform BFV bootstrapping.
+/// 
+/// The standard way to create this data is to use [`ThinBootstrapParams::build_pow2()`]
+/// or [`ThinBootstrapParams::build_odd()`], but note that the involved computation is very expensive.
+/// 
+pub struct ThinBootstrapData<Params: BFVInstantiation> {
+    /// The [`DigitExtract`] object used to compute the digit extraction step
+    /// of BFV bootstrapping
+    digit_extract: DigitExtract,
+    /// The circuit used to compute the (thin) Slots-to-Coeffs linear transform
+    /// of BFV bootstrapping
+    slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
+    /// The circuit used to compute the (thin) Coeffs-to-Slots linear transform
+    /// of BFV bootstrapping
+    coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
+    /// The plaintext rings `R/p^kR` for every `r <= k <= e`, which all are used
+    /// as intermediate plaintext rings during bootstrapping
+    plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
+    original_plaintext_ring: PlaintextRing<Params>,
+    /// The number of RNS factors required to evaluate the Slots-to-Coeffs transform
+    /// without noise overflow, assuming hybrid key-switching is used for the Galois
+    /// automorphisms. 
+    /// 
+    /// See [`ThinBootstrapParams::pre_bootstrap_rns_factors`] for more details.
+    pre_bootstrap_rns_factors: usize
+}
+
+impl<Params> ThinBootstrapData<Params>
+    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
+{
+    pub fn create(
+        params: &ThinBootstrapParams<Params>, 
+        digit_extract: DigitExtract, 
+        slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
+        coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>
+    ) -> Self {
+        let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
+        let v = params.v;
+        let e = r + v;
+        assert!(ZZbig.eq_el(&p, digit_extract.p()));
+        assert_eq!(r, digit_extract.r());
+        assert_eq!(e, digit_extract.e());
+        let plaintext_ring_hierarchy = ((r + 1)..=e).map(|k| params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), k))).collect();
+        Self {
+            coeffs_to_slots_thin: coeffs_to_slots_thin,
+            digit_extract: digit_extract,
+            plaintext_ring_hierarchy: plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: params.pre_bootstrap_rns_factors,
+            slots_to_coeffs_thin: slots_to_coeffs_thin,
+            original_plaintext_ring: params.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r))
+        }
+    }
+    
     fn r(&self) -> usize {
         self.digit_extract.e() - self.digit_extract.v()
     }
@@ -248,6 +248,35 @@ impl<Params> ThinBootstrapData<Params>
 
     pub fn intermediate_plaintext_ring(&self) -> &PlaintextRing<Params> {
         self.plaintext_ring_hierarchy.last().unwrap()
+    }
+
+    pub fn base_plaintext_ring(&self) -> &PlaintextRing<Params> {
+        &self.original_plaintext_ring
+    }
+
+    pub fn with_digit_extraction(self, new: DigitExtract) -> Self {
+        assert!(ZZbig.eq_el(&self.p(), new.p()));
+        assert_eq!(self.r(), new.r());
+        assert_eq!(self.e(), new.e());
+        Self {
+            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
+            digit_extract: new,
+            original_plaintext_ring: self.original_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
+            slots_to_coeffs_thin: self.slots_to_coeffs_thin
+        }
+    }
+
+    pub fn with_lin_transform(self, new_slots_to_coeffs: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, new_coeffs_to_slots: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>) -> Self {
+        Self {
+            coeffs_to_slots_thin: new_coeffs_to_slots,
+            digit_extract: self.digit_extract,
+            original_plaintext_ring: self.original_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            pre_bootstrap_rns_factors: self.pre_bootstrap_rns_factors,
+            slots_to_coeffs_thin: new_slots_to_coeffs
+        }
     }
 
     pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<CyclotomicGaloisGroupEl> {

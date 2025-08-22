@@ -4,9 +4,11 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::integer::*;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::ring::*;
-use feanor_math::homomorphism::*;
 use feanor_math::seq::*;
 use tracing::instrument;
+
+#[allow(unused)] // this import is used in test or debug_assertion builds
+use feanor_math::homomorphism::*;
 
 use std::alloc::{Allocator, Global};
 

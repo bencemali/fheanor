@@ -154,7 +154,7 @@ pub type DecoratedBaseRingBase<R> = AsLocalPIRBase<RingValue<BaseRing<R>>>;
 /// [`HypercubeStructure`] `h`, defined by
 /// ```text
 ///   Fp[X]/(Phi_m(X))  ->  F_(p^d)^domain(h)
-///          a(X)       ->  ( a(𝝵^h(i)) )_(i in domain(h))
+///          a(X)       ->  ( a(𝝵^(h(i)^-1)) )_(i in domain(h))
 /// ```
 /// where `𝝵` is an `m`-th primitive root of unity over `Fp`.
 /// 

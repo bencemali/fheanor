@@ -1,8 +1,13 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use std::marker::PhantomData;
 use std::ops::{Deref, Range};
 
+use feanor_math::integer::int_cast;
 use feanor_math::ring::RingStore;
+use feanor_math::rings::zn::{ZnRingStore, ZnRing};
 use feanor_math::seq::{VectorFn, VectorView};
+
+use crate::ZZbig;
 
 ///
 /// A decomposition of the numbers `0..rns_len` into ranges, which we call digits.
@@ -200,6 +205,42 @@ impl ToOwned for RNSGadgetVectorDigitIndices {
     }
 }
 
+pub struct RNSFactorsNotASubset<V1, V2, R>
+    where V1: VectorView<R>,
+        V2: VectorView<R>,
+        R: RingStore,
+        R::Type: ZnRing
+{
+    not_a_subset: V1,
+    superset: V2,
+    ring: PhantomData<R>
+}
+
+impl<V1, V2, R> RNSFactorsNotASubset<V1, V2, R>
+    where V1: VectorView<R>,
+        V2: VectorView<R>,
+        R: RingStore,
+        R::Type: ZnRing
+{
+    pub fn new(not_a_subset: V1, superset: V2) -> Self {
+        Self { not_a_subset, superset, ring: PhantomData }
+    }
+}
+
+impl<V1, V2, R> Debug for RNSFactorsNotASubset<V1, V2, R>
+    where V1: VectorView<R>,
+        V2: VectorView<R>,
+        R: RingStore,
+        R::Type: ZnRing
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the set of RNS factors {:?} is not a subset of {:?}", 
+            self.not_a_subset.as_iter().map(|ring| int_cast(ring.integer_ring().clone_el(ring.modulus()), ZZbig, ring.integer_ring())).collect::<Vec<_>>().iter().map(|x| ZZbig.format(x)).collect::<Vec<_>>(),
+            self.superset.as_iter().map(|ring| int_cast(ring.integer_ring().clone_el(ring.modulus()), ZZbig, ring.integer_ring())).collect::<Vec<_>>().iter().map(|x| ZZbig.format(x)).collect::<Vec<_>>(),
+        )
+    }
+}
+
 ///
 /// Thin wrapper around ordered slices `[usize]`, used to store a set of indices
 /// of RNS factors. In most cases, it refers to those RNS factors that should be
@@ -283,25 +324,26 @@ impl RNSFactorIndexList {
         }
         let mut result = Vec::with_capacity(master.len() - new.len());
         for i in 0..master.len() {
-            if new.as_iter().any(|ring| ring.get_ring() == master.at(i).get_ring()) {
+            if new.as_iter().all(|ring| ring.get_ring() != master.at(i).get_ring()) {
                 result.push(i);
             }
         }
         return Self::from(result, master.len());
     }
 
-    pub fn missing_from_subset<V1, V2, R>(subset: V1, master: V2) -> Option<Box<Self>>
+    pub fn missing_from_subset<V1, V2, R>(subset: V1, master: V2) -> Result<Box<Self>, RNSFactorsNotASubset<V1, V2, R>>
         where V1: VectorView<R>,
             V2: VectorView<R>,
-            R: RingStore
+            R: RingStore,
+            R::Type: ZnRing
     {
         let subset_len = subset.len();
         let master_len = master.len();
-        let result = Self::missing_from(subset, master);
+        let result = Self::missing_from(&subset, &master);
         if result.len() + subset_len == master_len {
-            return Some(result);
+            return Ok(result);
         } else {
-            return None;
+            return Err(RNSFactorsNotASubset::new(subset, master));
         }
     }
 
@@ -445,4 +487,19 @@ impl ToOwned for RNSFactorIndexList {
     fn to_owned(&self) -> Self::Owned {
         RNSFactorIndexList::from_unchecked(self.rns_factor_indices.to_owned().into_boxed_slice())
     }
+}
+
+#[cfg(test)]
+use feanor_math::rings::zn::zn_64::*;
+
+#[test]
+fn test_missing_from_subset() {
+    let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
+    let subset = [Zn::new(3), Zn::new(19)];
+    let expected = [2];
+    assert_eq!(&expected, &**RNSFactorIndexList::missing_from_subset(&subset, &master).unwrap());
+
+    let master = [Zn::new(3), Zn::new(19), Zn::new(7)];
+    let subset = [Zn::new(5), Zn::new(19)];
+    assert!(RNSFactorIndexList::missing_from_subset(&subset, &master).is_err());
 }

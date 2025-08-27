@@ -41,7 +41,7 @@ fn main() {
     ));
     let enc_x = Pow2BGV::enc_sym(&P, &C_initial, &mut rng, &x, &sk);
 
-    let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
+    let enc_x_sqr = Pow2BGV::hom_mul(&P, &C_initial, &C_initial, Pow2BGV::clone_ct(&P, &C_initial, &enc_x), enc_x, &rk);
     
     let num_digits_to_drop = 1;
     let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
@@ -49,11 +49,11 @@ fn main() {
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
     
-    let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, &to_drop, enc_x_sqr);
-    let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &to_drop, &sk);
-    let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &to_drop, &rk);
+    let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, enc_x_sqr);
+    let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &sk);
+    let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &rk);
     
-    let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, RNSFactorIndexList::empty_ref(), Pow2BGV::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
+    let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, Pow2BGV::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
     assert_eq!(22, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4, &sk_modswitch));
     let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4, &sk_modswitch);
     assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);

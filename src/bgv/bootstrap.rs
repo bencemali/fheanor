@@ -311,10 +311,10 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
             drop_additional.union(&ct_dropped_moduli)
         };
         let C_input = Params::mod_switch_down_C(C_master, &input_dropped_rns_factors);
-        let ct_input = Params::mod_switch_down_ct(P_base, &C_input, &Params::mod_switch_down_C(C_master, ct_dropped_moduli), &input_dropped_rns_factors.pushforward(&ct_dropped_moduli), ct);
+        let ct_input = Params::mod_switch_down_ct(P_base, &C_input, &Params::mod_switch_down_C(C_master, ct_dropped_moduli), ct);
         assert_eq!(C_input.base_ring().len(), self.pre_bootstrap_rns_factors);
 
-        let sk_input = debug_sk.map(|sk| Params::mod_switch_down_sk(&C_input, &C_master, &input_dropped_rns_factors, sk));
+        let sk_input = debug_sk.map(|sk| Params::mod_switch_down_sk(&C_input, &C_master, sk));
         if let Some(sk) = &sk_input {
             Params::dec_println_slots(P_base, &C_input, &ct_input, sk, Some("."));
         }
@@ -397,7 +397,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         });
         if let Some(sk) = debug_sk {
             let C_current = Params::mod_switch_down_C(C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices);
-            Params::dec_println_slots(P_main, &C_current, &noisy_decryption_in_slots.data, &Params::mod_switch_down_sk(&C_current, C_master, &noisy_decryption_in_slots.dropped_rns_factor_indices, sk), Some("."));
+            Params::dec_println_slots(P_main, &C_current, &noisy_decryption_in_slots.data, &Params::mod_switch_down_sk(&C_current, C_master, sk), Some("."));
         }
 
         let final_result = log_time::<_, _, LOG, _>("4. Computing digit extraction", |[key_switches]| {
@@ -413,7 +413,7 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
     
             if let Some(sk) = debug_sk {
                 self.modswitch_strategy.print_info(P_main, &C_current, &digit_extraction_input);
-                Params::dec_println_slots(P_main, &C_current, &digit_extraction_input.data, &Params::mod_switch_down_sk(&C_current, C_master, &digit_extraction_input.dropped_rns_factor_indices, sk), Some("."));
+                Params::dec_println_slots(P_main, &C_current, &digit_extraction_input.data, &Params::mod_switch_down_sk(&C_current, C_master, sk), Some("."));
             }
 
             return self.digit_extract.evaluate_bgv::<Params, Strategy, LOG>(
@@ -470,7 +470,7 @@ impl DigitExtract {
                         for ct in &digit_extracted {
                             modswitch_strategy.print_info(get_P(exp), C_master, ct);
                             let Clocal = Params::mod_switch_down_C(C_master, &ct.dropped_rns_factor_indices);
-                            let sk_local = Params::mod_switch_down_sk(&Clocal, C_master, &ct.dropped_rns_factor_indices, sk);
+                            let sk_local = Params::mod_switch_down_sk(&Clocal, C_master, sk);
                             Params::dec_println_slots(get_P(exp), &Clocal, &ct.data, &sk_local, Some("."));
                             println!();
                         }
@@ -531,7 +531,7 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
         Some(&sk)
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
+    let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &sk);
 
     assert_el_eq!(P, P.int_hom().map(2), Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result));
 }
@@ -578,7 +578,7 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
         None
     );
     let C_result = CompositeBGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
+    let sk_result = CompositeBGV::mod_switch_down_sk(&C_result, &C_master, &sk);
     println!("final noise budget: {}", CompositeBGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
     let result = CompositeBGV::dec(&P, &C_result, ct_result.data, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);
@@ -626,7 +626,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
         None
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
-    let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &ct_result.dropped_rns_factor_indices, &sk);
+    let sk_result = Pow2BGV::mod_switch_down_sk(&C_result, &C_master, &sk);
     println!("final noise budget: {}", Pow2BGV::noise_budget(&P, &C_result, &ct_result.data, &sk_result));
     let result = Pow2BGV::dec(&P, &C_result, ct_result.data, &sk_result);
     assert_el_eq!(P, P.int_hom().map(2), result);

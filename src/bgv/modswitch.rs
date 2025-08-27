@@ -798,11 +798,11 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let Cx = Params::mod_switch_down_C(C_master, &x.dropped_rns_factor_indices);
         let drop_x = dropped_factors_target.pushforward(&x.dropped_rns_factor_indices);
         let x_noise_budget = if let Some(sk) = debug_sk {
-            let sk_x = Params::mod_switch_down_sk(&Cx, C_master, &x.dropped_rns_factor_indices, sk);
+            let sk_x = Params::mod_switch_down_sk(&Cx, C_master, sk);
             Some(Params::noise_budget(P, &Cx, &x.data, &sk_x))
         } else { None };
         let result = ModulusAwareCiphertext {
-            data: Params::mod_switch_down_ct(P, &C_target, &Cx, &drop_x, x.data),
+            data: Params::mod_switch_down_ct(P, &C_target, &Cx, x.data),
             info: self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cx, &drop_x, &x.info),
             dropped_rns_factor_indices: dropped_factors_target.to_owned(),
             sk: used_sk
@@ -817,7 +817,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 ZZbig.abs_log2_ceil(C_target.base_ring().modulus()).unwrap(),
             );
             if let Some(sk) = debug_sk {
-                let sk_target = Params::mod_switch_down_sk(C_target, C_master, &dropped_factors_target, sk);
+                let sk_target = Params::mod_switch_down_sk(C_target, C_master, sk);
                 println!("  actual noise budget: {} -> {}", x_noise_budget.unwrap(), Params::noise_budget(P, C_target, &result.data, &sk_target));
             }
         }
@@ -842,7 +842,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         let Cx = Params::mod_switch_down_C(C_master, &x.dropped_rns_factor_indices);
         let drop_x = dropped_factors_target.pushforward(&x.dropped_rns_factor_indices);
         let result = ModulusAwareCiphertext {
-            data: Params::mod_switch_down_ct(P, &C_target, &Cx, &drop_x, Params::clone_ct(P, &Cx, &x.data)),
+            data: Params::mod_switch_down_ct(P, &C_target, &Cx, Params::clone_ct(P, &Cx, &x.data)),
             info: self.noise_estimator.mod_switch_down_ct(&P, &C_target, &Cx, &drop_x, &x.info),
             dropped_rns_factor_indices: dropped_factors_target.to_owned(),
             sk: used_sk
@@ -857,8 +857,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 ZZbig.abs_log2_ceil(C_target.base_ring().modulus()).unwrap(),
             );
             if let Some(sk) = debug_sk {
-                let sk_target = Params::mod_switch_down_sk(C_target, C_master, &dropped_factors_target, sk);
-                let sk_x = Params::mod_switch_down_sk(&Cx, C_master, &x.dropped_rns_factor_indices, sk);
+                let sk_target = Params::mod_switch_down_sk(C_target, C_master, sk);
+                let sk_x = Params::mod_switch_down_sk(&Cx, C_master, sk);
                 println!("  actual noise budget: {} -> {}", Params::noise_budget(P, &Cx, &x.data, &sk_x), Params::noise_budget(P, C_target, &result.data, &sk_target));
             }
         }
@@ -1137,7 +1137,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 let total_drop_without_special = total_drop.subtract(&special_modulus);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
                 let C_target = Params::mod_switch_down_C(C_master, &total_drop);
-                let rk_modswitch = Params::mod_switch_down_rk(&C_special, C_master, &total_drop_without_special, &rk);
+                let rk_modswitch = Params::mod_switch_down_rk(&C_special, C_master, &rk);
                 debug_assert!(total_drop.len() >= x.dropped_rns_factor_indices.len());
                 debug_assert!(total_drop.len() >= y.dropped_rns_factor_indices.len());
 
@@ -1157,7 +1157,6 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                     P, 
                     &C_target, 
                     &C_special, 
-                    &total_drop.pushforward(&total_drop_without_special),
                     x_modswitched.data, 
                     y_modswitched.data, 
                     &rk_modswitch
@@ -1182,7 +1181,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                         ZZbig.abs_log2_ceil(C_target.base_ring().modulus()).unwrap()
                     );
                     if let Some(sk) = debug_sk {
-                        let sk_target = Params::mod_switch_down_sk(&C_target, C_master, &total_drop, sk);
+                        let sk_target = Params::mod_switch_down_sk(&C_target, C_master, sk);
                         println!("  actual noise budget: {}", Params::noise_budget(P, &C_target, &res_data, &sk_target));
                     }
                 }
@@ -1222,7 +1221,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 let total_drop_without_special = total_drop.subtract(&special_modulus);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
                 let C_target = Params::mod_switch_down_C(C_master, &total_drop);
-                let rk_modswitch = Params::mod_switch_down_rk(&C_special, C_master, &total_drop_without_special, &rk);
+                let rk_modswitch = Params::mod_switch_down_rk(&C_special, C_master, &rk);
                 debug_assert!(total_drop.len() >= x.dropped_rns_factor_indices.len());
 
                 let x_modswitched = self.mod_switch_down(P, &C_target, C_master, &total_drop, x, "HomSquare", debug_sk);
@@ -1253,7 +1252,6 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                     P, 
                     &C_target, 
                     &C_special, 
-                    &total_drop.pushforward(&total_drop_without_special),
                     x_modswitched.data, 
                     &rk_modswitch
                 );
@@ -1264,7 +1262,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                         ZZbig.abs_log2_ceil(C_target.base_ring().modulus()).unwrap()
                     );
                     if let Some(sk) = debug_sk {
-                        let sk_target = Params::mod_switch_down_sk(&C_target, C_master, &total_drop, sk);
+                        let sk_target = Params::mod_switch_down_sk(&C_target, C_master, sk);
                         println!("  actual noise budget: {}", Params::noise_budget(P, &C_target, &res_data, &sk_target));
                     }
                 }
@@ -1314,7 +1312,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 let total_drop_without_special = total_drop.subtract(&special_modulus);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
 
-                let gks_mod_switched = gs.iter().map(|g| Params::mod_switch_down_gk(&C_special, C_master, &total_drop_without_special, &get_gk(*g).1)).collect::<Vec<_>>();
+                let gks_mod_switched = gs.iter().map(|g| Params::mod_switch_down_gk(&C_special, C_master, &get_gk(*g).1)).collect::<Vec<_>>();
         
                 if LOG {
                     println!(
@@ -1330,7 +1328,6 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                         P, 
                         &C_target, 
                         &C_special, 
-                        &total_drop.pushforward(&total_drop_without_special),
                         x.data, 
                         gs[0], 
                         gks_mod_switched.at(0)
@@ -1340,7 +1337,6 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                         P, 
                         &C_target, 
                         &C_special, 
-                        &total_drop.pushforward(&total_drop_without_special),
                         x.data, 
                         gs, 
                         gks_mod_switched.as_fn()
@@ -1503,7 +1499,7 @@ fn test_default_modswitch_strategy_mul() {
     ).into_iter().next().unwrap();
 
     let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-    let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &res.dropped_rns_factor_indices, &sk);
+    let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &sk);
 
     let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
     println!("Actual output noise budget is {}", res_noise);
@@ -1547,7 +1543,7 @@ fn test_never_modswitch_strategy() {
         ).into_iter().next().unwrap();
 
         let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-        let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &res.dropped_rns_factor_indices, &sk);
+        let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &sk);
 
         let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
         println!("Actual output noise budget is {}", res_noise);
@@ -1578,7 +1574,7 @@ fn test_never_modswitch_strategy() {
         ).into_iter().next().unwrap();
 
         let res_C = Pow2BGV::mod_switch_down_C(&C, &res.dropped_rns_factor_indices);
-        let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &res.dropped_rns_factor_indices, &sk);
+        let res_sk = Pow2BGV::mod_switch_down_sk(&res_C, &C, &sk);
 
         let res_noise = Pow2BGV::noise_budget(&P, &res_C, &res.data, &res_sk);
         assert_eq!(0, res_noise);

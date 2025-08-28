@@ -362,7 +362,7 @@ pub fn drop_rns_factors_balanced(key_digits: &RNSGadgetVectorDigitIndices, drop_
         drop_from_digit[largest_digit_idx] += 1;
     }
 
-    let result = RNSFactorIndexList::from((0..key_digits.len()).flat_map(|i| key_digits.at(i).start..(key_digits.at(i).start + drop_from_digit[i])).collect(), key_digits.rns_base_len());
+    let result = RNSFactorIndexList::from((0..key_digits.len()).flat_map(|i| key_digits.at(i).start..(key_digits.at(i).start + drop_from_digit[i])), key_digits.rns_base_len());
     return result;
 }
 
@@ -641,7 +641,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, self.clone_el(m)), ct)
+        Params::hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct)
     }
 
     fn hom_add_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -654,7 +654,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
-        estimator.hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, self.clone_el(m)), ct_info, implicit_scale)
+        estimator.hom_add_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct_info, implicit_scale)
     }
 
     fn hom_mul_to(
@@ -665,7 +665,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, self.clone_el(m)), ct)
+        Params::hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct)
     }
 
     fn hom_mul_to_noise<N: BGVNoiseEstimator<Params>>(
@@ -678,7 +678,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         ct_info: &N::CiphertextDescriptor, 
         implicit_scale: &El<PlaintextZnRing<Params>>
     ) -> N::CiphertextDescriptor {
-        estimator.hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, self.clone_el(m)), ct_info, implicit_scale)
+        estimator.hom_mul_plain_encoded(P, C, &C.get_ring().drop_rns_factor_element(self, dropped_factors, m), ct_info, implicit_scale)
     }
 
     #[instrument(skip_all)]
@@ -707,8 +707,8 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         }
         return Ciphertext {
             implicit_scale: first_implicit_scale.unwrap_or(P.base_ring().one()),
-            c0: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.iter().zip(rhs_c0.into_iter()).map(|(lhs, rhs)| (C.get_ring().drop_rns_factor_element(self, dropped_factors, self.clone_el(lhs)), rhs))),
-            c1: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.into_iter().zip(rhs_c1.into_iter()).map(|(lhs, rhs)| (C.get_ring().drop_rns_factor_element(self, dropped_factors, lhs), rhs))),
+            c0: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.iter().zip(rhs_c0.into_iter()).map(|(lhs, rhs)| (C.get_ring().drop_rns_factor_element(self, dropped_factors, lhs), rhs))),
+            c1: <_ as ComputeInnerProduct>::inner_product(C.get_ring(), lhs.into_iter().zip(rhs_c1.into_iter()).map(|(lhs, rhs)| (C.get_ring().drop_rns_factor_element(self, dropped_factors, &lhs), rhs))),
         };
     }
 

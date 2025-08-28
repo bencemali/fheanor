@@ -19,6 +19,7 @@ use feanor_math::seq::*;
 use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
+use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::number_ring::*;
@@ -364,7 +365,7 @@ pub trait CLPXInstantiation {
         let (c00, c01) = lhs;
         let (c10, c11) = rhs;
 
-        let mut lift = lift_to_Cmul::<Self>(C, C_mul);
+        let mut lift = Self::lift_to_Cmul(C, C_mul);
         let c00_lifted = lift(&c00);
         let c01_lifted = lift(&c01);
         let c10_lifted = lift(&c10);
@@ -377,7 +378,7 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let mut scale_down = rescale_to_C::<Self>(C, C_mul);
+        let mut scale_down = Self::rescale_to_C(C, C_mul);
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -401,7 +402,7 @@ pub trait CLPXInstantiation {
     {
         let (c0, c1) = val;
 
-        let mut lift = lift_to_Cmul::<Self>(C, C_mul);
+        let mut lift = Self::lift_to_Cmul(C, C_mul);
         let c0_lifted = lift(&c0);
         let c1_lifted = lift(&c1);
 
@@ -412,7 +413,7 @@ pub trait CLPXInstantiation {
         C_mul.mul_assign_ref(&mut lifted1, &t_in_C_mul);
         C_mul.mul_assign_ref(&mut lifted2, &t_in_C_mul);
 
-        let mut scale_down = rescale_to_C::<Self>(C, C_mul);
+        let mut scale_down = Self::rescale_to_C(C, C_mul);
         let res0 = scale_down(&lifted0);
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
@@ -447,6 +448,39 @@ pub trait CLPXInstantiation {
             int_cast(ZZbig.clone_el(P.ZZX().coefficient_at(P.t(), i)), ZZi64, ZZbig)
         }).map(|c| ZZ_to_Zq.map(c)))
     }
+    
+    fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        let C_delta = RingValue::from(C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len())));
+        let lift = UsedBaseConversion::new(
+            C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
+            C_delta.base_ring().as_iter().cloned().collect::<Vec<_>>()
+        );
+        let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        Box::new(move |c| {
+            C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
+            lift.apply(tmp_in.data(), tmp_out.data_mut());
+            let delta = C_delta.get_ring().from_representation_wrt_small_generating_set(tmp_out.data());
+            return C_mul.add(
+                C_mul.get_ring().add_rns_factor_element(C.get_ring(), &RNSFactorIndexList::from(C.base_ring().len()..C_mul.base_ring().len(), C_mul.base_ring().len()), c),
+                C_mul.get_ring().add_rns_factor_element(&C_delta.get_ring(), &RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len()), &delta)
+            );
+        })
+    }
+
+    fn rescale_to_C<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        assert!(C.get_ring().number_ring() == C_mul.get_ring().number_ring());
+        assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
+
+        let rescale = AlmostExactRescalingConvert::new_with_alloc(
+            C_mul.base_ring().as_iter().cloned().collect(), 
+            C.base_ring().as_iter().cloned().collect(),
+            Vec::new(), 
+            (0..C.base_ring().len()).collect(),
+            Global
+        );
+        Box::new(move |c: &El<CiphertextRing<Self>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &*c, &rescale))
+    }
 }
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
@@ -477,7 +511,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
             self.ciphertext_allocator().clone()
         );
 
-        let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let dropped_indices = RNSFactorIndexList::from((0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())), C_mul.base_ring().len());
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
@@ -512,47 +546,11 @@ impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> 
             self.ciphertext_allocator().clone()
         );
 
-        let dropped_indices = (0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())).collect::<Vec<_>>();
+        let dropped_indices = RNSFactorIndexList::from((0..C_mul.base_ring().len()).filter(|i| C_rns_base.as_iter().all(|Zp| Zp.get_ring() != C_mul.base_ring().at(*i).get_ring())), C_mul.base_ring().len());
         let C = RingValue::from(C_mul.get_ring().drop_rns_factor(&dropped_indices));
         assert!(C.base_ring().get_ring() == C_rns_base.get_ring());
         return (C, C_mul);
     }
-}
-
-fn lift_to_Cmul<'a, Params: ?Sized + CLPXInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
-    let lift = UsedBaseConversion::new_with_alloc(
-        C.base_ring().as_iter().map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
-        C_mul.base_ring().as_iter().skip(C.base_ring().len()).map(|R| Zn::new(*R.modulus() as u64)).collect::<Vec<_>>(),
-        Global
-    );
-    let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-    let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
-    return move |c| {
-        C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
-        let mut result = C_mul.get_ring().add_rns_factor_element(C.get_ring(), &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(), C.clone_el(c));
-        lift.apply(tmp_in.data(), tmp_out.data_mut());
-        C_mul.get_ring().add_assign_from_partial_representation_wrt_small_generating_set(
-            &mut result,
-            &(C.base_ring().len()..C_mul.base_ring().len()).collect::<Vec<_>>(),
-            tmp_out.data()
-        );
-        return result;
-    };
-}
-
-fn rescale_to_C<'a, Params: ?Sized + CLPXInstantiation>(C: &'a CiphertextRing<Params>, C_mul: &'a CiphertextRing<Params>) -> impl use<'a, Params> + for<'b> FnMut(&'b El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>> {
-    assert!(C.get_ring().number_ring() == C_mul.get_ring().number_ring());
-    assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
-
-    let rescale = AlmostExactRescalingConvert::new_with_alloc(
-        C_mul.base_ring().as_iter().cloned().collect(), 
-        C.base_ring().as_iter().cloned().collect(),
-        Vec::new(), 
-        (0..C.base_ring().len()).collect(),
-        Global
-    );
-    let result = move |c: &El<CiphertextRing<Params>>| perform_rns_op(C.get_ring(), C_mul.get_ring(), &*c, &rescale);
-    return result;
 }
 
 #[cfg(test)]

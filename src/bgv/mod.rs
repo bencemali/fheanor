@@ -22,10 +22,11 @@ use feanor_math::seq::*;
 use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
+use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::single_rns_ring::*;
 use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::{cyclotomic::*, NiceZn};
-use crate::gadget_product::digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
+use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
@@ -586,7 +587,7 @@ pub trait BGVInstantiation {
         } else {
             let special_modulus = ZZbig.prod(special_modulus_rns_factor_indices.iter().map(|i| int_cast(*C_special.base_ring().at(*i).modulus(), ZZbig, ZZi64)));
             let special_modulus = C_special.base_ring().coerce(&ZZbig, special_modulus);
-            let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, ct.c1);
+            let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, &ct.c1);
             C_special.inclusion().mul_assign_map(&mut ct1_modswitched, special_modulus);
             
             let op = GadgetProductLhsOperand::from_element_with(
@@ -786,7 +787,7 @@ pub trait BGVInstantiation {
         } else {
             let special_modulus = ZZbig.prod(special_modulus_rns_factor_indices.iter().map(|i| int_cast(*C_special.base_ring().at(*i).modulus(), ZZbig, ZZi64)));
             let special_modulus = C_special.base_ring().coerce(&ZZbig, special_modulus);
-            let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, ct.c1);
+            let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, &ct.c1);
             C_special.inclusion().mul_assign_map(&mut ct1_modswitched, special_modulus);
             GadgetProductLhsOperand::from_element_with(
                 C_special.get_ring(), 
@@ -849,7 +850,7 @@ pub trait BGVInstantiation {
         if drop_moduli.len() == 0 {
             Cnew.clone_el(sk)
         } else {
-            Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, Cold.clone_el(sk))
+            Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, sk)
         }
     }
 
@@ -920,6 +921,8 @@ pub trait BGVInstantiation {
         if drop_moduli.len() == 0 {
             return ct;
         }
+        let remaining_rns_factors = drop_moduli.complement(Cold.base_ring().len());
+        let C_delta = RingValue::from(Cold.get_ring().drop_rns_factor(&remaining_rns_factors));
 
         let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
         let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
@@ -933,7 +936,7 @@ pub trait BGVInstantiation {
             // in particular, we only need to convert a part of `x` into coefficient/small-basis representation,
             // while just using `perform_rns_op()` would convert all of `x`.
             let mut mod_b_part_of_x = OwnedMatrix::zero(drop_moduli.len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
-            Cold.get_ring().partial_representation_wrt_small_generating_set(&x, &drop_moduli, mod_b_part_of_x.data_mut());
+            C_delta.get_ring().as_representation_wrt_small_generating_set(&C_delta.get_ring().drop_rns_factor_element(Cold.get_ring(), &remaining_rns_factors, &x), mod_b_part_of_x.data_mut());
             // this is the "correction", subtracting it will make `x` divisible by the moduli to drop
             let mut delta = OwnedMatrix::zero(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len(), Cnew.base_ring().at(0));
             compute_delta.apply(mod_b_part_of_x.data(), delta.data_mut());
@@ -942,7 +945,7 @@ pub trait BGVInstantiation {
             // this is actually a rescaling and not only a division in `Z/qZ`
             return Cnew.inclusion().mul_map(
                 Cnew.sub(
-                    Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, x),
+                    Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &x),
                     delta
                 ),
                 Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(drop_moduli.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap()
@@ -1121,11 +1124,11 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk);
         let result = Ciphertext {
-            c0: C.inclusion().mul_ref_snd_map(b, &t),
-            c1: C.inclusion().mul_ref_snd_map(a, &t),
+            c0: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(b, &t)),
+            c1: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(a, &t)),
             implicit_scale: P.base_ring().one()
         };
-        return double_rns_repr::<Self, _, _>(P, C, result);
+        return result;
     }
 
     #[instrument(skip_all)]
@@ -1211,11 +1214,11 @@ impl<A: Allocator + Clone + Send + Sync> BGVInstantiation for CompositeBGV<A> {
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
         let (a, b) = Self::rlwe_sample(C, rng, sk);
         let result = Ciphertext {
-            c0: C.inclusion().mul_ref_snd_map(b, &t),
-            c1: C.inclusion().mul_ref_snd_map(a, &t),
+            c0: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(b, &t)),
+            c1: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(a, &t)),
             implicit_scale: P.base_ring().one()
         };
-        return double_rns_repr::<Self, _, _>(P, C, result);
+        return result;
     }
 
     fn number_ring(&self) -> &CompositeCyclotomicNumberRing {
@@ -1251,30 +1254,6 @@ impl<A: Allocator + Clone + Send + Sync> BGVInstantiation for CompositeBGV<A> {
         let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return C.get_ring().to_doublerns(&result).map(|x| C.get_ring().from_double_rns_repr(C.get_ring().unmanaged_ring().clone_el(x))).unwrap_or(C.zero());
     }
-}
-
-pub fn small_basis_repr<Params, NumberRing, A>(_P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: Ciphertext<Params>) -> Ciphertext<Params>
-    where Params: BGVInstantiation<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
-        NumberRing: HECyclotomicNumberRing,
-        A: Allocator + Clone
-{
-    return Ciphertext {
-        c0: C.get_ring().from_small_basis_repr(C.get_ring().to_small_basis(&ct.c0).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el_non_fft(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero_non_fft())), 
-        c1: C.get_ring().from_small_basis_repr(C.get_ring().to_small_basis(&ct.c1).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el_non_fft(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero_non_fft())), 
-        implicit_scale: ct.implicit_scale
-    };
-}
-
-pub fn double_rns_repr<Params, NumberRing, A>(_P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: Ciphertext<Params>) -> Ciphertext<Params>
-    where Params: BGVInstantiation<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
-        NumberRing: HECyclotomicNumberRing,
-        A: Allocator + Clone
-{
-    return Ciphertext {
-        c0: C.get_ring().from_double_rns_repr(C.get_ring().to_doublerns(&ct.c0).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero())), 
-        c1: C.get_ring().from_double_rns_repr(C.get_ring().to_doublerns(&ct.c1).map(|x| C.get_ring().unmanaged_ring().get_ring().clone_el(x)).unwrap_or_else(|| C.get_ring().unmanaged_ring().get_ring().zero())), 
-        implicit_scale: ct.implicit_scale
-    };
 }
 
 #[derive(Clone, Debug)]
@@ -1347,6 +1326,20 @@ impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> BGVInstantia
             convolutions
         );
     }
+}
+
+///
+/// Forces a ring element to be internally stored in double-RNS representation.
+/// 
+/// Use in benchmarks, when you want to control which representation the inputs
+/// to the benchmarked code have.
+/// 
+pub fn force_double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>
+    where Params: BGVInstantiation<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
+        NumberRing: HECyclotomicNumberRing,
+        A: Allocator + Clone
+{
+    C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_double_rns_repr(x)).unwrap_or(C.zero())
 }
 
 #[cfg(test)]

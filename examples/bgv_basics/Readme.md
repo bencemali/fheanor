@@ -352,6 +352,7 @@ For example, we could implement the above evaluation instead as follows:
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::circuit::*;
 # use fheanor::ciphertext_ring::BGFVCiphertextRing;
+# use fheanor::ciphertext_ring::indices::RNSFactorIndexList;
 # use fheanor::gadget_product::digits::*;
 # use rand::{SeedableRng, rngs::StdRng};
 # use std::marker::PhantomData;

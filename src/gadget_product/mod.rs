@@ -1,7 +1,6 @@
 use std::alloc::{Allocator, Global};
 use std::ops::Range;
 
-use digits::{RNSFactorIndexList, RNSGadgetVectorDigitIndices};
 use feanor_math::integer::BigIntRing;
 use feanor_math::matrix::*;
 use feanor_math::primitive_int::StaticRing;
@@ -12,10 +11,12 @@ use feanor_math::seq::{VectorFn, VectorView};
 use feanor_math::homomorphism::Homomorphism;
 
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
+use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{BGFVCiphertextRing, PreparedMultiplicationRing};
 use crate::cyclotomic::*;
 use crate::number_ring::HENumberRing;
 use crate::rns_conv::{RNSOperation, UsedBaseConversion};
+use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 
 ///
 /// Contains the two basic types [`digits::RNSFactorIndexList`] and [`digits::RNSGadgetVectorDigitIndices`]
@@ -456,26 +457,26 @@ impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
 
 impl<R: BGFVCiphertextRing> GadgetProductRhsOperand<R> {
 
-    pub fn modulus_switch(self, to: &R, drop_rns_factors: &RNSFactorIndexList, from: &R) -> Self {
-        assert_eq!(to.base_ring().get_ring().len() + drop_rns_factors.len(), from.base_ring().get_ring().len());
+    pub fn modulus_switch(&self, to: &R, dropped_rns_factors: &RNSFactorIndexList, from: &R) -> Self {
+        assert_eq!(to.base_ring().get_ring().len() + dropped_rns_factors.len(), from.base_ring().get_ring().len());
         debug_assert_eq!(self.digits.len(), self.scaled_element.len());
         let mut result_scaled_el = Vec::new();
-        for (digit, scaled_el) in self.digits.iter().zip(self.scaled_element.into_iter()) {
+        for (digit, scaled_el) in self.digits.iter().zip(self.scaled_element.iter()) {
             let old_digit_len = digit.end - digit.start;
-            let dropped_from_digit = drop_rns_factors.num_within(&digit);
+            let dropped_from_digit = dropped_rns_factors.num_within(&digit);
             assert!(dropped_from_digit <= old_digit_len);
             if dropped_from_digit == old_digit_len {
                 continue;
             }
             if let Some((scaled_el_prepared, scaled_el)) = scaled_el {
-                let new_scaled_el = to.drop_rns_factor_element(from, drop_rns_factors, scaled_el);
-                result_scaled_el.push(Some((to.drop_rns_factor_prepared(from, drop_rns_factors, scaled_el_prepared), new_scaled_el)));
+                let new_scaled_el = to.drop_rns_factor_element(from, dropped_rns_factors, scaled_el);
+                result_scaled_el.push(Some((to.drop_rns_factor_prepared_element(from, dropped_rns_factors, scaled_el_prepared), new_scaled_el)));
             } else {
                 result_scaled_el.push(None);
             }
         }
         return Self {
-            digits: self.digits.remove_indices(drop_rns_factors),
+            digits: self.digits.remove_indices(dropped_rns_factors),
             scaled_element: result_scaled_el
         };
     }

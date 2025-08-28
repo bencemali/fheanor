@@ -346,7 +346,7 @@ impl<Params> ThinBootstrapData<Params>
             };
             let C_input = RingValue::from(C.get_ring().drop_rns_factor(&input_dropped_rns_factors));
             let ct_input = Params::mod_switch_ct(P_base, &C_input, C, ct);
-            let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &input_dropped_rns_factors, C.clone_el(&sk)));
+            let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &input_dropped_rns_factors, &sk));
             if let Some(sk) = &sk_input {
                 Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
             }
@@ -643,7 +643,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
     let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     let sparse_sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from((2..C.base_ring().len()).collect(), C.base_ring().len())));
+    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
     let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);
@@ -690,7 +690,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
     let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     let sparse_sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
-    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from((2..C.base_ring().len()).collect(), C.base_ring().len())));
+    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
     let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
 
     let m = P.int_hom().map(2);

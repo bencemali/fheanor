@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 use serde::de::DeserializeSeed;
 use tracing::instrument;
 
+use crate::boo::{Boo, MappedRwLockReadGuardType};
+use crate::ciphertext_ring::indices::RNSFactorIndexList;
+use crate::ciphertext_ring::RNSFactorCongruence;
 use crate::cyclotomic::CyclotomicGaloisGroupEl;
 use crate::cyclotomic::CyclotomicRing;
 use crate::number_ring::HECyclotomicNumberRing;
@@ -96,15 +99,57 @@ impl<NumberRing> ManagedDoubleRNSRingBase<NumberRing, Global>
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ManagedDoubleRNSElRepresentationKind {
+    Sum,
+    SmallBasis,
+    DoubleRNS,
+    Both,
+    Zero
+}
+
+impl ManagedDoubleRNSElRepresentationKind {
+
+    fn joint(self, other: Self) -> Self {
+        match (self, other) {
+            (ManagedDoubleRNSElRepresentationKind::Zero, other) => other,
+            (other, ManagedDoubleRNSElRepresentationKind::Zero) => other,
+            (ManagedDoubleRNSElRepresentationKind::Sum, _) => ManagedDoubleRNSElRepresentationKind::Sum,
+            (_, ManagedDoubleRNSElRepresentationKind::Sum) => ManagedDoubleRNSElRepresentationKind::Sum,
+            (ManagedDoubleRNSElRepresentationKind::SmallBasis, ManagedDoubleRNSElRepresentationKind::DoubleRNS) => ManagedDoubleRNSElRepresentationKind::Sum,
+            (ManagedDoubleRNSElRepresentationKind::DoubleRNS, ManagedDoubleRNSElRepresentationKind::SmallBasis) => ManagedDoubleRNSElRepresentationKind::Sum,
+            (ManagedDoubleRNSElRepresentationKind::DoubleRNS, ManagedDoubleRNSElRepresentationKind::DoubleRNS) => ManagedDoubleRNSElRepresentationKind::DoubleRNS,
+            (ManagedDoubleRNSElRepresentationKind::SmallBasis, ManagedDoubleRNSElRepresentationKind::SmallBasis) => ManagedDoubleRNSElRepresentationKind::SmallBasis,
+            (ManagedDoubleRNSElRepresentationKind::Both, other) => other,
+            (other, ManagedDoubleRNSElRepresentationKind::Both) => other,
+        }
+    }
+}
+
 enum ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
     where NumberRing: HENumberRing,
         A: Allocator + Clone
 {
-    Sum(MappedRwLockReadGuard<'a, (SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>)>),
-    SmallBasis(&'a SmallBasisEl<NumberRing, A>),
-    DoubleRNS(&'a DoubleRNSEl<NumberRing, A>),
-    Both(&'a SmallBasisEl<NumberRing, A>, &'a DoubleRNSEl<NumberRing, A>),
+    Sum(Boo<'a, (SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>), MappedRwLockReadGuardType<(SmallBasisEl<NumberRing, A>, DoubleRNSEl<NumberRing, A>)>>),
+    SmallBasis(Boo<'a, SmallBasisEl<NumberRing, A>>),
+    DoubleRNS(Boo<'a, DoubleRNSEl<NumberRing, A>>),
+    Both(Boo<'a, SmallBasisEl<NumberRing, A>>, Boo<'a, DoubleRNSEl<NumberRing, A>>),
     Zero
+}
+
+impl<'a, NumberRing, A> ManagedDoubleRNSElRepresentation<'a, NumberRing, A>
+    where NumberRing: HENumberRing,
+        A: Allocator + Clone
+{
+    fn get_kind(&self) -> ManagedDoubleRNSElRepresentationKind {
+        match self {
+            ManagedDoubleRNSElRepresentation::Sum(_) => ManagedDoubleRNSElRepresentationKind::Sum,
+            ManagedDoubleRNSElRepresentation::SmallBasis(_) => ManagedDoubleRNSElRepresentationKind::SmallBasis,
+            ManagedDoubleRNSElRepresentation::DoubleRNS(_) => ManagedDoubleRNSElRepresentationKind::DoubleRNS,
+            ManagedDoubleRNSElRepresentation::Both(_, _) => ManagedDoubleRNSElRepresentationKind::Both,
+            ManagedDoubleRNSElRepresentation::Zero => ManagedDoubleRNSElRepresentationKind::Zero
+        }
+    }
 }
 
 struct DoubleRNSElInternal<NumberRing, A = Global> 
@@ -123,20 +168,49 @@ impl<NumberRing, A> DoubleRNSElInternal<NumberRing, A>
     fn get_repr<'a>(&'a self) -> ManagedDoubleRNSElRepresentation<'a, NumberRing, A> {
         let sum_repr = self.sum_repr.read().unwrap();
         if sum_repr.is_some() {
-            return ManagedDoubleRNSElRepresentation::Sum(RwLockReadGuard::map(sum_repr, |sum_repr: &Option<_>| sum_repr.as_ref().unwrap()));
+            return ManagedDoubleRNSElRepresentation::Sum(Boo::GuardedBorrowed(RwLockReadGuard::map(sum_repr, |sum_repr: &Option<_>| sum_repr.as_ref().unwrap())));
         }
         // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always remain empty
         drop(sum_repr);
         if let Some(small_basis_repr) = self.small_basis_repr.get() {
             if let Some(double_rns_repr) = self.double_rns_repr.get() {
-                return ManagedDoubleRNSElRepresentation::Both(small_basis_repr, double_rns_repr);
+                return ManagedDoubleRNSElRepresentation::Both(Boo::Borrowed(small_basis_repr), Boo::Borrowed(double_rns_repr));
             } else {
-                return ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr);
+                return ManagedDoubleRNSElRepresentation::SmallBasis(Boo::Borrowed(small_basis_repr));
             }
         } else if let Some(double_rns_repr) = self.double_rns_repr.get() {
-            return ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr);
+            return ManagedDoubleRNSElRepresentation::DoubleRNS(Boo::Borrowed(double_rns_repr));
         } else {
             return ManagedDoubleRNSElRepresentation::Zero;
+        }
+    }
+
+    fn into_repr<'a>(self) -> ManagedDoubleRNSElRepresentation<'a, NumberRing, A> {
+        let sum_repr = self.sum_repr.into_inner().unwrap();
+        if let Some(sum_repr) = sum_repr {
+            return ManagedDoubleRNSElRepresentation::Sum(Boo::Owned(sum_repr));
+        }
+        // we can unlock `sum_repr` here, since if `sum_repr` was empty previously, it will always remain empty
+        drop(sum_repr);
+        if let Some(small_basis_repr) = self.small_basis_repr.into_inner() {
+            if let Some(double_rns_repr) = self.double_rns_repr.into_inner() {
+                return ManagedDoubleRNSElRepresentation::Both(Boo::Owned(small_basis_repr), Boo::Owned(double_rns_repr));
+            } else {
+                return ManagedDoubleRNSElRepresentation::SmallBasis(Boo::Owned(small_basis_repr));
+            }
+        } else if let Some(double_rns_repr) = self.double_rns_repr.into_inner() {
+            return ManagedDoubleRNSElRepresentation::DoubleRNS(Boo::Owned(double_rns_repr));
+        } else {
+            return ManagedDoubleRNSElRepresentation::Zero;
+        }
+    }
+
+    fn with_repr<F, R>(self: Arc<Self>, f: F) -> R
+        where F: for<'a> FnOnce(ManagedDoubleRNSElRepresentation<'a, NumberRing, A>) -> R
+    {
+        match Arc::try_unwrap(self) {
+            Ok(val) => f(val.into_repr()),
+            Err(val) => f(val.get_repr())
         }
     }
 }
@@ -208,10 +282,10 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
                 return Some(value.internal.small_basis_repr.get().unwrap());
             },
             ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) | ManagedDoubleRNSElRepresentation::Both(small_basis_repr, _) => {
-                return Some(small_basis_repr);
+                return Some(small_basis_repr.unwrap_borrowed());
             },
             ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => {
-                let result = self.base.undo_fft(self.base.clone_el(double_rns_repr));
+                let result = self.base.undo_fft(double_rns_repr.to_owned(|x| self.base.clone_el(x)));
                 // here another thread might have set `small_basis_repr` in the meantime, so this might return `Err(_)`
                 _ = value.internal.small_basis_repr.set(result);
                 return Some(value.internal.small_basis_repr.get().unwrap());
@@ -219,6 +293,22 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
             ManagedDoubleRNSElRepresentation::Zero => {
                 return None;
             }
+        }
+    }
+
+    ///
+    /// Returns the representation of the given element w.r.t. the multiplicative basis, possibly computing
+    /// this representation if it is not available. If the element is zero, `None` is returned.
+    /// 
+    pub fn into_doublerns(&self, value: ManagedDoubleRNSEl<NumberRing, A>) -> Option<DoubleRNSEl<NumberRing, A>> {
+        if self.to_doublerns(&value).is_some() {
+            value.internal.with_repr(|repr| match repr {
+                ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns) | ManagedDoubleRNSElRepresentation::Both(_, double_rns) => 
+                    Some(double_rns.to_owned(|x| self.base.clone_el(x))),
+                _ => unreachable!()
+            })
+        } else {
+            None
         }
     }
 
@@ -248,10 +338,10 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
                 return Some(value.internal.double_rns_repr.get().unwrap());
             },
             ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) | ManagedDoubleRNSElRepresentation::Both(_, double_rns_repr) => {
-                return Some(double_rns_repr);
+                return Some(double_rns_repr.unwrap_borrowed());
             },
             ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => {
-                let result = self.base.do_fft(self.base.clone_el_non_fft(small_basis_repr));
+                let result = self.base.do_fft(small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x)));
                 // here another thread might have set `double_rns_repr` in the meantime, so this might return `Err(_)`
                 _ = value.internal.double_rns_repr.set(result);
                 return Some(value.internal.double_rns_repr.get().unwrap());
@@ -318,128 +408,175 @@ impl<NumberRing, A> ManagedDoubleRNSRingBase<NumberRing, A>
         }
     }
 
+    fn add_internal(&self, lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, rhs: Arc<DoubleRNSElInternal<NumberRing, A>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
+        self.apply_linear_operation(
+            lhs, 
+            rhs,
+            |a, b| self.base.add_assign_non_fft(a, b),
+            |a, b| self.base.add_assign_ref(a, b),
+            |_| {},
+            |_| {}
+        )
+    }
+
+    fn sub_internal(&self, lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, rhs: Arc<DoubleRNSElInternal<NumberRing, A>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
+        self.apply_linear_operation(
+            lhs,
+            rhs,
+            |a, b| self.base.sub_assign_non_fft(a, b),
+            |a, b| self.base.sub_assign_ref(a, b),
+            |a| self.base.negate_inplace_non_fft(a),
+            |a| self.base.negate_inplace(a)
+        )
+    }
+
+    fn negate_internal(&self, value: Arc<DoubleRNSElInternal<NumberRing, A>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
+        self.apply_linear_operation(
+            self.zero().internal, 
+            value,
+            |_, _| unreachable!(),
+            |_, _| unreachable!(),
+            |a| self.base.negate_inplace_non_fft(a),
+            |a| self.base.negate_inplace(a)
+        )
+    }
+
+    fn mul_base_internal(&self, lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, rhs: &El<zn_rns::Zn<zn_64::Zn, BigIntRing>>) -> Arc<DoubleRNSElInternal<NumberRing, A>> {
+        self.apply_linear_operation(
+            self.zero().internal, 
+            lhs,
+            |_, _| unreachable!(),
+            |_, _| unreachable!(),
+            |a| self.base.mul_scalar_assign_non_fft(a, rhs),
+            |a| self.base.mul_assign_base(a, rhs)
+        )
+    }
+
     fn apply_linear_operation<F_coeff_bin, F_doublerns_bin, F_coeff_un, F_doublerns_un>(
         &self, 
-        lhs: &ManagedDoubleRNSEl<NumberRing, A>, 
-        rhs: &ManagedDoubleRNSEl<NumberRing, A>, 
+        lhs: Arc<DoubleRNSElInternal<NumberRing, A>>, 
+        rhs: Arc<DoubleRNSElInternal<NumberRing, A>>, 
         f1: F_coeff_bin, 
         f2: F_doublerns_bin, 
         f3: F_coeff_un, 
         f4: F_doublerns_un
-    ) -> ManagedDoubleRNSEl<NumberRing, A> 
+    ) -> Arc<DoubleRNSElInternal<NumberRing, A>>
         where F_coeff_bin: FnOnce(&mut SmallBasisEl<NumberRing, A>, &SmallBasisEl<NumberRing, A>),
             F_doublerns_bin: FnOnce(&mut DoubleRNSEl<NumberRing, A>, &DoubleRNSEl<NumberRing, A>),
             F_coeff_un: FnOnce(&mut SmallBasisEl<NumberRing, A>),
             F_doublerns_un: FnOnce(&mut DoubleRNSEl<NumberRing, A>),
     {
-        match (lhs.internal.get_repr(), rhs.internal.get_repr()) {
-            (_, ManagedDoubleRNSElRepresentation::Zero) => self.clone_el(lhs),
+        if let ManagedDoubleRNSElRepresentation::Zero = rhs.get_repr() {
+            return lhs;
+        }
+        lhs.with_repr(|lhs| rhs.with_repr(|rhs| match (lhs, rhs) {
+            (_, ManagedDoubleRNSElRepresentation::Zero) => unreachable!(),
             (ManagedDoubleRNSElRepresentation::Zero, ManagedDoubleRNSElRepresentation::DoubleRNS(rhs_double_rns_repr)) => {
-                let mut result_fft = self.base.clone_el(rhs_double_rns_repr);
+                let mut result_fft = rhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
                 f4(&mut result_fft);
-                return self.from_double_rns_repr(result_fft);
+                return self.from_double_rns_repr(result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Zero, ManagedDoubleRNSElRepresentation::SmallBasis(rhs_small_basis_repr)) => {
-                let mut result_coeff = self.base.clone_el_non_fft(rhs_small_basis_repr);
+                let mut result_coeff = rhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
                 f3(&mut result_coeff);
-                return self.from_small_basis_repr(result_coeff);
+                return self.from_small_basis_repr(result_coeff).internal;
             },
             (ManagedDoubleRNSElRepresentation::Zero, ManagedDoubleRNSElRepresentation::Sum(rhs_sum_repr)) => {
                 let mut result_fft = self.base.clone_el(&rhs_sum_repr.1);
                 let mut result_coeff = self.base.clone_el_non_fft(&rhs_sum_repr.0);
                 f3(&mut result_coeff);
                 f4(&mut result_fft);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Zero, ManagedDoubleRNSElRepresentation::Both(rhs_small_basis_repr, rhs_double_rns_repr)) => {
-                let mut result_fft = self.base.clone_el(rhs_double_rns_repr);
-                let mut result_coeff = self.base.clone_el_non_fft(rhs_small_basis_repr);
+                let mut result_fft = rhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
+                let mut result_coeff = rhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
                 f3(&mut result_coeff);
                 f4(&mut result_fft);
-                return self.new_element_both(result_coeff, result_fft);
+                return self.new_element_both(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Sum(lhs_sum_repr), ManagedDoubleRNSElRepresentation::Sum(rhs_sum_repr)) => {
                 let mut result_fft = self.base.clone_el(&lhs_sum_repr.1);
                 let mut result_coeff = self.base.clone_el_non_fft(&lhs_sum_repr.0);
                 f1(&mut result_coeff, &rhs_sum_repr.0);
                 f2(&mut result_fft, &rhs_sum_repr.1);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Sum(lhs_sum_repr), ManagedDoubleRNSElRepresentation::SmallBasis(rhs_small_basis_repr)) => {
                 let mut result_coeff = self.base.clone_el_non_fft(&lhs_sum_repr.0);
                 let result_fft = self.base.clone_el(&lhs_sum_repr.1);
-                f1(&mut result_coeff, rhs_small_basis_repr);
-                return self.new_element_sum(result_coeff, result_fft);
+                f1(&mut result_coeff, &rhs_small_basis_repr);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Sum(lhs_sum_repr), ManagedDoubleRNSElRepresentation::DoubleRNS(rhs_double_rns_repr)) => {
                 let result_coeff = self.base.clone_el_non_fft(&lhs_sum_repr.0);
                 let mut result_fft = self.base.clone_el(&lhs_sum_repr.1);
-                f2(&mut result_fft, rhs_double_rns_repr);
-                return self.new_element_sum(result_coeff, result_fft);
+                f2(&mut result_fft, &rhs_double_rns_repr);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Sum(lhs_sum_repr), ManagedDoubleRNSElRepresentation::Both(rhs_small_basis_repr, _)) => {
                 let mut result_coeff = self.base.clone_el_non_fft(&lhs_sum_repr.0);
                 let result_fft = self.base.clone_el(&lhs_sum_repr.1);
-                f1(&mut result_coeff, rhs_small_basis_repr);
-                return self.new_element_sum(result_coeff, result_fft);
+                f1(&mut result_coeff, &rhs_small_basis_repr);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::SmallBasis(lhs_small_basis_repr), ManagedDoubleRNSElRepresentation::Sum(rhs_sum_repr)) => {
                 let mut result_fft = self.base.clone_el(&rhs_sum_repr.1);
-                let mut result_coeff = self.base.clone_el_non_fft(lhs_small_basis_repr);
+                let mut result_coeff = lhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
                 f1(&mut result_coeff, &rhs_sum_repr.0);
                 f4(&mut result_fft);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::SmallBasis(lhs_small_basis_repr), ManagedDoubleRNSElRepresentation::SmallBasis(rhs_small_basis_repr)) | 
                 (ManagedDoubleRNSElRepresentation::SmallBasis(lhs_small_basis_repr), ManagedDoubleRNSElRepresentation::Both(rhs_small_basis_repr, _)) | 
                 (ManagedDoubleRNSElRepresentation::Both(lhs_small_basis_repr, _), ManagedDoubleRNSElRepresentation::SmallBasis(rhs_small_basis_repr)) => 
             {
-                let mut result_coeff = self.base.clone_el_non_fft(lhs_small_basis_repr);
-                f1(&mut result_coeff, rhs_small_basis_repr);
-                return self.from_small_basis_repr(result_coeff);
+                let mut result_coeff = lhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
+                f1(&mut result_coeff, &rhs_small_basis_repr);
+                return self.from_small_basis_repr(result_coeff).internal;
             },
             (ManagedDoubleRNSElRepresentation::SmallBasis(lhs_small_basis_repr), ManagedDoubleRNSElRepresentation::DoubleRNS(rhs_double_rns_repr)) => {
-                let result_coeff = self.base.clone_el_non_fft(lhs_small_basis_repr);
-                let mut result_fft = self.base.clone_el(rhs_double_rns_repr);
+                let result_coeff = lhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
+                let mut result_fft = rhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
                 f4(&mut result_fft);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::DoubleRNS(lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::Sum(rhs_sum_repr)) => {
-                let mut result_fft = self.base.clone_el(lhs_double_rns_repr);
+                let mut result_fft = lhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
                 let mut result_coeff = self.base.clone_el_non_fft(&rhs_sum_repr.0);
                 f2(&mut result_fft, &rhs_sum_repr.1);
                 f3(&mut result_coeff);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::DoubleRNS(lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::SmallBasis(rhs_small_basis_repr)) => {
-                let mut result_coeff = self.base.clone_el_non_fft(rhs_small_basis_repr);
-                let result_fft = self.base.clone_el(lhs_double_rns_repr);
+                let mut result_coeff = rhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
+                let result_fft = lhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
                 f3(&mut result_coeff);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::DoubleRNS(lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::DoubleRNS(rhs_double_rns_repr)) | 
                 (ManagedDoubleRNSElRepresentation::DoubleRNS(lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::Both(_, rhs_double_rns_repr)) | 
                 (ManagedDoubleRNSElRepresentation::Both(_, lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::DoubleRNS(rhs_double_rns_repr)) =>
             {
-                let mut result_fft = self.base.clone_el(lhs_double_rns_repr);
-                f2(&mut result_fft, rhs_double_rns_repr);
-                return self.from_double_rns_repr(result_fft);
+                let mut result_fft = lhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
+                f2(&mut result_fft, &rhs_double_rns_repr);
+                return self.from_double_rns_repr(result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Both(lhs_small_basis_repr, _), ManagedDoubleRNSElRepresentation::Sum(rhs_sum_repr)) => {
                 let mut result_fft = self.base.clone_el(&rhs_sum_repr.1);
-                let mut result_coeff = self.base.clone_el_non_fft(lhs_small_basis_repr);
+                let mut result_coeff = lhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
                 f1(&mut result_coeff, &rhs_sum_repr.0);
                 f4(&mut result_fft);
-                return self.new_element_sum(result_coeff, result_fft);
+                return self.new_element_sum(result_coeff, result_fft).internal;
             },
             (ManagedDoubleRNSElRepresentation::Both(lhs_small_basis_repr, lhs_double_rns_repr), ManagedDoubleRNSElRepresentation::Both(rhs_small_basis_repr, rhs_double_rns_repr)) => {
-                let mut result_fft = self.base.clone_el(lhs_double_rns_repr);
-                let mut result_coeff = self.base.clone_el_non_fft(lhs_small_basis_repr);
-                f1(&mut result_coeff, rhs_small_basis_repr);
-                f2(&mut result_fft, rhs_double_rns_repr);
-                return self.new_element_both(result_coeff, result_fft);
+                let mut result_fft = lhs_double_rns_repr.to_owned(|x| self.base.clone_el(x));
+                let mut result_coeff = lhs_small_basis_repr.to_owned(|x| self.base.clone_el_non_fft(x));
+                f1(&mut result_coeff, &rhs_small_basis_repr);
+                f2(&mut result_fft, &rhs_double_rns_repr);
+                return self.new_element_both(result_coeff, result_fft).internal;
             },
-        }
+        }))
     }
 }
 
@@ -476,7 +613,7 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         self.base.number_ring()
     }
 
-    fn drop_rns_factor(&self, drop_rns_factors: &[usize]) -> Self {
+    fn drop_rns_factor(&self, drop_rns_factors: &RNSFactorIndexList) -> Self {
         let new_base = self.base.drop_rns_factor(drop_rns_factors);
         Self {
             zero: new_base.get_ring().zero_non_fft(),
@@ -484,54 +621,92 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         }
     }
     
-    fn drop_rns_factor_element(&self, from: &Self, dropped_rns_factors: &[usize], value: Self::Element) -> Self::Element {
-        match value.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::Zero => self.zero(),
-            ManagedDoubleRNSElRepresentation::Sum(sum_repr) => self.new_element_sum(
-                self.base.drop_rns_factor_non_fft_element(&from.base, dropped_rns_factors, &sum_repr.0),
-                self.base.drop_rns_factor_element(&from.base, dropped_rns_factors, &sum_repr.1)
-            ),
-            ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => self.from_small_basis_repr(
-                self.base.drop_rns_factor_non_fft_element(&from.base, dropped_rns_factors, small_basis_repr)
-            ),
-            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.from_double_rns_repr(
-                self.base.drop_rns_factor_element(&from.base, dropped_rns_factors, double_rns_repr)
-            ),
-            ManagedDoubleRNSElRepresentation::Both(small_basis_repr, double_rns_repr) => self.new_element_both(
-                self.base.drop_rns_factor_non_fft_element(&from.base, dropped_rns_factors, small_basis_repr),
-                self.base.drop_rns_factor_element(&from.base, dropped_rns_factors, double_rns_repr)
-            )
+    fn collect_rns_factors<'a, I>(&self, congruences: I) -> Self::Element
+        where I: Iterator<Item = super::RNSFactorCongruence<'a, Self, Self::Element>>,
+            Self: 'a
+    {
+        let rns_factors = congruences.collect::<Vec<_>>();
+        assert_eq!(self.base_ring().len(), rns_factors.len());
+        for (congruence, rns_factor) in rns_factors.iter().zip(self.base_ring().as_iter()) {
+            if let RNSFactorCongruence::CongruentTo(other_ring, i, _) = congruence {
+                assert!(other_ring.base_ring().at(*i).get_ring() == rns_factor.get_ring());
+            }
         }
-    }
-    
-    fn add_rns_factor_element(&self, from: &Self, added_rns_factors: &[usize], value: Self::Element) -> Self::Element {
-        match value.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::Zero => self.zero(),
-            ManagedDoubleRNSElRepresentation::Sum(sum_repr) => self.new_element_sum(
-                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, &sum_repr.0),
-                self.base.add_rns_factor_element(&from.base, added_rns_factors, &sum_repr.1)
+
+        let output_format = rns_factors.iter()
+            .filter_map(|congruence| if let RNSFactorCongruence::CongruentTo(_, _, el) = congruence { Some(el.internal.get_repr()) } else { None })
+            .map(|repr| repr.get_kind())
+            .fold(ManagedDoubleRNSElRepresentationKind::Zero, ManagedDoubleRNSElRepresentationKind::joint);
+
+        let congruences_small_basis = rns_factors.iter().map(|congruence| match congruence {
+            RNSFactorCongruence::Zero => RNSFactorCongruence::Zero,
+            RNSFactorCongruence::CongruentTo(other_ring, i, el) => match other_ring.to_small_basis(el) {
+                Some(congruence) => RNSFactorCongruence::CongruentTo(&other_ring.base, *i, congruence),
+                None => RNSFactorCongruence::Zero
+            }
+        });
+        let congruences_doublerns = rns_factors.iter().map(|congruence| match congruence {
+            RNSFactorCongruence::Zero => RNSFactorCongruence::Zero,
+            RNSFactorCongruence::CongruentTo(other_ring, i, el) => match other_ring.to_doublerns(el) {
+                Some(congruence) => RNSFactorCongruence::CongruentTo(&other_ring.base, *i, congruence),
+                None => RNSFactorCongruence::Zero
+            }
+        });
+
+        match output_format {
+            ManagedDoubleRNSElRepresentationKind::Zero => self.zero(),
+            ManagedDoubleRNSElRepresentationKind::Both => self.new_element_both(
+                self.base.combine_rns_factors_non_fft(congruences_small_basis),
+                self.base.combine_rns_factors(congruences_doublerns)
             ),
-            ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => self.from_small_basis_repr(
-                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, small_basis_repr)
+            ManagedDoubleRNSElRepresentationKind::SmallBasis => self.from_small_basis_repr(
+                self.base.combine_rns_factors_non_fft(congruences_small_basis)
             ),
-            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.from_double_rns_repr(
-                self.base.add_rns_factor_element(&from.base, added_rns_factors, double_rns_repr)
+            ManagedDoubleRNSElRepresentationKind::DoubleRNS => self.from_double_rns_repr(
+                self.base.combine_rns_factors(congruences_doublerns)
             ),
-            ManagedDoubleRNSElRepresentation::Both(small_basis_repr, double_rns_repr) => self.new_element_both(
-                self.base.add_rns_factor_non_fft_element(&from.base, added_rns_factors, small_basis_repr),
-                self.base.add_rns_factor_element(&from.base, added_rns_factors, double_rns_repr)
-            )
+            ManagedDoubleRNSElRepresentationKind::Sum => {
+                // collect reprs here because we need refs to the RwMappedLockGuard's content
+                let reprs = rns_factors.iter().map(|congruence| match congruence {
+                    RNSFactorCongruence::Zero => ManagedDoubleRNSElRepresentation::Zero,
+                    RNSFactorCongruence::CongruentTo(_, _, el) => el.internal.get_repr()
+                }).collect::<Vec<_>>();
+                let congruences_small_basis = rns_factors.iter().zip(reprs.iter()).map(|(congruence, repr)| match (congruence, repr) {
+                    (_, ManagedDoubleRNSElRepresentation::Zero) | 
+                        (_, ManagedDoubleRNSElRepresentation::DoubleRNS(_)) => RNSFactorCongruence::Zero,
+                    (RNSFactorCongruence::CongruentTo(other_ring, other_i, _), ManagedDoubleRNSElRepresentation::Both(small_basis_part, _)) |
+                        (RNSFactorCongruence::CongruentTo(other_ring, other_i, _), ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_part)) => RNSFactorCongruence::CongruentTo(&other_ring.base, *other_i, small_basis_part.unwrap_borrowed()),
+                    (RNSFactorCongruence::CongruentTo(other_ring, other_i, _), ManagedDoubleRNSElRepresentation::Sum(parts)) => RNSFactorCongruence::CongruentTo(&other_ring.base, *other_i, &parts.0),
+                    (RNSFactorCongruence::Zero, _) => unreachable!()
+                });
+                let congruences_doublerns = rns_factors.iter().zip(reprs.iter()).map(|(congruence, repr)| match (congruence, repr) {
+                    (_, ManagedDoubleRNSElRepresentation::Zero) | 
+                        (_, ManagedDoubleRNSElRepresentation::SmallBasis(_)) |
+                        (_, ManagedDoubleRNSElRepresentation::Both(_, _)) => RNSFactorCongruence::Zero,
+                    (RNSFactorCongruence::CongruentTo(other_ring, other_i, _), ManagedDoubleRNSElRepresentation::DoubleRNS(doublerns_part))  => RNSFactorCongruence::CongruentTo(&other_ring.base, *other_i, doublerns_part.unwrap_borrowed()),
+                    (RNSFactorCongruence::CongruentTo(other_ring, other_i, _), ManagedDoubleRNSElRepresentation::Sum(parts)) => RNSFactorCongruence::CongruentTo(&other_ring.base, *other_i, &parts.1),
+                    (RNSFactorCongruence::Zero, _) => unreachable!()
+                });
+                self.new_element_sum(
+                    self.base.combine_rns_factors_non_fft(congruences_small_basis),
+                    self.base.combine_rns_factors(congruences_doublerns)
+                )
+            }
         }
     }
 
-    fn drop_rns_factor_prepared(&self, from: &Self, drop_factors: &[usize], value: Self::PreparedMultiplicant) -> Self::PreparedMultiplicant {
-        self.drop_rns_factor_element(from, drop_factors, value)
+    fn collect_rns_factors_prepared<'a, I>(&self, rns_factors: I) -> Self::PreparedMultiplicant
+        where I: Iterator<Item = super::RNSFactorCongruence<'a, Self, Self::PreparedMultiplicant>>,
+            Self: 'a
+    {
+        self.collect_rns_factors(rns_factors)
     }
 
     fn small_generating_set_len(&self) -> usize {
         self.rank()
     }
 
+    #[instrument(skip_all)]
     fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, mut output: SubmatrixMut<V, zn_64::ZnEl>)
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
@@ -545,54 +720,7 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         }
     }
 
-    ///
-    /// Computes a subset of the rows of the representation that would be returned by
-    /// [`BGFVCiphertextRing::as_representation_wrt_small_generating_set()`]. Since not all rows
-    /// have to be computed, this may be faster than `as_representation_wrt_small_generating_set()`.
-    /// 
-    /// However, this also means that this function will not cache the element in small-basis
-    /// representation, if that was computed (unlike `as_representation_wrt_small_generating_set()`).
-    /// Thus, if you want to access the element in small-basis representation afterwards anyway,
-    /// it will be faster to use `as_representation_wrt_small_generating_set()`.
-    /// 
-    fn partial_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, row_indices: &[usize], mut output: SubmatrixMut<V, zn_64::ZnEl>)
-        where V: AsPointerToSlice<zn_64::ZnEl>
-    {
-        assert_eq!(output.row_count(), row_indices.len());
-        assert_eq!(output.col_count(), self.base.rank());
-
-        match x.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.base.undo_fft_partial(double_rns_repr, row_indices, output),
-            ManagedDoubleRNSElRepresentation::Sum(parts) => {
-                let small_basis_part = &parts.0;
-                let double_rns_part = &parts.1;
-                self.base.undo_fft_partial(double_rns_part, row_indices, output.reborrow());
-                let matrix = self.base.as_matrix_wrt_small_basis(small_basis_part);
-                for (i_out, i_in) in row_indices.iter().enumerate() {
-                    for j in 0..matrix.col_count() {
-                        self.base.base_ring().at(*i_in).add_assign(output.at_mut(i_out, j), *matrix.at(*i_in, j));
-                    }
-                }
-            },
-            ManagedDoubleRNSElRepresentation::Both(small_basis_repr, _) | ManagedDoubleRNSElRepresentation::SmallBasis(small_basis_repr) => {   
-                let matrix = self.base.as_matrix_wrt_small_basis(small_basis_repr);
-                for (i_out, i_in) in row_indices.iter().enumerate() {
-                    for j in 0..matrix.col_count() {
-                        *output.at_mut(i_out, j) = *matrix.at(*i_in, j);
-                    }
-                }
-            },
-            ManagedDoubleRNSElRepresentation::Zero => {
-                for (i_out, i_in) in row_indices.iter().enumerate() {
-                    for j in 0..self.base.rank() {
-                        *output.at_mut(i_out, j) = self.base.base_ring().at(*i_in).zero();
-                    }
-                }
-            }
-        }
-
-    }
-
+    #[instrument(skip_all)]
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, zn_64::ZnEl>) -> Self::Element
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
@@ -688,49 +816,28 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
         *value = self.from_double_rns_repr(result);
     }
 
-    fn negate(&self, value: Self::Element) -> Self::Element {
-        self.apply_linear_operation(
-            &self.zero(), 
-            &value,
-            |_, _| unreachable!(),
-            |_, _| unreachable!(),
-            |a| self.base.negate_inplace_non_fft(a),
-            |a| self.base.negate_inplace(a)
-        )
+    fn negate(&self, mut value: Self::Element) -> Self::Element {
+        value.internal = self.negate_internal(value.internal);
+        return value;
     }
     
     #[instrument(skip_all)]
     fn mul_int_ref(&self, lhs: &Self::Element, rhs: i32) -> Self::Element {
-        self.apply_linear_operation(
-            &self.zero(), 
-            lhs,
-            |_, _| unreachable!(),
-            |_, _| unreachable!(),
-            |a| self.base.mul_scalar_assign_non_fft(a, &self.base_ring().int_hom().map(rhs)),
-            |a| self.base.mul_assign_int(a, rhs)
-        )
+        ManagedDoubleRNSEl {
+            internal: self.mul_base_internal(lhs.internal.clone(), &self.base_ring().int_hom().map(rhs))
+        }
     }
 
     fn add_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        self.apply_linear_operation(
-            lhs, 
-            rhs,
-            |a, b| self.base.add_assign_non_fft(a, b),
-            |a, b| self.base.add_assign_ref(a, b),
-            |_| {},
-            |_| {}
-        )
+        ManagedDoubleRNSEl {
+            internal: self.add_internal(lhs.internal.clone(), rhs.internal.clone())
+        }
     }
 
     fn sub_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        self.apply_linear_operation(
-            lhs,
-            rhs,
-            |a, b| self.base.sub_assign_non_fft(a, b),
-            |a, b| self.base.sub_assign_ref(a, b),
-            |a| self.base.negate_inplace_non_fft(a),
-            |a| self.base.negate_inplace(a)
-        )
+        ManagedDoubleRNSEl {
+            internal: self.sub_internal(lhs.internal.clone(), rhs.internal.clone())
+        }
     }
 
     fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
@@ -760,19 +867,19 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn add_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
-        lhs.internal = self.add_ref(lhs, rhs).internal;
+        take_mut::take(&mut lhs.internal, |x| self.add_internal(x, rhs.internal.clone()));
     }
 
     fn add_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
-        lhs.internal = self.add_ref(lhs, &rhs).internal;
+        take_mut::take(&mut lhs.internal, |x| self.add_internal(x, rhs.internal));
     }
 
     fn sub_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
-        lhs.internal = self.sub_ref(lhs, rhs).internal;
+        take_mut::take(&mut lhs.internal, |x| self.sub_internal(x, rhs.internal.clone()));
     }
 
     fn negate_inplace(&self, lhs: &mut Self::Element) {
-        lhs.internal = self.negate(self.clone_el(lhs)).internal;
+        take_mut::take(&mut lhs.internal, |x| self.negate_internal(x));
     }
 
     fn mul_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
@@ -796,47 +903,61 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn sub_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
-        lhs.internal = self.sub_ref(lhs, &rhs).internal;
+        take_mut::take(lhs, |x| self.sub(x, rhs));
     }
 
     fn mul_assign_int(&self, lhs: &mut Self::Element, rhs: i32) {
-        lhs.internal = self.mul_int(self.clone_el(lhs), rhs).internal;
+        take_mut::take(lhs, |x| self.mul_int(x, rhs));
     }
 
     fn mul_int(&self, lhs: Self::Element, rhs: i32) -> Self::Element {
-        self.mul_int_ref(&lhs, rhs)
+        ManagedDoubleRNSEl {
+            internal: self.mul_base_internal(lhs.internal, &self.base_ring().int_hom().map(rhs))
+        }
     }
 
     fn sub_self_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
-        lhs.internal = self.sub_ref(&rhs, lhs).internal;
+        take_mut::take(lhs, |x| self.sub(rhs, x));
     }
 
     fn sub_self_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
-        lhs.internal = self.sub_ref(rhs, lhs).internal;
+        take_mut::take(lhs, |x| self.sub_ref_fst(rhs, x));
     }
 
     fn add_ref_fst(&self, lhs: &Self::Element, rhs: Self::Element) -> Self::Element {
-        self.add_ref(lhs, &rhs)
+        ManagedDoubleRNSEl {
+            internal: self.add_internal(lhs.internal.clone(), rhs.internal)
+        }
     }
 
     fn add_ref_snd(&self, lhs: Self::Element, rhs: &Self::Element) -> Self::Element {
-        self.add_ref(&lhs, rhs)
+        ManagedDoubleRNSEl {
+            internal: self.add_internal(lhs.internal, rhs.internal.clone())
+        }
     }
 
     fn add(&self, lhs: Self::Element, rhs: Self::Element) -> Self::Element {
-        self.add_ref(&lhs, &rhs)
+        ManagedDoubleRNSEl {
+            internal: self.add_internal(lhs.internal, rhs.internal)
+        }
     }
 
     fn sub_ref_fst(&self, lhs: &Self::Element, rhs: Self::Element) -> Self::Element {
-        self.sub_ref(lhs, &rhs)
+        ManagedDoubleRNSEl {
+            internal: self.sub_internal(lhs.internal.clone(), rhs.internal)
+        }
     }
 
     fn sub_ref_snd(&self, lhs: Self::Element, rhs: &Self::Element) -> Self::Element {
-        self.sub_ref(&lhs, rhs)
+        ManagedDoubleRNSEl {
+            internal: self.sub_internal(lhs.internal, rhs.internal.clone())
+        }
     }
 
     fn sub(&self, lhs: Self::Element, rhs: Self::Element) -> Self::Element {
-        self.sub_ref(&lhs, &rhs)
+        ManagedDoubleRNSEl {
+            internal: self.sub_internal(lhs.internal, rhs.internal)
+        }
     }
 
     fn mul_ref_fst(&self, lhs: &Self::Element, rhs: Self::Element) -> Self::Element {
@@ -897,14 +1018,7 @@ impl<NumberRing, A> RingExtension for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn mul_assign_base(&self, lhs: &mut Self::Element, rhs: &El<Self::BaseRing>) {
-        *lhs = self.apply_linear_operation(
-            &self.zero(), 
-            lhs,
-            |_, _| unreachable!(),
-            |_, _| unreachable!(),
-            |a| self.base.mul_scalar_assign_non_fft(a, rhs),
-            |a| self.base.mul_assign_base(a, rhs)
-        )
+        take_mut::take(&mut lhs.internal, |x| self.mul_base_internal(x, rhs))
     }
 }
 
@@ -997,7 +1111,7 @@ impl<NumberRing, A> SerializableElementRing for ManagedDoubleRNSRingBase<NumberR
             return SerializableNewtypeStruct::new("ManagedDoubleRNSEl", &SerializableSmallBasisElWithRing::new(&self.base, self.to_small_basis(el).unwrap_or(&self.zero))).serialize(serializer);
         }
         if let ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) = el.internal.get_repr() {
-            serializer.serialize_newtype_variant("ManagedDoubleRNSEl", 0, "DoubleRNS", &SerializeWithRing::new(double_rns_repr, RingRef::new(&self.base)))
+            serializer.serialize_newtype_variant("ManagedDoubleRNSEl", 0, "DoubleRNS", &SerializeWithRing::new(&*double_rns_repr, RingRef::new(&self.base)))
         } else if let Some(small_basis_repr) = self.to_small_basis(el) {
             serializer.serialize_newtype_variant("ManagedDoubleRNSEl", 1, "SmallBasis", &SerializableSmallBasisElWithRing::new(&self.base, small_basis_repr))
         } else {

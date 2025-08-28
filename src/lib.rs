@@ -175,6 +175,11 @@ const ZZi128: StaticRing<i128> = StaticRing::<i128>::RING;
 /// 
 mod cache;
 
+///
+/// A smart "borrowed-or-owned" pointer for internal use.
+/// 
+mod boo;
+
 // Uncomment this to log allocations
 // mod allocator;
 

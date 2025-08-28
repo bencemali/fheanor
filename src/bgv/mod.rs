@@ -1,4 +1,5 @@
 use std::alloc::{Allocator, Global};
+use std::convert::identity;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Range;
@@ -23,7 +24,7 @@ use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_managed::ManagedDoubleRNSRingBase;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::ciphertext_ring::single_rns_ring::*;
+use crate::ciphertext_ring::{perform_rns_op, single_rns_ring::*, RNSFactorCongruence};
 use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::{cyclotomic::*, NiceZn};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
@@ -36,7 +37,7 @@ use crate::number_ring::{sample_primes, largest_prime_leq_congruent_to_one, HECy
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::number_ring::quotient::*;
 use crate::rns_conv::bgv_rescale::CongruencePreservingAlmostExactBaseConversion;
-use crate::rns_conv::RNSOperation;
+use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::{DefaultCiphertextAllocator, DefaultConvolution, DefaultNegacyclicNTT};
 use crate::{ZZi64, ZZbig};
 
@@ -603,7 +604,7 @@ pub trait BGVInstantiation {
                 c1: op.gadget_product(&switch_key.k1, C_special.get_ring()),
                 implicit_scale: P.base_ring().one()
             };
-            let mut result = Self::mod_switch_down_ct(P, C, C_special, switched);
+            let mut result = Self::mod_switch_ct(P, C, C_special, switched);
             C.add_assign(&mut result.c0, ct.c0);
             result.implicit_scale = ct.implicit_scale;
             return result;
@@ -814,7 +815,7 @@ pub trait BGVInstantiation {
                 c1: c1_g.gadget_product(&gks.at(i).k1, C_special.get_ring()),
                 implicit_scale: P.base_ring().one()
             };
-            let mut result = Self::mod_switch_down_ct(P, C, C_special, switched);
+            let mut result = Self::mod_switch_ct(P, C, C_special, switched);
             C.add_assign(&mut result.c0, c0_g);
             result.implicit_scale = P.base_ring().clone_el(&ct.implicit_scale);
             return result;
@@ -837,20 +838,24 @@ pub trait BGVInstantiation {
 
     ///
     /// Modulus-switches a secret key in a way compatible with modulus-switching ciphertexts.
-    /// 
-    /// In more detail, given `R/q'R` and `R/qR` where the RNS base for `q'`is derived from the RNS
-    /// base of `q` by removing the RNS factors whose indices are mentioned in `drop_moduli`, this
-    /// computes the secret key `sk mod q'`. Note that, if `ct` is an encryption w.r.t. `sk` over `R/qR`
-    /// and is modulus-switched to `ct'` over the ring `R/q'R`, then `sk mod q'` can be used to decrypt
-    /// `ct'`.
+    ///  
+    /// More concretely, this function computes the smallest lift of the given secret key
+    /// to the number ring, reduced modulo the modulus of `Cnew`. This secret key can successfully
+    /// decrypt ciphertexts obtained via [`BGVInstantiation::mod_switch_ct()`].
     /// 
     #[instrument(skip_all)]
-    fn mod_switch_down_sk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
-        let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
-        if drop_moduli.len() == 0 {
-            Cnew.clone_el(sk)
+    fn mod_switch_sk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
+        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
+            return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
         } else {
-            Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, sk)
+            let mod_switch = UsedBaseConversion::new_with_alloc(
+                Cold.base_ring().as_iter().cloned().collect(),
+                Cnew.base_ring().as_iter().cloned().collect(),
+                Global
+            );
+            assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
         }
     }
 
@@ -858,8 +863,9 @@ pub trait BGVInstantiation {
     /// Modulus-switches a relinearization key in a way compatible with modulus-switching ciphertexts.
     /// 
     /// This is equivalent to creating a new relinearization key (using [`BGVInstantiation::gen_rk()`])
-    /// over `Cnew` for the secret key `mod_switch_down_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
-    /// access to `sk`.
+    /// over `Cnew` for the secret key `mod_switch_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
+    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
+    /// RNS factors.
     /// 
     #[instrument(skip_all)]
     fn mod_switch_down_rk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<'a, Self>) -> RelinKey<'b, Self> {
@@ -884,7 +890,8 @@ pub trait BGVInstantiation {
     /// 
     /// This is equivalent to creating a new Galois key (using [`BGVInstantiation::gen_gk()`])
     /// over `Cnew` for the secret key `mod_switch_down_sk(Cnew, Cold, drop_moduli, sk)`, but does not require
-    /// access to `sk`.
+    /// access to `sk`. Currently, this function only supports decreasing the ciphertext modulus, by dropping
+    /// RNS factors.
     /// 
     #[instrument(skip_all)]
     fn mod_switch_down_gk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, gk: &KeySwitchKey<'a, Self>) -> KeySwitchKey<'b, Self> {
@@ -895,7 +902,7 @@ pub trait BGVInstantiation {
     /// Internal function to compute how the implicit scale of a ciphertext changes
     /// once we modulus-switch it.
     /// 
-    fn mod_switch_down_compute_implicit_scale_factor(P: &PlaintextRing<Self>, q_new: &El<BigIntRing>, q_old: &El<BigIntRing>) -> <Self::PlaintextZnRing as RingBase>::Element {
+    fn mod_switch_compute_implicit_scale_factor(P: &PlaintextRing<Self>, q_new: &El<BigIntRing>, q_old: &El<BigIntRing>) -> <Self::PlaintextZnRing as RingBase>::Element {
         let ZZbig_to_Zt = P.base_ring().can_hom(&ZZbig).unwrap();
         let result = P.base_ring().checked_div(
             &ZZbig_to_Zt.map_ref(q_new),
@@ -905,57 +912,72 @@ pub trait BGVInstantiation {
         return result;
     }
 
-    ///
-    /// Modulus-switches a ciphertext.
-    /// 
-    /// More concretely, we require that `Cold` is the ring `R/qR` and `Cnew` is the ring `R/q'R`,
-    /// where the RNS base for `q'`is derived from the RNS base of `q` by removing the RNS factors
-    /// whose indices are mentioned in `drop_moduli`. Given a ciphertext `ct` over `R/qR`, this function
-    /// then computes a ciphertext encrypting the same message over `R/q'R` (w.r.t. the secret key
-    /// `sk mod q'`, which can be accessed via [`BGVInstantiation::mod_switch_down_sk()`]).
-    /// 
-    #[instrument(skip_all)]
-    fn mod_switch_down_ct(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
-        if drop_moduli.len() == 0 {
-            return ct;
-        }
-        let remaining_rns_factors = drop_moduli.complement(Cold.base_ring().len());
-        let C_delta = RingValue::from(Cold.get_ring().drop_rns_factor(&remaining_rns_factors));
+    fn rescale_ring_element<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
+        let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
+        let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
+        let a = Cold.base_ring().coerce(&ZZbig, ZZbig.prod(added_rns_factors.iter().map(|i| int_cast(*Cnew.base_ring().at(*i).modulus(), ZZbig, ZZi64))));
 
+        let map_kept_factors = move |x| Cnew.get_ring().collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| if added_rns_factors.contains(idx) {
+            RNSFactorCongruence::Zero
+        } else {
+            let old_idx = Cold.base_ring().as_iter().enumerate().filter(|(_, old_ring)| old_ring.get_ring() == Cnew.base_ring().at(idx).get_ring()).next().unwrap().0;
+            RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, &x)
+        }));
+
+        if kept_rns_factors.len() == Cold.base_ring().len() {
+            if kept_rns_factors.len() == Cnew.base_ring().len() {
+                return Box::new(identity);
+            } else {
+                return Box::new(move |mut x: El<CiphertextRing<Self>>| {
+                    Cold.inclusion().mul_assign_ref_map(&mut x, &a);
+                    return map_kept_factors(x);
+                });
+            }
+        }
+
+        let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
         let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
         let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
-            drop_moduli.iter().map(|i| *Cold.base_ring().at(*i)).collect(),
+            C_dropped.base_ring().as_iter().cloned().collect(),
             Cnew.base_ring().as_iter().cloned().collect(),
             Zt,
             Global
         );
-        let mod_switch_ring_element = |x: El<CiphertextRing<Self>>| {
-            // this logic is slightly complicated, since we want to avoid using `perform_rns_op()`;
-            // in particular, we only need to convert a part of `x` into coefficient/small-basis representation,
-            // while just using `perform_rns_op()` would convert all of `x`.
-            let mut mod_b_part_of_x = OwnedMatrix::zero(drop_moduli.len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
-            C_delta.get_ring().as_representation_wrt_small_generating_set(&C_delta.get_ring().drop_rns_factor_element(Cold.get_ring(), &remaining_rns_factors, &x), mod_b_part_of_x.data_mut());
-            // this is the "correction", subtracting it will make `x` divisible by the moduli to drop
+        let b_inv = Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(dropped_rns_factors.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap();
+        Box::new(move |mut x: El<CiphertextRing<Self>>| {
+            Cold.inclusion().mul_assign_ref_map(&mut x, &a);
+
+            let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
+            let mut x_dropped_matrix = OwnedMatrix::zero(C_dropped.base_ring().len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
+            C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped, x_dropped_matrix.data_mut());
             let mut delta = OwnedMatrix::zero(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len(), Cnew.base_ring().at(0));
-            compute_delta.apply(mod_b_part_of_x.data(), delta.data_mut());
+            compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
             let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.data());
-            // now subtract `delta` and scale by the moduli to drop - since `x - delta` is divisible by those,
-            // this is actually a rescaling and not only a division in `Z/qZ`
-            return Cnew.inclusion().mul_map(
-                Cnew.sub(
-                    Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &drop_moduli, &x),
-                    delta
-                ),
-                Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(drop_moduli.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap()
-            )
-        };
-        
+
+            return Cnew.inclusion().mul_ref_snd_map(
+                Cnew.sub(map_kept_factors(x), delta),
+                &b_inv
+            );
+        })
+    }
+
+    ///
+    /// Modulus-switches a ciphertext.
+    /// 
+    /// More concretely, this function computes a valid ciphertext w.r.t. `Cnew` that
+    /// encrypts the same message as the input ciphertext w.r.t. `Cold` (w.r.t. the same
+    /// secret key, or rather a modulus-switched variant of the secret key, via
+    /// [`BGVInstantiation::mod_switch_sk()`]).
+    /// 
+    #[instrument(skip_all)]
+    fn mod_switch_ct(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        assert!(P.base_ring().is_unit(&ct.implicit_scale));
+        let mut rescale = Self::rescale_ring_element(P, Cnew, Cold);
         let result = Ciphertext {
-            c0: mod_switch_ring_element(ct.c0),
-            c1: mod_switch_ring_element(ct.c1),
-            implicit_scale: P.base_ring().mul(ct.implicit_scale, Self::mod_switch_down_compute_implicit_scale_factor(P, Cnew.base_ring().modulus(), Cold.base_ring().modulus()))
+            c0: rescale(ct.c0),
+            c1: rescale(ct.c1),
+            implicit_scale: P.base_ring().mul(ct.implicit_scale, Self::mod_switch_compute_implicit_scale_factor(P, Cnew.base_ring().modulus(), Cold.base_ring().modulus()))
         };
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
@@ -1045,7 +1067,7 @@ pub trait BGVInstantiation {
         }));
         let factor = P.base_ring().smallest_lift(P.base_ring().invert(&P.base_ring().mul(
             ct.implicit_scale,
-            Self::mod_switch_down_compute_implicit_scale_factor(P, &int_cast(ZZ.clone_el(target.base_ring().modulus()), ZZbig, ZZ), C.base_ring().modulus())
+            Self::mod_switch_compute_implicit_scale_factor(P, &int_cast(ZZ.clone_el(target.base_ring().modulus()), ZZbig, ZZ), C.base_ring().modulus())
         )).unwrap());
         let ZZ_to_C = C.inclusion().compose(C.base_ring().can_hom(ZZ).unwrap());
         let c0 = ZZ_to_C.mul_ref_snd_map(ct.c0, &factor);
@@ -1419,13 +1441,13 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_down_sk(&C, &C_special, &sk));
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk));
     let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, ctxt, &switch_key);
-    let result = Pow2BGV::dec(&P, &C, result_ctxt, &Pow2BGV::mod_switch_down_sk(&C, &C_special, &sk_new));
+    let result = Pow2BGV::dec(&P, &C, result_ctxt, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new));
     assert_el_eq!(&P, P.int_hom().map(2), result);
 
     let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
-    let sk = Pow2BGV::mod_switch_down_sk(&C, &C_special, &sk);
+    let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
     let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
@@ -1440,8 +1462,8 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk);
     let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
-    let modswitched_ctxt = Pow2BGV::mod_switch_down_ct(&P, &C, &C_special, first_mul_ctxt);
-    let sk = Pow2BGV::mod_switch_down_sk(&C, &C_special, &sk);
+    let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
+    let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, modswitched_ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(16), result);
@@ -1464,8 +1486,12 @@ fn test_pow2_bgv_modulus_switch() {
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
         let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let result_ctxt = Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
-        let result = Pow2BGV::dec(&P, &C1, result_ctxt, &Pow2BGV::mod_switch_down_sk(&C1, &C0, &sk));
+        let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
+        let result = Pow2BGV::dec(&P, &C1, Pow2BGV::clone_ct(&P, &C1, &ctxt1), &Pow2BGV::mod_switch_sk(&C1, &C0, &sk));
+        assert_el_eq!(&P, P.int_hom().map(2), result);
+
+        let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C0, &C1, ctxt1);
+        let result = Pow2BGV::dec(&P, &C0, ctxt2, &sk);
         assert_el_eq!(&P, P.int_hom().map(2), result);
     }
 }
@@ -1505,8 +1531,8 @@ fn test_pow2_modulus_switch_hom_add() {
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
         let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let ctxt_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
-        let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C1, &C0, &sk);
+        let ctxt_modswitch = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
+        let sk_modswitch = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
         let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch);
 
         let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other);
@@ -1534,14 +1560,14 @@ fn test_pow2_bgv_modulus_switch_rk() {
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
         let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
-        let new_sk = Pow2BGV::mod_switch_down_sk(&C1, &C0, &sk);
+        let new_sk = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
         let new_rk = Pow2BGV::mod_switch_down_rk(&C1, &C0, &rk);
         let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk);
         let result_ctxt = Pow2BGV::hom_mul(
             &P,
             &C1,
             &C1,
-            Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
+            Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt)),
             ctxt2,
             &new_rk
         );
@@ -1562,13 +1588,13 @@ fn test_mod_switch_repeated() {
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
     let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk);
     let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
-    let ctxt1 = Pow2BGV::mod_switch_down_ct(&P, &C1, &C0, ctxt);
-    let sk1 = Pow2BGV::mod_switch_down_sk(&C1, &C0, &sk);
+    let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, ctxt);
+    let sk1 = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
     assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C1, Pow2BGV::clone_ct(&P, &C1, &ctxt1), &sk1));
 
     let C2 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 2, 12, 13], 14));
-    let ctxt2 = Pow2BGV::mod_switch_down_ct(&P, &C2, &C1, ctxt1);
-    let sk2 = Pow2BGV::mod_switch_down_sk(&C2, &C0, &sk);
+    let ctxt2 = Pow2BGV::mod_switch_ct(&P, &C2, &C1, ctxt1);
+    let sk2 = Pow2BGV::mod_switch_sk(&C2, &C0, &sk);
     assert_el_eq!(&P, &P.int_hom().map(2), Pow2BGV::dec(&P, &C2, ctxt2, &sk2));
 }
 
@@ -1619,9 +1645,9 @@ fn measure_time_pow2_bgv_basic_ops() {
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = Pow2BGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = Pow2BGV::mod_switch_down_sk(&C_new, &C, &sk);
+    let sk_new = Pow2BGV::mod_switch_sk(&C_new, &C, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
-        Pow2BGV::mod_switch_down_ct(&P, &C_new, &C, res)
+        Pow2BGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C_new, res_new, &sk_new));
 }
@@ -1675,9 +1701,9 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = CompositeBGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = CompositeBGV::mod_switch_down_sk(&C_new, &C, &sk);
+    let sk_new = CompositeBGV::mod_switch_sk(&C_new, &C, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
-        CompositeBGV::mod_switch_down_ct(&P, &C_new, &C, res)
+        CompositeBGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C_new, res_new, &sk_new));
 }
@@ -1731,9 +1757,9 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
 
     let to_drop = RNSFactorIndexList::from(vec![0], C.base_ring().len());
     let C_new = CompositeSingleRNSBGV::mod_switch_down_C(&C, &to_drop);
-    let sk_new = CompositeSingleRNSBGV::mod_switch_down_sk(&C_new, &C, &sk);
+    let sk_new = CompositeSingleRNSBGV::mod_switch_sk(&C_new, &C, &sk);
     let res_new = log_time::<_, _, true, _>("ModSwitch", |[]| 
-        CompositeSingleRNSBGV::mod_switch_down_ct(&P, &C_new, &C, res)
+        CompositeSingleRNSBGV::mod_switch_ct(&P, &C_new, &C, res)
     );
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C_new, res_new, &sk_new));
 }

@@ -634,14 +634,18 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn mod_switch_sk(_P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, sk: &SecretKey<Self>) -> SecretKey<Self> {
-        let mod_switch = UsedBaseConversion::new_with_alloc(
-            Cold.base_ring().as_iter().cloned().collect(),
-            Cnew.base_ring().as_iter().cloned().collect(),
-            Global
-        );
-        assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
-        assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
-        return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
+        if let Ok(dropped_factors) = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()) {
+            return Cnew.get_ring().drop_rns_factor_element(Cold.get_ring(), &dropped_factors, sk);
+        } else {
+            let mod_switch = UsedBaseConversion::new_with_alloc(
+                Cold.base_ring().as_iter().cloned().collect(),
+                Cnew.base_ring().as_iter().cloned().collect(),
+                Global
+            );
+            assert!(Cold.base_ring().as_iter().zip(mod_switch.input_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            assert!(Cnew.base_ring().as_iter().zip(mod_switch.output_rings()).all(|(l, r)| l.get_ring() == r.get_ring()));
+            return perform_rns_op(Cnew.get_ring(), Cold.get_ring(), sk, &mod_switch);
+        }
     }
 
     ///
@@ -999,6 +1003,26 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
     fn encode_plain_multiplicant(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>) -> El<CiphertextRing<Self>> {
         let ZZ_to_Zq = C.base_ring().can_hom(P.base_ring().integer_ring()).unwrap();
         return force_double_rns_repr::<Self, _, _>(C, C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZ_to_Zq.map(P.base_ring().smallest_lift(c)))));
+    }
+
+    fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+        let C_delta = RingValue::from(C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len())));
+        let lift = UsedBaseConversion::new(
+            C.base_ring().as_iter().cloned().collect::<Vec<_>>(),
+            C_delta.base_ring().as_iter().cloned().collect::<Vec<_>>()
+        );
+        let mut tmp_in = OwnedMatrix::zero(C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        let mut tmp_out = OwnedMatrix::zero(C_mul.base_ring().len() - C.base_ring().len(), C_mul.get_ring().small_generating_set_len(), C_mul.base_ring().at(0));
+        return Box::new(move |c| {
+            C.get_ring().as_representation_wrt_small_generating_set(c, tmp_in.data_mut());
+            lift.apply(tmp_in.data(), tmp_out.data_mut());
+            let delta = force_double_rns_repr::<Self, _, _>(&C_delta, C_delta.get_ring().from_representation_wrt_small_generating_set(tmp_out.data()));
+            return C_mul.get_ring().collect_rns_factors(
+                (0..C.base_ring().len()).map(|i| RNSFactorCongruence::CongruentTo(C.get_ring(), i, c)).chain(
+                    (0..C_delta.base_ring().len()).map(|i| RNSFactorCongruence::CongruentTo(C_delta.get_ring(), i, &delta))
+                )
+            );
+        });
     }
 }
 

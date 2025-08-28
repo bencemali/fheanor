@@ -49,8 +49,8 @@ fn main() {
     
     println!("log2(q') = {}", BigIntRing::RING.abs_log2_ceil(C_new.base_ring().modulus()).unwrap());
     
-    let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, enc_x_sqr);
-    let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &sk);
+    let enc_x_modswitch = Pow2BGV::mod_switch_ct(&P, &C_new, &C_initial, enc_x_sqr);
+    let sk_modswitch = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
     let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &rk);
     
     let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, Pow2BGV::clone_ct(&P, &C_initial, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);

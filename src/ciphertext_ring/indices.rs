@@ -92,7 +92,7 @@ impl RNSFactorIndexList {
         if master.len() == 0 {
             return Self::empty();
         }
-        let mut result = Vec::with_capacity(master.len() - new.len());
+        let mut result = Vec::new();
         for i in 0..master.len() {
             if new.as_iter().all(|ring| ring.get_ring() != master.at(i).get_ring()) {
                 result.push(i);

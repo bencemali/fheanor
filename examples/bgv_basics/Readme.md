@@ -240,7 +240,7 @@ Note that finding the right size of `q'` is, in general, not so easy, since it r
 In particular, this depends on the size of the ring we work in, and also on the number of digits chosen for relinearization.
 
 Once we decided on the number of factors to drop, we can use the function [`crate::bgv::modswitch::drop_rns_factors_balanced()`] to choose the exact factors to drop in such a way as to preserve the quality of the relinearization key.
-Alternatively, these can also determined manually: [`crate::bgv::BGVInstantiation::mod_switch_down_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
+Alternatively, these can also determined manually: [`crate::bgv::BGVInstantiation::mod_switch_ct()`] takes a list of indices, which refer to the indices of the factors of `q` that will be dropped.
 ```rust
 # use fheanor::bgv::*;
 # use fheanor::DefaultNegacyclicNTT;
@@ -277,8 +277,8 @@ let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
 let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &to_drop);
 
-let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, enc_x_sqr);
-let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &sk);
+let enc_x_modswitch = Pow2BGV::mod_switch_ct(&P, &C_new, &C_initial, enc_x_sqr);
+let sk_modswitch = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
 let rk_modswitch = Pow2BGV::mod_switch_down_rk(&C_new, &C_initial, &rk);
 
 let enc_x_pow4 = Pow2BGV::hom_mul(&P, &C_new, &C_new, Pow2BGV::clone_ct(&P, &C_new, &enc_x_modswitch), enc_x_modswitch, &rk_modswitch);
@@ -325,8 +325,8 @@ let num_digits_to_drop = 2;
 let to_drop = drop_rns_factors_balanced(rk.gadget_vector_digits(), num_digits_to_drop);
 let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &to_drop);
 
-let enc_x_modswitch = Pow2BGV::mod_switch_down_ct(&P, &C_new, &C_initial, enc_x_sqr);
-let sk_modswitch = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &sk);
+let enc_x_modswitch = Pow2BGV::mod_switch_ct(&P, &C_new, &C_initial, enc_x_sqr);
+let sk_modswitch = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
 // don't modswitch the rk!
 
 // pass both the ring `C_new` where the ciphertext lives, and the ring `C_initial` where the `rk` lives
@@ -401,7 +401,7 @@ let enc_x_pow4 = modswitch_strategy.evaluate_circuit(
     None
 ).into_iter().next().unwrap();
 let C_new = Pow2BGV::mod_switch_down_C(&C_initial, &enc_x_pow4.dropped_rns_factor_indices);
-let sk_new = Pow2BGV::mod_switch_down_sk(&C_new, &C_initial, &sk);
+let sk_new = Pow2BGV::mod_switch_sk(&C_new, &C_initial, &sk);
 assert_eq!(78, Pow2BGV::noise_budget(&P, &C_new, &enc_x_pow4.data, &sk_new));
 let dec_x_pow4 = Pow2BGV::dec(&P, &C_new, enc_x_pow4.data, &sk_new);
 assert_el_eq!(&P, P.pow(P.clone_el(&x), 4), &dec_x_pow4);

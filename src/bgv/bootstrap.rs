@@ -605,13 +605,14 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let P = params.create_plaintext_ring(t);
     let C_master = params.create_ciphertext_ring(805..820);
     assert_eq!(15, C_master.base_ring().len());
-    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+    let gk_params = RNSGadgetVectorDigitIndices::select_digits(7, C_master.base_ring().len());
+    let rk_params = RNSGadgetVectorDigitIndices::select_digits(3, C_master.base_ring().len());
 
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
-    let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &gk_params))).collect::<Vec<_>>();
+    let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &rk_params);
     
     let m = P.int_hom().map(2);
     let ct = Pow2BGV::enc_sym(&P, &C_master, &mut rng, &m, &sk);

@@ -274,6 +274,10 @@ impl ToOwned for RNSFactorIndexList {
     }
 }
 
+///
+/// Error returned by [`RNSFactorIndexList::missing_from_subset()`] if the 
+/// given subset is not actually a subset of the superset.
+/// 
 pub struct RNSFactorsNotASubset<V1, V2, R>
     where V1: VectorView<R>,
         V2: VectorView<R>,

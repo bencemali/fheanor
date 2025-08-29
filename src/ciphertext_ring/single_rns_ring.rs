@@ -363,16 +363,15 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
         self.m()
     }
 
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, mut output: SubmatrixMut<V, ZnEl>)
+    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
         where V: AsPointerToSlice<ZnEl>
     {
         let matrix = self.coefficients_as_matrix(x);
         assert_eq!(output.row_count(), matrix.row_count());
         assert_eq!(output.col_count(), matrix.col_count());
-        for i in 0..matrix.row_count() {
-            for j in 0..matrix.col_count() {
-                *output.at_mut(i, j) = *matrix.at(i, j);
-            }
+
+        for (dst, src) in output.row_iter().zip(matrix.row_iter()) {
+            dst.copy_from_slice(src);
         }
     }
 
@@ -381,14 +380,12 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
         where V: AsPointerToSlice<ZnEl>
     {
         let mut result = self.zero();
-        let mut result_matrix = self.coefficients_as_matrix_mut(&mut result);
+        let result_matrix = self.coefficients_as_matrix_mut(&mut result);
         assert_eq!(result_matrix.row_count(), data.row_count());
         assert_eq!(result_matrix.col_count(), data.col_count());
-        for i in 0..result_matrix.row_count() {
-            let Zp = self.base_ring().at(i);
-            for j in 0..result_matrix.col_count() {
-                *result_matrix.at_mut(i, j) = Zp.clone_el(data.at(i, j));
-            }
+
+        for (dst, src) in result_matrix.row_iter().zip(data.row_iter()) {
+            dst.copy_from_slice(src);
         }
         return result;
     }
@@ -659,7 +656,7 @@ impl<NumberRing, A, C> FreeAlgebra for SingleRNSRingBase<NumberRing, A, C>
     type VectorRepresentation<'a> = SingleRNSRingBaseElVectorRepresentation<'a, NumberRing, A, C> 
         where Self: 'a;
 
-        #[instrument(skip_all)]
+    #[instrument(skip_all)]
     fn canonical_gen(&self) -> SingleRNSRingEl<NumberRing, A, C> {
         let mut result = self.zero();
         let mut result_matrix = self.coefficients_as_matrix_mut(&mut result);

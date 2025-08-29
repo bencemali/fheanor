@@ -67,10 +67,10 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
 
     fn hom_mul_plain_encoded(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<CiphertextRing<Params>>, ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor;
 
-    fn hom_mul_plain_i64(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: i64, ct: &Self::CiphertextDescriptor, implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor;
+    fn hom_mul_plain_int(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, m: &El<BigIntRing>, ct: &Self::CiphertextDescriptor, implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor;
 
     fn merge_implicit_scale(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, ct: &Self::CiphertextDescriptor, implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {
-        self.hom_mul_plain_i64(P, C, int_cast(P.base_ring().smallest_lift(P.base_ring().invert(&implicit_scale).unwrap()), ZZi64, P.base_ring().integer_ring()), ct, implicit_scale)
+        self.hom_mul_plain_int(P, C, &int_cast(P.base_ring().smallest_lift(P.base_ring().invert(&implicit_scale).unwrap()), ZZbig, P.base_ring().integer_ring()), ct, implicit_scale)
     }
 
     fn key_switch(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, key_switch_key: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor;
@@ -198,9 +198,9 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         return result;
     }
 
-    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, m: i64, ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {
+    fn hom_mul_plain_int(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, m: &El<BigIntRing>, ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {
         let mut result = *ct;
-        result.log2_relative_critical_quantity += (m as f64).abs().log2();
+        result.log2_relative_critical_quantity += ZZbig.abs_log2_ceil(m).unwrap_or(0) as f64;
         assert!(!result.log2_relative_critical_quantity.is_nan());
         return result;
     }
@@ -310,7 +310,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
     fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _lhs: &Self::CiphertextDescriptor, _rhs: &Self::CiphertextDescriptor, _rk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {}
     fn hom_mul_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
-    fn hom_mul_plain_i64(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: i64, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
+    fn hom_mul_plain_int(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<BigIntRing>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn key_switch(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::CiphertextDescriptor, _key_switch_key: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {}
     fn mod_switch_down_ct(&self, _P: &PlaintextRing<Params>, _Cnew: &CiphertextRing<Params>, _Cold: &CiphertextRing<Params>, _drop_moduli: &RNSFactorIndexList, _ct: &Self::CiphertextDescriptor) -> Self::CiphertextDescriptor {}
     fn transparent_zero(&self) -> Self::CiphertextDescriptor {}

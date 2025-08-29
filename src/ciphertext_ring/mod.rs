@@ -10,7 +10,7 @@ use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::number_ring::HECyclotomicNumberRing;
+use crate::number_ring::HENumberRing;
 use crate::rns_conv::RNSOperation;
 
 pub mod indices;
@@ -109,7 +109,7 @@ pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, adde
 /// 
 pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
 
-    type NumberRing: HECyclotomicNumberRing;
+    type NumberRing: HENumberRing;
 
     fn number_ring(&self) -> &Self::NumberRing;
 

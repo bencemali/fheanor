@@ -134,10 +134,12 @@ pub enum SecretKeyDistribution {
 /// 
 pub trait BFVInstantiation {
 
+    type NumberRing: HECyclotomicNumberRing;
+
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing + CyclotomicRing + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicRing + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
@@ -845,6 +847,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2BFV<A, C> {
 
+    type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
     type PlaintextRing = NumberRingQuotientBase<Pow2CyclotomicNumberRing<C>, Zn>;
     type PlaintextZnRing = ZnBase;
@@ -961,6 +964,7 @@ impl<A: Allocator + Clone + Send + Sync> CompositeBFV<A> {
 
 impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
 
+    type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     type PlaintextRing = NumberRingQuotientBase<CompositeCyclotomicNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;
@@ -1085,6 +1089,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
 
+    type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
     type PlaintextRing = NumberRingQuotientBase<CompositeCyclotomicNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;

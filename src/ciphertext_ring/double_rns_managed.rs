@@ -616,8 +616,8 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
     fn drop_rns_factor(&self, drop_rns_factors: &RNSFactorIndexList) -> Self {
         let new_base = self.base.drop_rns_factor(drop_rns_factors);
         Self {
-            zero: new_base.get_ring().zero_non_fft(),
-            base: new_base.into()
+            zero: new_base.zero_non_fft(),
+            base: new_base
         }
     }
     
@@ -656,14 +656,14 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         match output_format {
             ManagedDoubleRNSElRepresentationKind::Zero => self.zero(),
             ManagedDoubleRNSElRepresentationKind::Both => self.new_element_both(
-                self.base.combine_rns_factors_non_fft(congruences_small_basis),
-                self.base.combine_rns_factors(congruences_doublerns)
+                self.base.collect_rns_factors_non_fft(congruences_small_basis),
+                self.base.collect_rns_factors(congruences_doublerns)
             ),
             ManagedDoubleRNSElRepresentationKind::SmallBasis => self.from_small_basis_repr(
-                self.base.combine_rns_factors_non_fft(congruences_small_basis)
+                self.base.collect_rns_factors_non_fft(congruences_small_basis)
             ),
             ManagedDoubleRNSElRepresentationKind::DoubleRNS => self.from_double_rns_repr(
-                self.base.combine_rns_factors(congruences_doublerns)
+                self.base.collect_rns_factors(congruences_doublerns)
             ),
             ManagedDoubleRNSElRepresentationKind::Sum => {
                 // collect reprs here because we need refs to the RwMappedLockGuard's content
@@ -688,8 +688,8 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
                     (RNSFactorCongruence::Zero, _) => unreachable!()
                 });
                 self.new_element_sum(
-                    self.base.combine_rns_factors_non_fft(congruences_small_basis),
-                    self.base.combine_rns_factors(congruences_doublerns)
+                    self.base.collect_rns_factors_non_fft(congruences_small_basis),
+                    self.base.collect_rns_factors(congruences_doublerns)
                 )
             }
         }

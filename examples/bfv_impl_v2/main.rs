@@ -18,6 +18,7 @@ use rand::{Rng, RngCore};
 use rand_distr::StandardNormal;
 use fheanor::number_ring::*;
 use fheanor::rns_conv::bfv_rescale::AlmostExactRescalingConvert;
+use fheanor::ciphertext_ring::BGFVCiphertextRing;
 use fheanor::gadget_product::*;
 use fheanor::rns_conv::RNSOperation;
 use fheanor::number_ring::pow2_cyclotomic::*;

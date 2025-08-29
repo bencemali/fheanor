@@ -87,10 +87,12 @@ const SAMPLE_PRIMES_SIZE: usize = 57;
 /// 
 pub trait CLPXInstantiation {
 
+    type NumberRing: HECyclotomicNumberRing;
+
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing + CyclotomicRing + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicRing + FiniteRing;
     
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -487,6 +489,7 @@ pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Po
 
 impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
+    type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
     fn number_ring(&self) -> &NumberRing<Self> {
@@ -522,6 +525,7 @@ pub type CompositeCLPX<A = DefaultCiphertextAllocator> = CompositeBFV<A>;
 
 impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> {
 
+    type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     
     fn number_ring(&self) -> &CompositeCyclotomicNumberRing {

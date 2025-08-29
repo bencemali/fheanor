@@ -204,16 +204,10 @@ impl<R: ?Sized + RingBase> LinearCombination<R> {
         where E: CircuitEvaluator<'a, T, R>
     {
         assert_eq!(self.factors.len(), first_inputs.len() + second_inputs.len());
-        let current = evaluator.constant(&self.constant);
-        let current = evaluator.add_inner_prod(
-            current, 
-            &self.factors[..first_inputs.len()],
-            first_inputs
-        );
+        let constant = evaluator.constant(&self.constant);
         evaluator.add_inner_prod(
-            current,
-            &self.factors[first_inputs.len()..],
-            second_inputs
+            constant, 
+            self.factors.iter().zip(first_inputs.iter().chain(second_inputs.iter()))
         )
     }
 

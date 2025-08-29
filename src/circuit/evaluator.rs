@@ -49,8 +49,12 @@ pub trait CircuitEvaluator<'a, T, R: ?Sized + RingBase> {
     fn mul(&mut self, lhs: T, rhs: T) -> T;
     fn square(&mut self, val: T) -> T;
     fn constant(&mut self, constant: &'a Coefficient<R>) -> T;
-    fn add_inner_prod(&mut self, dst: T, lhs: &'a [Coefficient<R>], rhs: &[T]) -> T;
     fn gal(&mut self, val: T, gs: &'a [CyclotomicGaloisGroupEl]) -> Vec<T>;
+
+    fn add_inner_prod<'b, I>(&mut self, dst: T, data: I) -> T
+        where I: Iterator<Item = (&'a Coefficient<R>, &'b T)>,
+            R: 'a,
+            T: 'b;
 }
 
 pub struct HomEvaluator<R, S, H>
@@ -85,9 +89,13 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
     fn supports_gal(&self) -> bool { false }
     fn supports_mul(&self) -> bool { true }
 
-    fn add_inner_prod(&mut self, dst: S::Element, lhs: &[Coefficient<R>], rhs: &[S::Element]) -> S::Element {
+    fn add_inner_prod<'b, I>(&mut self, dst: S::Element, data: I) -> S::Element
+        where I: Iterator<Item = (&'a Coefficient<R>, &'b S::Element)>,
+            R: 'a,
+            S::Element: 'b
+    {
         self.hom.codomain().sum(
-            [dst].into_iter().chain(lhs.iter().zip(rhs.iter()).filter_map(|(l, r)| match l {
+            [dst].into_iter().chain(data.filter_map(|(l, r)| match l {
                 Coefficient::Zero => None,
                 Coefficient::One => Some(self.hom.codomain().clone_el(r)),
                 Coefficient::NegOne => Some(self.hom.codomain().negate(self.hom.codomain().clone_el(r))),
@@ -146,9 +154,13 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, 
     fn supports_gal(&self) -> bool { true }
     fn supports_mul(&self) -> bool { true }
 
-    fn add_inner_prod(&mut self, dst: S::Element, lhs: &[Coefficient<R>], rhs: &[S::Element]) -> S::Element {
+    fn add_inner_prod<'b, I>(&mut self, dst: S::Element, data: I) -> S::Element
+        where I: Iterator<Item = (&'a Coefficient<R>, &'b S::Element)>,
+            R: 'a,
+            S::Element: 'b
+    {
         self.hom.codomain().sum(
-            [dst].into_iter().chain(lhs.iter().zip(rhs.iter()).filter_map(|(l, r)| match l {
+            [dst].into_iter().chain(data.filter_map(|(l, r)| match l {
                 Coefficient::Zero => None,
                 Coefficient::One => Some(self.hom.codomain().clone_el(r)),
                 Coefficient::NegOne => Some(self.hom.codomain().negate(self.hom.codomain().clone_el(r))),
@@ -240,7 +252,7 @@ pub struct DefaultCircuitEvaluator<'a, T, R: ?Sized + RingBase, FnMul, FnConst, 
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
         FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
-        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &'a [Coefficient<R>], &[T]) -> T,
+        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a
 {
     element: PhantomData<T>,
@@ -253,7 +265,7 @@ pub struct DefaultCircuitEvaluator<'a, T, R: ?Sized + RingBase, FnMul, FnConst, 
     inner_product: FnInnerProd
 }
 
-impl<'a, T, R: ?Sized + RingBase, FnConst, FnAddProd> DefaultCircuitEvaluator<'a, T, R, Absent<fn(T, T) -> T>, FnConst, Present<FnAddProd>, Absent<fn(T) -> T>, Absent<fn(T, &[CyclotomicGaloisGroupEl]) -> Vec<T>>, Absent<fn(T, &[Coefficient<R>], &[T]) -> T>>
+impl<'a, T, R: ?Sized + RingBase, FnConst, FnAddProd> DefaultCircuitEvaluator<'a, T, R, Absent<fn(T, T) -> T>, FnConst, Present<FnAddProd>, Absent<fn(T) -> T>, Absent<fn(T, &[CyclotomicGaloisGroupEl]) -> Vec<T>>, Absent<fn(T, &[&'a Coefficient<R>], &[&T]) -> T>>
     where FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: FnMut(T, &'a Coefficient<R>, &T) -> T,
         R: 'a
@@ -278,21 +290,31 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Fn
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
         FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
-        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &'a [Coefficient<R>], &[T]) -> T,
+        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
 {
     fn supports_gal(&self) -> bool { self.gal.get_option().is_some() }
     fn supports_mul(&self) -> bool { self.mul.get_option().is_some() }
 
-    fn add_inner_prod(&mut self, dst: T, lhs: &'a [Coefficient<R>], rhs: &[T]) -> T {
-        assert_eq!(lhs.len(), rhs.len());
+    fn add_inner_prod<'b, I>(&mut self, dst: T, data: I) -> T
+        where I: Iterator<Item = (&'a Coefficient<R>, &'b T)>,
+            R: 'a,
+            T: 'b
+    {
         if let Some(inner_prod) = self.inner_product.get_mut_option() {
-            return inner_prod(dst, lhs, rhs);
+            let mut lhs = Vec::new();
+            let mut rhs = Vec::new();
+            for (l, r) in data {
+                lhs.push(l);
+                rhs.push(r);
+            }
+            assert_eq!(lhs.len(), rhs.len());
+            return inner_prod(dst, &lhs[..], &rhs[..]);
         } else {
             let mut current = dst;
-            for i in 0..lhs.len() {
-                current = self.add_prod.get_mut_option().unwrap()(current, &lhs[i], &rhs[i]);
+            for (l, r) in data {
+                current = self.add_prod.get_mut_option().unwrap()(current, l, r);
             }
             return current;
         }
@@ -323,7 +345,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Fn
             square(val)
         } else {
             let zero = (self.constant)(&Coefficient::Zero);
-            let val_copy = self.add_inner_prod(zero, &[Coefficient::One], std::slice::from_ref(&val));
+            let val_copy = self.add_inner_prod(zero, [(&Coefficient::One, &val)].into_iter());
             self.mul(val, val_copy)
         }
     }
@@ -334,7 +356,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnGal, FnInnerProd>
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
-        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &'a [Coefficient<R>], &[T]) -> T,
+        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
 {
@@ -359,7 +381,7 @@ impl<'a, T, R: ?Sized + RingBase, FnSquare, FnConst, FnAddProd, FnGal, FnInnerPr
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
-        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &'a [Coefficient<R>], &[T]) -> T,
+        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
 {
@@ -384,7 +406,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnInnerPr
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
-        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &'a [Coefficient<R>], &[T]) -> T,
+        FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
 {
@@ -404,7 +426,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnInnerPr
     }
 }
 
-impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Absent<fn(T, &[Coefficient<R>], &[T]) -> T>>
+impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Absent<fn(T, &[&'a Coefficient<R>], &[&T]) -> T>>
     where FnMul: Possibly, FnMul::T: FnMut(T, T) -> T,
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
@@ -414,7 +436,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal> De
         T: 'a
 {
     pub fn with_inner_product<FnInnerProd>(self, inner_product: FnInnerProd) -> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Present<FnInnerProd>>
-        where FnInnerProd: FnMut(T, &'a [Coefficient<R>], &[T]) -> T
+        where FnInnerProd: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
     {
         DefaultCircuitEvaluator {
             add_prod: self.add_prod,

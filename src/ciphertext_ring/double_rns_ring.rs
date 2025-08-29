@@ -515,22 +515,6 @@ impl<NumberRing, A> DoubleRNSRingBase<NumberRing, A>
         }
         return result;
     }
-
-    fn inner_product_base<'a, I: Clone + Iterator<Item = (&'a DoubleRNSEl<NumberRing, A>, &'a DoubleRNSEl<NumberRing, A>)>>(&self, els: I) -> DoubleRNSEl<NumberRing, A>
-        where Self: 'a
-    {
-        let mut result = self.zero();
-        for i in 0..self.base_ring().len() {
-            for j in 0..self.rank() {
-                let idx = i * self.rank() + j;
-                result.el_wrt_mult_basis[idx] = <_ as ComputeInnerProduct>::inner_product(
-                    self.base_ring().at(i).get_ring(), 
-                    els.clone().map(|(l, r)| (l.el_wrt_mult_basis[idx], r.el_wrt_mult_basis[idx]))
-                )
-            }
-        }
-        return result;
-    } 
 }
 
 impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A> 
@@ -694,6 +678,24 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
             }
         }
     }
+
+    #[instrument(skip_all)]
+    fn fma(&self, lhs: &Self::Element, rhs: &Self::Element, mut summand: Self::Element) -> Self::Element {
+        assert_eq!(self.element_len(), lhs.el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), rhs.el_wrt_mult_basis.len());
+        assert_eq!(self.element_len(), summand.el_wrt_mult_basis.len());
+
+        for i in 0..self.base_ring().len() {
+            for j in 0..self.rank() {
+                summand.el_wrt_mult_basis[i * self.rank() + j] = self.base_ring().at(i).fma(
+                    &lhs.el_wrt_mult_basis[i * self.rank() + j], 
+                    &rhs.el_wrt_mult_basis[i * self.rank() + j],
+                    summand.el_wrt_mult_basis[i * self.rank() + j]
+                );
+            }
+        }
+        return summand;
+    }
     
     fn from_int(&self, value: i32) -> Self::Element {
         self.from(self.base_ring().get_ring().from_int(value))
@@ -784,34 +786,6 @@ impl<NumberRing, A> CyclotomicRing for DoubleRNSRingBase<NumberRing, A>
             );
         }
         return result;
-    }
-}
-
-impl<NumberRing, A> ComputeInnerProduct for DoubleRNSRingBase<NumberRing, A> 
-    where NumberRing: HENumberRing,
-        A: Allocator + Clone
-{
-    #[instrument(skip_all)]
-    fn inner_product<I: Iterator<Item = (Self::Element, Self::Element)>>(&self, els: I) -> Self::Element {
-        let data = els.collect::<Vec<_>>();
-        return self.inner_product_base(data.iter().map(|(l, r)| (l, r)));
-    }
-
-    #[instrument(skip_all)]
-    fn inner_product_ref<'a, I: Iterator<Item = (&'a Self::Element, &'a Self::Element)>>(&self, els: I) -> Self::Element
-        where Self: 'a
-    {
-        let data = els.collect::<Vec<_>>();
-        return self.inner_product_base(data.iter().map(|(l, r)| (*l, *r)));
-    }
-
-    #[instrument(skip_all)]
-    fn inner_product_ref_fst<'a, I: Iterator<Item = (&'a Self::Element, Self::Element)>>(&self, els: I) -> Self::Element
-        where Self::Element: 'a,
-            Self: 'a
-    {
-        let data = els.collect::<Vec<_>>();
-        return self.inner_product_base(data.iter().map(|(l, r)| (*l, r)));
     }
 }
 

@@ -1175,56 +1175,6 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
         let result = C.from_canonical_basis(P.wrt_canonical_basis(m).iter().map(|c| ZZi64_to_Zq.map(P.base_ring().smallest_lift(c))));
         return result;
     }
-
-    fn rescale_ring_element<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
-        let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
-        let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
-        let a = Cold.base_ring().coerce(&ZZbig, ZZbig.prod(added_rns_factors.iter().map(|i| int_cast(*Cnew.base_ring().at(*i).modulus(), ZZbig, ZZi64))));
-
-        let map_kept_factors = move |x| Cnew.get_ring().collect_rns_factors((0..Cnew.base_ring().len()).map(|idx| if added_rns_factors.contains(idx) {
-            RNSFactorCongruence::Zero
-        } else {
-            let old_idx = Cold.base_ring().as_iter().enumerate().filter(|(_, old_ring)| old_ring.get_ring() == Cnew.base_ring().at(idx).get_ring()).next().unwrap().0;
-            RNSFactorCongruence::CongruentTo(Cold.get_ring(), old_idx, &x)
-        }));
-
-        if kept_rns_factors.len() == Cold.base_ring().len() {
-            if kept_rns_factors.len() == Cnew.base_ring().len() {
-                return Box::new(identity);
-            } else {
-                return Box::new(move |mut x: El<CiphertextRing<Self>>| {
-                    Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-                    return map_kept_factors(x);
-                });
-            }
-        }
-
-        let C_dropped = RingValue::from(Cold.get_ring().drop_rns_factor(&kept_rns_factors));
-        let Zt = Zn::new(int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZi64, P.base_ring().integer_ring()) as u64);
-        let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
-            C_dropped.base_ring().as_iter().cloned().collect(),
-            Cnew.base_ring().as_iter().cloned().collect(),
-            Zt,
-            Global
-        );
-        let b_inv = Cnew.base_ring().invert(&Cnew.base_ring().coerce(&ZZbig, ZZbig.prod(dropped_rns_factors.iter().map(|i| int_cast(*Cold.base_ring().at(*i).modulus(), ZZbig, ZZi64))))).unwrap();
-        Box::new(move |mut x: El<CiphertextRing<Self>>| {
-            Cold.inclusion().mul_assign_ref_map(&mut x, &a);
-
-            let x_dropped = C_dropped.get_ring().drop_rns_factor_element(Cold.get_ring(), &kept_rns_factors, &x);
-            let mut x_dropped_matrix = OwnedMatrix::zero(C_dropped.base_ring().len(), Cold.get_ring().small_generating_set_len(), Cold.base_ring().at(0));
-            C_dropped.get_ring().as_representation_wrt_small_generating_set(&x_dropped, x_dropped_matrix.data_mut());
-            let mut delta = OwnedMatrix::zero(Cnew.base_ring().len(), Cnew.get_ring().small_generating_set_len(), Cnew.base_ring().at(0));
-            compute_delta.apply(x_dropped_matrix.data(), delta.data_mut());
-            let delta = Cnew.get_ring().from_representation_wrt_small_generating_set(delta.data());
-
-            return Cnew.inclusion().mul_ref_snd_map(
-                Cnew.sub(map_kept_factors(x), delta),
-                &b_inv
-            );
-        })
-    }
 }
 
 #[derive(Clone, Debug)]

@@ -1167,8 +1167,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         P: &PlaintextRing<Params>,
         C_master: &CiphertextRing<Params>,
         x: PlainOrCiphertext<'a, Params, Self, R::Type>,
-        coeffs: &[Coefficient<R::Type>],
-        ys: &[PlainOrCiphertext<'a, Params, Self, R::Type>],
+        coeffs: &[&Coefficient<R::Type>],
+        ys: &[&PlainOrCiphertext<'a, Params, Self, R::Type>],
         ring: R,
         debug_sk: Option<&SecretKey<Params>>
     ) -> PlainOrCiphertext<'a, Params, Self, R::Type>
@@ -1194,7 +1194,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         };
         let mut used_sk = SecretKeyDistribution::Zero;
 
-        for (lhs, rhs) in coeffs.iter().zip(ys.iter()).chain([(&Coefficient::One, &x)].into_iter()) {
+        for (lhs, rhs) in coeffs.iter().copied().zip(ys.iter().copied()).chain([(&Coefficient::One, &x)].into_iter()) {
             match rhs.as_ciphertext_ref() {
                 Err(y) => constant = constant.add(lhs.clone(ring).mul(y.clone(ring), ring), ring),
                 Ok(y) => if !lhs.is_zero() {
@@ -1224,8 +1224,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
             self.mod_switch_down_ref(P, &C_target, C_master, &total_drop, rhs, "HomInnerProduct", debug_sk)
         )).collect();
 
-        let main_products: Vec<(El<R>, Boo<ModulusAwareCiphertext<Params, Self>>)> = main_products.iter().map(|(lhs, rhs)| (
-            ring.clone_el(lhs),
+        let main_products: Vec<(&El<R>, Boo<ModulusAwareCiphertext<Params, Self>>)> = main_products.iter().map(|(lhs, rhs)| (
+            *lhs,
             self.mod_switch_down_ref(P, &C_target, C_master, &total_drop, rhs, "HomInnerProduct", debug_sk)
         )).collect();
 
@@ -1244,20 +1244,23 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         }).collect();
 
         let ZZbig_to_ring = ring.can_hom(&ZZbig).unwrap();
-        let main_products: Vec<(El<R>, Boo<ModulusAwareCiphertext<Params, Self>>)> = main_products.into_iter().map(|(mut lhs, rhs)| {
+        let main_products: Vec<(Boo<El<R>>, Boo<ModulusAwareCiphertext<Params, Self>>)> = main_products.into_iter().map(|(lhs, rhs)| {
             let factor = Zt.smallest_lift(Zt.checked_div(&output_implicit_scale, &rhs.data.implicit_scale).unwrap());
             if !ZZ.is_one(&factor) {
+                let mut lhs = ring.clone_el(lhs);
                 ZZbig_to_ring.mul_assign_map(&mut lhs, int_cast(factor, ZZbig, ZZ));
+                return (Boo::Owned(lhs), rhs);
+            } else {
+                return (Boo::Borrowed(lhs), rhs);
             }
-            return (lhs, rhs);
         }).collect();
 
         let int_product_noise = ZZbig.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, &total_drop, int_products.iter().map(|(lhs, rhs)| (lhs, &rhs.info)));
         let mut int_product_part = ZZbig.get_ring().hom_inner_product_ref(P, &C_target, &total_drop, int_products.iter().map(|(lhs, rhs)| (lhs, &rhs.data)));
         int_product_part.implicit_scale = P.base_ring().clone_el(&output_implicit_scale);
 
-        let main_product_noise = ring.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, &total_drop, main_products.iter().map(|(lhs, rhs)| (lhs, &rhs.info)));
-        let mut main_product_part = ring.get_ring().hom_inner_product_ref(P, &C_target, &total_drop, main_products.iter().map(|(lhs, rhs)| (lhs, &rhs.data)));
+        let main_product_noise = ring.get_ring().hom_inner_product_noise(&self.noise_estimator, P, &C_target, &total_drop, main_products.iter().map(|(lhs, rhs)| (&**lhs, &rhs.info)));
+        let mut main_product_part = ring.get_ring().hom_inner_product_ref(P, &C_target, &total_drop, main_products.iter().map(|(lhs, rhs)| (&**lhs, &rhs.data)));
         main_product_part.implicit_scale = P.base_ring().clone_el(&output_implicit_scale);
 
         // ignore the last plaintext addition for noise analysis, it's gonna be fine

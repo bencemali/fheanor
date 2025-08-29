@@ -259,7 +259,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
     /// 
     pub fn gadget_product(&self, rhs: &GadgetProductRhsOperand<R>, ring: &R) -> R::Element {
         assert_eq!(self.element_decomposition.len(), rhs.scaled_element.len(), "Gadget product operands created w.r.t. different digit sets");
-        return ring.inner_product_prepared(self.element_decomposition.iter().zip(rhs.scaled_element.iter()).filter_map(|((lhs, _), rhs)| rhs.as_ref().map(|(rhs, _)| (lhs, rhs))));
+        return ring.inner_product_prepared(self.element_decomposition.iter().zip(rhs.scaled_element.iter()).filter_map(|((lhs_prep, lhs), rhs)| rhs.as_ref().map(|(rhs_prep, rhs)| (lhs, lhs_prep, rhs, rhs_prep))));
     }
 }
  

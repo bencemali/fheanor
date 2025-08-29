@@ -584,22 +584,22 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    type PreparedMultiplicant = Self::Element;
+    type PreparedMultiplicant = ();
 
-    fn mul_prepared(&self, lhs: &Self::PreparedMultiplicant, rhs: &Self::PreparedMultiplicant) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _lhs_prep: &(), rhs: &Self::Element, _rhs_prep: &()) -> Self::Element {
         self.mul_ref(lhs, rhs)
     }
 
     fn prepare_multiplicant(&self, x: &Self::Element) -> Self::PreparedMultiplicant {
         _ = self.to_doublerns(x);
-        return self.clone_el(x);
+        return ();
     }
 
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::PreparedMultiplicant, &'a Self::PreparedMultiplicant)>,
+        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
             Self: 'a
     {
-        <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter())
+        <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))
     }
 }
 
@@ -695,11 +695,11 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
         }
     }
 
-    fn collect_rns_factors_prepared<'a, I>(&self, rns_factors: I) -> Self::PreparedMultiplicant
+    fn collect_rns_factors_prepared<'a, I>(&self, _rns_factors: I) -> Self::PreparedMultiplicant
         where I: Iterator<Item = super::RNSFactorCongruence<'a, Self, Self::PreparedMultiplicant>>,
             Self: 'a
     {
-        self.collect_rns_factors(rns_factors)
+        ()
     }
 
     fn small_generating_set_len(&self) -> usize {

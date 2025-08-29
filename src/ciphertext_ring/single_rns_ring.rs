@@ -104,8 +104,8 @@ pub struct SingleRNSRingPreparedMultiplicant<NumberRing, A, C>
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
-    pub(super) element: SingleRNSRingEl<NumberRing, A, C>,
-    pub(super) data: Vec<Arc<C::PreparedConvolutionOperand>, A>
+    number_ring: PhantomData<NumberRing>,
+    data: Vec<Arc<C::PreparedConvolutionOperand>, A>
 }
 
 impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C> 
@@ -234,18 +234,18 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
         let mut result = Vec::new_in(self.allocator().clone());
         result.extend(self.base_ring().as_iter().enumerate().map(|(i, Zp)| Arc::new(self.convolutions[i].prepare_convolution_operand(el_as_matrix.row_at(i), None, Zp))));
         SingleRNSRingPreparedMultiplicant {
-            element: self.clone_el(el),
-            data: result
+            data: result,
+            number_ring: PhantomData
         }
     }
 
     #[instrument(skip_all)]
-    fn mul_prepared(&self, lhs: &SingleRNSRingPreparedMultiplicant<NumberRing, A, C>, rhs: &SingleRNSRingPreparedMultiplicant<NumberRing, A, C>) -> SingleRNSRingEl<NumberRing, A, C> {
+    fn mul_prepared(&self, lhs: &SingleRNSRingEl<NumberRing, A, C>, lhs_prep: &SingleRNSRingPreparedMultiplicant<NumberRing, A, C>, rhs: &SingleRNSRingEl<NumberRing, A, C>, rhs_prep: &SingleRNSRingPreparedMultiplicant<NumberRing, A, C>) -> SingleRNSRingEl<NumberRing, A, C> {
         let mut unreduced_result = Vec::with_capacity_in(2 * self.m(), self.allocator());
         let mut result = self.zero();
         
-        let lhs_as_matrix = self.coefficients_as_matrix(&lhs.element);
-        let rhs_as_matrix = self.coefficients_as_matrix(&rhs.element);
+        let lhs_as_matrix = self.coefficients_as_matrix(lhs);
+        let rhs_as_matrix = self.coefficients_as_matrix(rhs);
         for k in 0..self.base_ring().len() {
             let Zp = self.base_ring().at(k);
             unreduced_result.clear();
@@ -253,9 +253,9 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
             
             self.convolutions[k].compute_convolution_prepared(
                 lhs_as_matrix.row_at(k),
-                Some(rhs.data.at(k)),
+                Some(rhs_prep.data.at(k)),
                 rhs_as_matrix.row_at(k),
-                Some(lhs.data.at(k)),
+                Some(lhs_prep.data.at(k)),
                 &mut unreduced_result,
                 Zp
             );
@@ -266,7 +266,7 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
 
     #[instrument(skip_all)]
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::PreparedMultiplicant, &'a Self::PreparedMultiplicant)>,
+        where I: IntoIterator<Item = (&'a Self::Element, &'a Self::PreparedMultiplicant, &'a Self::Element, &'a Self::PreparedMultiplicant)>,
             Self: 'a
     {
         let mut result = self.zero();
@@ -277,12 +277,12 @@ impl<NumberRing, A, C> PreparedMultiplicationRing for SingleRNSRingBase<NumberRi
             unreduced_result.clear();
             unreduced_result.resize_with(self.m() * 2, || Zp.zero());
             self.convolutions[k].compute_convolution_sum(
-                parts.iter().copied().map(|(lhs, rhs)| 
+                parts.iter().copied().map(|(lhs, lhs_prep, rhs, rhs_prep)| 
                     (
-                        self.coefficients_as_matrix(&lhs.element).into_row_at(k),
-                        Some(&*lhs.data[k]),
-                        self.coefficients_as_matrix(&rhs.element).into_row_at(k),
-                        Some(&*rhs.data[k])
+                        self.coefficients_as_matrix(lhs).into_row_at(k),
+                        Some(&*lhs_prep.data[k]),
+                        self.coefficients_as_matrix(rhs).into_row_at(k),
+                        Some(&*rhs_prep.data[k])
                     )), 
                 &mut unreduced_result, 
                 Zp
@@ -352,10 +352,7 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
         }
         return SingleRNSRingPreparedMultiplicant {
             data: result,
-            element: self.collect_rns_factors(rns_factors.into_iter().map(|congruence| match congruence {
-                RNSFactorCongruence::Zero => RNSFactorCongruence::Zero,
-                RNSFactorCongruence::CongruentTo(other_ring, other_i, el) => RNSFactorCongruence::CongruentTo(other_ring, other_i, &el.element)
-            }))
+            number_ring: PhantomData
         };
     }
 
@@ -428,9 +425,9 @@ impl<NumberRing, A, C> BGFVCiphertextRing for SingleRNSRingBase<NumberRing, A, C
             OwnedOrBorrowed::Owned(self.prepare_multiplicant(rhs[1]))
         };
         return [
-            self.mul_prepared(&lhs0_prepared, &*rhs0_prepared),
-            self.inner_product_prepared([(&lhs0_prepared, &*rhs1_prepared), (&*lhs1_prepared, &*rhs0_prepared)]),
-            self.mul_prepared(&*lhs1_prepared, &*rhs1_prepared)
+            self.mul_prepared(lhs[0], &lhs0_prepared, rhs[0], &*rhs0_prepared),
+            self.inner_product_prepared([(lhs[0], &lhs0_prepared, rhs[1], &*rhs1_prepared), (lhs[1], &*lhs1_prepared, rhs[0], &*rhs0_prepared)]),
+            self.mul_prepared(lhs[1], &*lhs1_prepared, rhs[1], &*rhs1_prepared)
         ];
     }
 }

@@ -548,11 +548,11 @@ impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A>
         return result;
     }
 
-    fn collect_rns_factors_prepared<'a, I>(&self, congruences: I) -> Self::PreparedMultiplicant
+    fn collect_rns_factors_prepared<'a, I>(&self, _: I) -> Self::PreparedMultiplicant
         where I: Iterator<Item = RNSFactorCongruence<'a, Self, Self::PreparedMultiplicant>>,
             Self: 'a
     {
-        self.collect_rns_factors(congruences)
+        ()
     }
     
     #[instrument(skip_all)]
@@ -594,6 +594,14 @@ impl<NumberRing, A> BGFVCiphertextRing for DoubleRNSRingBase<NumberRing, A>
             dst.copy_from_slice(src);
         }
         return self.do_fft(result);
+    }
+
+    fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
+        [
+            self.mul_ref(&lhs[0], &rhs[0]),
+            self.fma(&lhs[0], &rhs[1], self.mul_ref(&lhs[1], &rhs[0])),
+            self.mul_ref(&lhs[1], &rhs[1])
+        ]
     }
 }
 
@@ -930,21 +938,21 @@ impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing,
     where NumberRing: HENumberRing,
         A: Allocator + Clone
 {
-    type PreparedMultiplicant = Self::Element;
+    type PreparedMultiplicant = ();
 
-    fn prepare_multiplicant(&self, x: &Self::Element) -> Self::PreparedMultiplicant {
-        self.clone_el(x)
+    fn prepare_multiplicant(&self, _: &Self::Element) -> Self::PreparedMultiplicant {
+        ()
     }
 
-    fn mul_prepared(&self, lhs: &Self::PreparedMultiplicant, rhs: &Self::PreparedMultiplicant) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _: &(), rhs: &Self::Element, _: &()) -> Self::Element {
         self.mul_ref(lhs, rhs)
     }
     
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::PreparedMultiplicant, &'a Self::PreparedMultiplicant)>,
+        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
             Self: 'a
     {
-        <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter())
+        <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))
     }
 }
 

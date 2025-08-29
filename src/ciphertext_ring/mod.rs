@@ -1,3 +1,4 @@
+use std::array::from_fn;
 use std::convert::identity;
 
 use feanor_math::integer::BigIntRing;
@@ -54,17 +55,17 @@ pub trait PreparedMultiplicationRing: RingBase {
     /// Computes the product of two elements that have previously been "prepared" via
     /// [`PreparedMultiplicationRing::prepare_multiplicant()`].
     /// 
-    fn mul_prepared(&self, lhs: &Self::PreparedMultiplicant, rhs: &Self::PreparedMultiplicant) -> Self::Element;
+    fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: &Self::PreparedMultiplicant, rhs: &Self::Element, rhs_prep: &Self::PreparedMultiplicant) -> Self::Element;
 
     ///
     /// Computes the inner product of two vectors over this ring, whose elements have previously
     /// been "prepared" via [`PreparedMultiplicationRing::prepare_multiplicant()`].
     /// 
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::PreparedMultiplicant, &'a Self::PreparedMultiplicant)>,
+        where I: IntoIterator<Item = (&'a Self::Element, &'a Self::PreparedMultiplicant, &'a Self::Element, &'a Self::PreparedMultiplicant)>,
             Self: 'a
     {
-        parts.into_iter().fold(self.zero(), |current, (lhs, rhs)| self.add(current, self.mul_prepared(lhs, rhs)))
+        parts.into_iter().fold(self.zero(), |current, (lhs, lhs_prep, rhs, rhs_prep)| self.add(current, self.mul_prepared(lhs, lhs_prep, rhs, rhs_prep)))
     }
 }
 
@@ -239,14 +240,12 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExt
     /// 
     #[instrument(skip_all)]
     fn two_by_two_convolution(&self, lhs: [&Self::Element; 2], rhs: [&Self::Element; 2]) -> [Self::Element; 3] {
-        let mut lhs_it = lhs.into_iter();
-        let mut rhs_it = rhs.into_iter();
-        let lhs: [_; 2] = std::array::from_fn(|_| self.prepare_multiplicant(lhs_it.next().unwrap()));
-        let rhs: [_; 2] = std::array::from_fn(|_| self.prepare_multiplicant(rhs_it.next().unwrap()));
+        let lhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(lhs[i]));
+        let rhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(rhs[i]));
         [
-            self.mul_prepared(&lhs[0], &rhs[0]),
-            self.inner_product_prepared([(&lhs[0], &rhs[1]), (&lhs[1], &rhs[0])]),
-            self.mul_prepared(&lhs[1], &rhs[1])
+            self.mul_prepared(lhs[0], &lhs_prep[0], rhs[0], &rhs_prep[0]),
+            self.inner_product_prepared([(lhs[0], &lhs_prep[0], rhs[1], &rhs_prep[1]), (lhs[1], &lhs_prep[1], rhs[0], &rhs_prep[0])]),
+            self.mul_prepared(lhs[1], &lhs_prep[1], rhs[1], &rhs_prep[1])
         ]
     }
 }

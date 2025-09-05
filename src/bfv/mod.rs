@@ -663,7 +663,7 @@ pub trait BFVInstantiation {
     /// The noise is chosen according to the rounded Gaussian distribution with standard deviation `noise_sigma`.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
+    fn gen_gk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
         Self::gen_switch_key(C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits, noise_sigma)
     }
     
@@ -680,7 +680,7 @@ pub trait BFVInstantiation {
     /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
+    fn hom_galois(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &CyclotomicGaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         Self::key_switch(C, (
             C.get_ring().apply_galois_action(&ct.0, g),
             C.get_ring().apply_galois_action(&ct.1, g)
@@ -1218,13 +1218,13 @@ impl<NumberRing: HENumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRin
                 Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
             }).with_gal(|x, gs| if gs.len() == 1 {
                 **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
+                vec![Params::hom_galois(C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
             } else {
-                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(**g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next() {
+                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
+                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
                     &gk.1
                 } else {
-                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.to_ring_el(*expected_g)))
+                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.to_ring_el(expected_g)))
                 }))
             })
         );
@@ -1266,10 +1266,10 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
                 Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
             }).with_gal(|x, gs| if gs.len() == 1 {
                 **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(C, x, gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, gs[0])).next().unwrap().1)]
+                vec![Params::hom_galois(C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
             } else {
-                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(**g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(*g, *expected_g)).next().unwrap().1))
+                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
+                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next().unwrap().1))
             })
         );
     }
@@ -1309,11 +1309,11 @@ fn test_pow2_bfv_hom_galois() {
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
     let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BFV::hom_galois(&C, ctxt, P.galois_group().from_representative(3), &gk);
+    let result_ctxt = Pow2BFV::hom_galois(&C, ctxt, &P.galois_group().from_representative(3), &gk);
     let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
 
     assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);
@@ -1366,11 +1366,11 @@ fn test_composite_bfv_hom_galois() {
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
     let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = CompositeSingleRNSBFV::hom_galois(&C, ctxt, P.galois_group().from_representative(3), &gk);
+    let result_ctxt = CompositeSingleRNSBFV::hom_galois(&C, ctxt, &P.galois_group().from_representative(3), &gk);
     let result = CompositeSingleRNSBFV::dec(&P, &C, result_ctxt, &sk);
 
     assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);

@@ -27,7 +27,7 @@ fn dwt1d_matrix(H: &HypercubeStructure, slot_ring: &SlotRingOver<Zn>, dim_index:
 
     OwnedMatrix::from_fn(H.dim_length(dim_index), H.dim_length(dim_index), |i, j| {
         let exponent = Gal.underlying_ring().prod([
-            Gal.to_ring_el(H.map_1d(dim_index, -(i as i64))),
+            Gal.to_ring_el(&H.map_1d(dim_index, -(i as i64))),
             ZZ_to_Zn.map(j as i64),
             ZZ_to_Zn.map(H.m() as i64 / H.factor_of_m(dim_index).unwrap())
         ]);
@@ -116,7 +116,7 @@ fn slots_to_powcoeffs_fat_fst_step<NumberRing>(H: &DefaultHypercube<NumberRing>,
         // the "work" that is left to do is to write `X1 e_U(*)` w.r.t. the basis `𝝵^k e_U(i)`;
         // however, this is exactly `X1 = sum_i X^(m/m1) e_U(i) = sum_i 𝝵^(shift_element(-i) * m/m1) e_U(i)`
         let exponent = Gal.underlying_ring().prod([
-            Gal.to_ring_el(H.hypercube().map_1d(0, -(i as i64))), 
+            Gal.to_ring_el(&H.hypercube().map_1d(0, -(i as i64))), 
             ZZ_to_Gal.map(H.ring().m() as i64 / H.hypercube().factor_of_m(0).unwrap()),
             ZZ_to_Gal.map((j + l * H.hypercube().dim_length(0)) as i64)
         ]);

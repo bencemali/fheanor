@@ -30,6 +30,7 @@ use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HEN
 /// 
 pub struct OddSquarefreeCyclotomicNumberRing {
     m_factorization_squarefree: Vec<i64>,
+    galois_group: CyclotomicGaloisGroup
 }
 
 impl OddSquarefreeCyclotomicNumberRing {
@@ -47,6 +48,7 @@ impl OddSquarefreeCyclotomicNumberRing {
         }
         Self {
             m_factorization_squarefree: factorization.iter().map(|(p, _)| *p).collect(),
+            galois_group: CyclotomicGaloisGroup::new(m as u64)
         }
     }
 
@@ -125,7 +127,8 @@ impl Debug for OddSquarefreeCyclotomicNumberRing {
 impl Clone for OddSquarefreeCyclotomicNumberRing {
     fn clone(&self) -> Self {
         Self {
-            m_factorization_squarefree: self.m_factorization_squarefree.clone()
+            m_factorization_squarefree: self.m_factorization_squarefree.clone(),
+            galois_group: self.galois_group.clone()
         }
     }
 }
@@ -180,6 +183,7 @@ impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
             fft_table, 
             Fp, 
             &self.m_factorization_squarefree, 
+            self.galois_group.clone(),
             AllocArc(Arc::new(DynLayoutMempool::new(Alignment::of::<u64>())))
         );
     }
@@ -204,8 +208,8 @@ impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
 
 impl HECyclotomicNumberRing for OddSquarefreeCyclotomicNumberRing {
 
-    fn m(&self) -> usize {
-        self.m_factorization_squarefree.iter().copied().product::<i64>() as usize
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
     }
 }
 
@@ -213,6 +217,7 @@ pub struct OddSquarefreeCyclotomicDecomposedNumberRing<F, A = Global>
     where F: FFTAlgorithm<ZnBase> + PartialEq,
         A: Allocator + Clone
 {
+    galois_group: CyclotomicGaloisGroup,
     ring: Zn,
     fft_table: F,
     /// contains `usize::MAX` whenenver the fft output index corresponds to a non-primitive root of unity, and an index otherwise
@@ -235,8 +240,9 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
     where F: FFTAlgorithm<ZnBase> + PartialEq,
         A: Allocator + Clone
 {
-    fn create_squarefree(fft_table: F, Fp: Zn, n_factorization: &[i64], allocator: A) -> Self {
-        let m = n_factorization.iter().copied().product::<i64>();
+    fn create_squarefree(fft_table: F, Fp: Zn, n_factorization: &[i64], galois_group: CyclotomicGaloisGroup, allocator: A) -> Self {
+        let m = galois_group.m();
+        assert_eq!(m as i64, n_factorization.iter().copied().product::<i64>());
         let rank = euler_phi_squarefree(&n_factorization) as usize;
 
         let Fp_as_field = (&Fp).as_field().ok().unwrap();
@@ -261,7 +267,7 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
             }
         }).collect::<Vec<_>>();
 
-        return Self { ring: Fp, fft_table, zeta_pow_rank, rank, allocator, fft_output_indices_to_indices };
+        return Self { galois_group: galois_group, ring: Fp, fft_table, zeta_pow_rank, rank, allocator, fft_output_indices_to_indices };
     }
 
     ///
@@ -348,11 +354,11 @@ impl<F, A> HECyclotomicNumberRingMod for OddSquarefreeCyclotomicDecomposedNumber
     where F: Send + Sync + FFTAlgorithm<ZnBase> + PartialEq,
         A: Send + Sync + Allocator + Clone
 {
-    fn m(&self) -> usize {
-        self.fft_table.len()
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
     }
 
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
         where V1: VectorView<ZnEl>,
             V2: SwappableVectorViewMut<ZnEl>
     {
@@ -408,8 +414,8 @@ fn test_permute_galois_automorphism() {
     let R = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
     let gal_el = |x: i64| R.galois_group().from_representative(x);
 
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), gal_el(3)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, -1, -1, -1, -1, -1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), gal_el(3)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, -1, -1, -1, -1, -1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(3)));
 }

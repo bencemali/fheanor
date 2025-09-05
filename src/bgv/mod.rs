@@ -352,7 +352,7 @@ pub trait BGVInstantiation {
     {
         let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
         let (p, _e) = is_prime_power(ZZbig, &t).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group(), p);
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.galois_group().clone(), p);
         let H = HypercubeIsomorphism::new::<true>(&P, hypercube, cache_dir);
         let m = Self::dec(P, C, Self::clone_ct(P, C, ct), sk);
         println!("ciphertext (noise budget: {} / {}):", Self::noise_budget(P, C, ct, sk), ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap());
@@ -735,7 +735,7 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &CyclotomicGaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
         Self::key_switch(P, C, C_special, Ciphertext {
@@ -984,7 +984,7 @@ pub trait BGVInstantiation {
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
+    fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
         Self::gen_switch_key(P, C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits)

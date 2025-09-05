@@ -34,6 +34,7 @@ use crate::ciphertext_ring::add_rns_factor_list_of_congruences;
 use crate::ciphertext_ring::drop_rns_factor_list_of_congruences;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
+use crate::cyclotomic::CyclotomicGaloisGroup;
 use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicRing};
 use crate::number_ring::*;
 use super::serialization::deserialize_rns_data;
@@ -778,12 +779,12 @@ impl<NumberRing, A> CyclotomicRing for DoubleRNSRingBase<NumberRing, A>
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    fn m(&self) -> usize {
-        self.number_ring.m() as usize
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        self.number_ring.galois_group()
     }
 
     #[instrument(skip_all)]
-    fn apply_galois_action(&self, el: &Self::Element, g: CyclotomicGaloisGroupEl) -> Self::Element {
+    fn apply_galois_action(&self, el: &Self::Element, g: &CyclotomicGaloisGroupEl) -> Self::Element {
         assert_eq!(self.element_len(), el.el_wrt_mult_basis.len());
         let mut result = self.zero();
         for (i, _) in self.base_ring().as_iter().enumerate() {

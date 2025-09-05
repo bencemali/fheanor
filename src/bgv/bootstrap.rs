@@ -253,8 +253,8 @@ impl<Params, Strategy> ThinBootstrapData<Params, Strategy>
         let mut result = Vec::new();
         result.extend(self.slots_to_coeffs_thin.required_galois_keys(&P.galois_group()).into_iter());
         result.extend(self.coeffs_to_slots_thin.required_galois_keys(&P.galois_group()).into_iter());
-        result.sort_by_key(|g| P.galois_group().representative(*g));
-        result.dedup_by(|g, s| P.galois_group().eq_el(*g, *s));
+        result.sort_by_key(|g| P.galois_group().representative(g));
+        result.dedup_by(|g, s| P.galois_group().eq_el(g, s));
         return result;
     }
 
@@ -515,7 +515,10 @@ fn test_pow2_bgv_thin_bootstrapping_17() {
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, true>::new(NaiveBGVNoiseEstimator), None);
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &key_switch_params);
+        return (g, gk);
+    }).collect::<Vec<_>>();
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
@@ -562,7 +565,10 @@ fn measure_time_double_rns_composite_bgv_thin_bootstrapping() {
     let bootstrapper = bootstrap_params.build_odd::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = CompositeBGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &key_switch_params))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = CompositeBGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &key_switch_params);
+        return (g, gk);
+    }).collect::<Vec<_>>();
     let rk = CompositeBGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &key_switch_params);
     
     let m = P.int_hom().map(2);
@@ -611,7 +617,10 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
     let bootstrapper = bootstrap_params.build_pow2::<_, true>(&C_master, DefaultModswitchStrategy::<_, _, false>::new(NaiveBGVNoiseEstimator), Some("."));
     
     let sk = Pow2BGV::gen_sk(&C_master, &mut rng, sk_distr);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, g, &gk_params))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BGV::gen_gk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &g, &gk_params);
+        return (g, gk);
+    }).collect::<Vec<_>>();
     let rk = Pow2BGV::gen_rk(bootstrapper.intermediate_plaintext_ring(), &C_master, &mut rng, &sk, &rk_params);
     
     let m = P.int_hom().map(2);

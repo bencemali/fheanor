@@ -5,7 +5,7 @@ use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::integer::{int_cast, BigIntRing};
 use feanor_math::iters::clone_slice;
-use feanor_math::algorithms::int_factor::factor;
+use feanor_math::algorithms::int_factor::{factor, is_prime_power};
 use feanor_math::iters::multi_cartesian_product;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRingStore;
@@ -70,10 +70,10 @@ pub enum HypercubeTypeData {
 impl PartialEq for HypercubeStructure {
     fn eq(&self, other: &Self) -> bool {
         self.galois_group == other.galois_group && 
-            self.galois_group.eq_el(self.p, other.p) &&
+            self.galois_group.eq_el(&self.p, &other.p) &&
             self.d == other.d && 
             self.ls == other.ls &&
-            self.gs.iter().zip(other.gs.iter()).all(|(l, r)| self.galois_group.eq_el(*l, *r)) &&
+            self.gs.iter().zip(other.gs.iter()).all(|(l, r)| self.galois_group.eq_el(l, r)) &&
             self.choice == other.choice
     }
 }
@@ -83,25 +83,26 @@ impl HypercubeStructure {
     pub fn new(galois_group: CyclotomicGaloisGroup, p: CyclotomicGaloisGroupEl, d: usize, ls: Vec<usize>, gs: Vec<CyclotomicGaloisGroupEl>) -> Self {
         assert_eq!(ls.len(), gs.len());
         // check order of p
-        assert!(galois_group.is_identity(galois_group.pow(p, d as i64)));
+        assert!(galois_group.is_identity(&galois_group.pow(&p, d as i64)));
         for (factor, _) in factor(ZZi64, d as i64) {
-            assert!(!galois_group.is_identity(galois_group.pow(p, d as i64 / factor)));
+            assert!(!galois_group.is_identity(&galois_group.pow(&p, d as i64 / factor)));
         }
         // check whether the given values indeed define a bijection modulo `<p>`
         let mut all_elements = multi_cartesian_product([(0..d)].into_iter().chain(ls.iter().map(|l_i| 0..*l_i)), |idxs| (
-            galois_group.prod(idxs.iter().zip([&p].into_iter().chain(gs.iter())).map(|(i, g)| galois_group.pow(*g, *i as i64))),
+            galois_group.prod(idxs.iter().zip([&p].into_iter().chain(gs.iter())).map(|(i, g)| galois_group.pow(g, *i as i64))),
             clone_slice(idxs)
         ), |_, x| *x).collect::<Vec<_>>();
-        all_elements.sort_unstable_by_key(|(g, _)| galois_group.representative(*g));
-        assert!((1..all_elements.len()).all(|i| !galois_group.eq_el(all_elements[i - 1].0, all_elements[i].0)), "not a bijection");
+        all_elements.sort_unstable_by_key(|(g, _)| galois_group.representative(g));
+        assert!((1..all_elements.len()).all(|i| !galois_group.eq_el(&all_elements[i - 1].0, &all_elements[i].0)), "not a bijection");
         assert_eq!(galois_group.group_order(), all_elements.len());
 
+        let ord_gs = gs.iter().map(|g| galois_group.element_order(g)).collect();
         return Self {
             galois_group: galois_group,
             p: p,
             d: d,
             ls,
-            ord_gs: gs.iter().map(|g| galois_group.element_order(*g)).collect(),
+            ord_gs: ord_gs,
             gs: gs,
             choice: HypercubeTypeData::Generic,
             representations: all_elements
@@ -188,7 +189,7 @@ impl HypercubeStructure {
                 }
             } else {
                 // `(Z/q^kZ)*` is cyclic
-                let g = get_multiplicative_generator(*Zqk, &[(*q, *k)]);
+                let g = get_multiplicative_generator(*Zqk);
                 let ord_g = euler_phi(&[(*q, *k)]);
                 let logg_p = unit_group_dlog(Zqk, g, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
                 let ord_p = ord_g / signed_gcd(logg_p, ord_g, ZZi64);
@@ -210,12 +211,14 @@ impl HypercubeStructure {
             return len as usize;
         }).collect::<Vec<_>>();
 
+        let p_repr = galois_group.from_representative(p);
+        let gs = dimensions.iter().map(|dim| galois_group.from_ring_el(dim.g_main)).collect();
         let mut result = Self::new(
             galois_group,
-            galois_group.from_representative(p),
+            p_repr,
             current_d as usize,
             lengths,
-            dimensions.iter().map(|dim| galois_group.from_ring_el(dim.g_main)).collect()
+            gs
         );
         if m % 2 == 1 {
             result.choice = HypercubeTypeData::CyclotomicTensorProductHypercube(dimensions.iter().map(|dim| dim.factor_m).collect());
@@ -235,7 +238,7 @@ impl HypercubeStructure {
     /// 
     pub fn map_1d(&self, dim_idx: usize, steps: i64) -> CyclotomicGaloisGroupEl {
         assert!(dim_idx < self.dim_count());
-        self.galois_group.pow(self.gs[dim_idx], steps)
+        self.galois_group.pow(&self.gs[dim_idx], steps)
     }
 
     ///
@@ -251,7 +254,7 @@ impl HypercubeStructure {
     /// 
     pub fn map(&self, idxs: &[i64]) -> CyclotomicGaloisGroupEl {
         assert_eq!(self.ls.len(), idxs.len());
-        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(*g, *i)))
+        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, *i)))
     }
 
     ///
@@ -261,7 +264,7 @@ impl HypercubeStructure {
     /// 
     pub fn map_incl_frobenius(&self, idxs: &[i64]) -> CyclotomicGaloisGroupEl {
         assert_eq!(self.ls.len() + 1, idxs.len());
-        self.galois_group.mul(self.map(&idxs[1..]), self.frobenius(idxs[0]))
+        self.galois_group.mul(self.map(&idxs[1..]), &self.frobenius(idxs[0]))
     }
 
     ///
@@ -270,7 +273,7 @@ impl HypercubeStructure {
     /// 
     pub fn map_usize(&self, idxs: &[usize]) -> CyclotomicGaloisGroupEl {
         assert_eq!(self.ls.len(), idxs.len());
-        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(*g, *i as i64)))
+        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, *i as i64)))
     }
 
     ///
@@ -279,8 +282,8 @@ impl HypercubeStructure {
     /// This is the vector `(a_0, a_1, ..., a_r)` such that `g = p^a_0 h(a_1, ..., a_r)` and
     /// `a_0 in { 0, ..., d - 1 }` and `a_i` for `i > 0` is within `{ 0, ..., l_i - 1 }`.
     /// 
-    pub fn std_preimage(&self, g: CyclotomicGaloisGroupEl) -> &[usize] {
-        let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(*g)).unwrap();
+    pub fn std_preimage(&self, g: &CyclotomicGaloisGroupEl) -> &[usize] {
+        let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(g)).unwrap();
         return &self.representations[idx].1;
     }
 
@@ -319,10 +322,10 @@ impl HypercubeStructure {
     }
 
     ///
-    /// Returns `p` as an element of `(Z/mZ)*`.
+    /// Returns `p` as an element of the galois group.
     /// 
-    pub fn p(&self) -> CyclotomicGaloisGroupEl {
-        self.p
+    pub fn p(&self) -> &CyclotomicGaloisGroupEl {
+        &self.p
     }
 
     ///
@@ -351,9 +354,9 @@ impl HypercubeStructure {
     ///
     /// Returns the generator `g_i` corresponding to the `i`-th hypercube dimension.
     /// 
-    pub fn dim_generator(&self, i: usize) -> CyclotomicGaloisGroupEl {
+    pub fn dim_generator(&self, i: usize) -> &CyclotomicGaloisGroupEl {
         assert!(i < self.ls.len());
-        self.gs[i]
+        &self.gs[i]
     }
 
     ///
@@ -428,11 +431,11 @@ impl HypercubeStructure {
     }
 }
 
-pub fn get_multiplicative_generator(ring: Zn, factorization: &[(i64, usize)]) -> ZnEl {
-    assert_eq!(*ring.modulus(), ZZi64.prod(factorization.iter().map(|(p, e)| ZZi64.pow(*p, *e))));
+pub fn get_multiplicative_generator(ring: Zn) -> ZnEl {
+    let (p, e) = is_prime_power(ZZi64, ring.modulus()).unwrap();
     assert!(*ring.modulus() % 2 == 1, "for even m, Z/mZ* is either equal to Z/(m/2)Z* or not cyclic");
     let mut rng = oorandom::Rand64::new(ring.integer_ring().default_hash(ring.modulus()) as u128);
-    let order = euler_phi(factorization);
+    let order = ZZi64.pow(p, e - 1) * (p - 1);
     let order_factorization = factor(&ZZi64, order);
     'test_generator: loop {
         let potential_generator = ring.random_element(|| rng.rand_u64());

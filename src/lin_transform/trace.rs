@@ -30,10 +30,10 @@ use crate::NiceZn;
 ///   x  ->  sum_(0 <= k < relative_degree) σ^k(x)
 /// ```
 /// 
-pub fn trace_circuit<R>(ring: &R, galois_group: &CyclotomicGaloisGroup, relative_galois_group_gen: CyclotomicGaloisGroupEl, relative_degree: usize) -> PlaintextCircuit<R>
+pub fn trace_circuit<R>(ring: &R, galois_group: &CyclotomicGaloisGroup, relative_galois_group_gen: &CyclotomicGaloisGroupEl, relative_degree: usize) -> PlaintextCircuit<R>
     where R: ?Sized + RingBase
 {
-    assert!(galois_group.is_identity(galois_group.pow(relative_galois_group_gen, relative_degree as i64)));
+    assert!(galois_group.is_identity(&galois_group.pow(relative_galois_group_gen, relative_degree as i64)));
 
     let ring = RingRef::new(ring);
     let mut circuit = PlaintextCircuit::identity(1, ring);
@@ -166,13 +166,13 @@ fn test_extract_coefficient_map() {
 #[test]
 fn test_trace_circuit() {
     let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
-    let trace = trace_circuit(ring.get_ring(), &ring.galois_group(), ring.galois_group().from_representative(3), 6);
+    let trace = trace_circuit(ring.get_ring(), &ring.galois_group(), &ring.galois_group().from_representative(3), 6);
     for x in ring.elements() {
         let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
         assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
     }
 
-    let relative_trace = trace_circuit(ring.get_ring(), &ring.galois_group(), ring.galois_group().from_representative(2), 3);
+    let relative_trace = trace_circuit(ring.get_ring(), &ring.galois_group(), &ring.galois_group().from_representative(2), 3);
     assert_eq!(1, relative_trace.output_count());
     
     let input = ring.canonical_gen();

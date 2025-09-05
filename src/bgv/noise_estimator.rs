@@ -79,7 +79,7 @@ pub trait BGVNoiseEstimator<Params: BGVInstantiation> {
 
     fn hom_add(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, lhs: &Self::CiphertextDescriptor, lhs_implicit_scale: &El<PlaintextZnRing<Params>>, rhs: &Self::CiphertextDescriptor, rhs_implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor;
 
-    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, _g: CyclotomicGaloisGroupEl, gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor;
+    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, _g: &CyclotomicGaloisGroupEl, gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor;
 
     fn mod_switch_down_ct(&self, P: &PlaintextRing<Params>, Cnew: &CiphertextRing<Params>, Cold: &CiphertextRing<Params>, drop_moduli: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor) -> Self::CiphertextDescriptor;
 
@@ -263,16 +263,8 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for NaiveBGVNoiseEstima
         };
     }
 
-    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, _g: CyclotomicGaloisGroupEl, gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {
-        <Self as BGVNoiseEstimator<Params>>::key_switch(
-            self, 
-            P, 
-            C, 
-            C_special, 
-            special_modulus_rns_factor_indices, 
-            &ct, 
-            gk
-        )
+    fn hom_galois(&self, P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_special: &CiphertextRing<Params>, special_modulus_rns_factor_indices: &RNSFactorIndexList, ct: &Self::CiphertextDescriptor, _g: &CyclotomicGaloisGroupEl, gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {
+        <Self as BGVNoiseEstimator<Params>>::key_switch(self, P, C, C_special, special_modulus_rns_factor_indices, &ct, gk)
     }
 
     fn change_plaintext_modulus(_Pnew: &PlaintextRing<Params>, _Pold: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, ct: &Self::CiphertextDescriptor) -> Self::CiphertextDescriptor {
@@ -306,7 +298,7 @@ impl<Params: BGVInstantiation> BGVNoiseEstimator<Params> for AlwaysZeroNoiseEsti
     fn hom_add(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _lhs: &Self::CiphertextDescriptor, _lhs_implicit_scale: &El<PlaintextZnRing<Params>>, _rhs: &Self::CiphertextDescriptor, _rhs_implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_add_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_add_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
-    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::CiphertextDescriptor, _g: CyclotomicGaloisGroupEl, _gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {}
+    fn hom_galois(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _ct: &Self::CiphertextDescriptor, _g: &CyclotomicGaloisGroupEl, _gk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {}
     fn hom_mul(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _C_special: &CiphertextRing<Params>, _special_modulus_rns_factor_indices: &RNSFactorIndexList, _lhs: &Self::CiphertextDescriptor, _rhs: &Self::CiphertextDescriptor, _rk: KeySwitchKeyDescriptor) -> Self::CiphertextDescriptor {}
     fn hom_mul_plain(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<PlaintextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}
     fn hom_mul_plain_encoded(&self, _P: &PlaintextRing<Params>, _C: &CiphertextRing<Params>, _m: &El<CiphertextRing<Params>>, _ct: &Self::CiphertextDescriptor, _implicit_scale: &El<PlaintextZnRing<Params>>) -> Self::CiphertextDescriptor {}

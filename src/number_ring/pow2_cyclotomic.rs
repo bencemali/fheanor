@@ -26,6 +26,7 @@ use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HEN
 
 pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     log2_m: usize,
+    galois_group: CyclotomicGaloisGroup,
     ntt: PhantomData<N>
 }
 
@@ -37,6 +38,7 @@ impl<N> Pow2CyclotomicNumberRing<N> {
         assert_eq!(m, 1 << log2_m);
         Self {
             log2_m: log2_m,
+            galois_group: CyclotomicGaloisGroup::new(m as u64),
             ntt: PhantomData
         }
     }
@@ -86,6 +88,7 @@ impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
     fn mod_p(&self, Fp: zn_64::Zn) -> Self::Decomposed {
         return Pow2CyclotomicDecomposedNumberRing {
             ntt: N::new(Fp, self.log2_m - 1),
+            galois_group: self.galois_group.clone(),
             allocator: Global
         };
     }
@@ -110,8 +113,8 @@ impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
 impl<N> HECyclotomicNumberRing for Pow2CyclotomicNumberRing<N>
     where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
 {
-    fn m(&self) -> usize {
-        1 << self.log2_m
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
     }
 }
 
@@ -120,6 +123,7 @@ pub struct Pow2CyclotomicDecomposedNumberRing<N, A>
         A: Allocator
 {
     ntt: N,
+    galois_group: CyclotomicGaloisGroup,
     allocator: A
 }
 
@@ -127,11 +131,11 @@ impl<N, A> HECyclotomicNumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A
     where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
         A: Send + Sync + Allocator
 {
-    fn m(&self) -> usize {
-        2 * self.ntt.len()
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
     }
 
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
         where V1: VectorView<zn_64::ZnEl>,
             V2: SwappableVectorViewMut<zn_64::ZnEl>
     {
@@ -249,8 +253,8 @@ fn test_permute_galois_automorphism() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
     let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
     let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
-    assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), R.get_ring().galois_group().from_representative(3)));
-    assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), R.get_ring().galois_group().from_representative(3)));
+    assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), &R.get_ring().galois_group().from_representative(3)));
+    assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), &R.get_ring().galois_group().from_representative(3)));
 }
 
 #[bench]
@@ -261,7 +265,7 @@ fn bench_permute_galois_action(bencher: &mut test::Bencher) {
     let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
     let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();
     bencher.iter(|| {
-        number_ring_mod_p.permute_galois_action(std::hint::black_box(&input), &mut output, number_ring.galois_group().from_representative(5));
+        number_ring_mod_p.permute_galois_action(std::hint::black_box(&input), &mut output, &number_ring.galois_group().from_representative(5));
         assert_el_eq!(&Fp, &input[1 << 12], &output[0]);
         assert_el_eq!(&Fp, &input[(1 << 13) + (1 << 12) + (1 << 11)], &output[1 << 13]);
     });

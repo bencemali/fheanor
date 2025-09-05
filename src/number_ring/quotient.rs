@@ -24,7 +24,7 @@ use feanor_serde::seq::*;
 use serde::{Deserializer, Serialize, Serializer};
 use crate::serde::de::DeserializeSeed;
 
-use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicRing};
+use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl, CyclotomicRing};
 use super::{sample_primes, largest_prime_leq_congruent_to_one, HECyclotomicNumberRing, HENumberRing, HENumberRingMod, HECyclotomicNumberRingMod};
 
 ///
@@ -189,7 +189,7 @@ impl<NumberRing, ZnTy, A> NumberRingQuotientBase<NumberRing, ZnTy, A>
                 }
                 self.ring_decompositions[i].coeff_basis_to_small_basis(&mut tmp[..]);
                 self.ring_decompositions[i].small_basis_to_mult_basis(&mut tmp[..]);
-                <_ as HECyclotomicNumberRingMod>::permute_galois_action(&self.ring_decompositions[i], &tmp[..], &mut tmp_perm[..], g);
+                <_ as HECyclotomicNumberRingMod>::permute_galois_action(&self.ring_decompositions[i], &tmp[..], &mut tmp_perm[..], &g);
                 for j in 0..self.rank() {
                     Zp.add_assign_ref(&mut unreduced_result[i * self.rank() + j], &tmp_perm[j]);
                 }
@@ -228,11 +228,11 @@ impl<NumberRing, ZnTy, A> CyclotomicRing for NumberRingQuotientBase<NumberRing, 
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
         A: Allocator + Clone
 {
-    fn m(&self) -> usize {
-        self.ring_decompositions()[0].m()
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        self.number_ring.galois_group()
     }
 
-    fn apply_galois_action(&self, el: &<Self as RingBase>::Element, g: CyclotomicGaloisGroupEl) -> <Self as RingBase>::Element {
+    fn apply_galois_action(&self, el: &<Self as RingBase>::Element, g: &CyclotomicGaloisGroupEl) -> <Self as RingBase>::Element {
         assert_eq!(el.data.len(), self.rank());
 
         let mut unreduced_result = Vec::with_capacity_in(self.rank() * self.rns_base.len(), &self.allocator);

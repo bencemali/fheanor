@@ -1,38 +1,42 @@
 use std::fmt::Debug;
-use std::marker::PhantomData;
 
-use feanor_math::algorithms::discrete_log::multiplicative_order;
+use feanor_math::algorithms::discrete_log::*;
+use feanor_math::algorithms::eea::inv_crt;
+use feanor_math::integer::int_cast;
 use feanor_math::ring::*;
 use feanor_math::delegate;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::algorithms::int_factor::factor;
+use feanor_math::seq::VectorView;
 use feanor_math::serialization::*;
 use feanor_math::divisibility::DivisibilityRingStore;
-use feanor_serde::newtype_struct::DeserializeSeedNewtypeStruct;
-use feanor_serde::newtype_struct::SerializableNewtypeStruct;
+use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNewtypeStruct};
 use serde::de::DeserializeSeed;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::euler_phi;
+use crate::number_ring::hypercube::structure::get_multiplicative_generator;
+use crate::ZZbig;
 use crate::ZZi64;
 
 ///
-/// Represents the group `(Z/mZ)^*`, which is isomorphic to the Galois
-/// group of a cyclotomic number field.
+/// Represents a subgroup of `(Z/mZ)^*`, which is isomorphic to the Galois
+/// group of a cyclotomic number field over a subfield.
 /// 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CyclotomicGaloisGroup {
-    ring: Zn,
-    order: usize
+    group: MultGroup<Zn>,
+    order: usize,
+    generating_set: GeneratingSet<MultGroup<Zn>>
 }
 
 impl PartialEq for CyclotomicGaloisGroup {
 
     fn eq(&self, other: &Self) -> bool {
-        self.ring.get_ring() == other.ring.get_ring()
+        self.underlying_ring().get_ring() == other.group.0.get_ring()
     }
 }
 
@@ -41,94 +45,122 @@ impl Eq for CyclotomicGaloisGroup {}
 impl CyclotomicGaloisGroup {
 
     pub fn new(m: u64) -> Self {
-        Self {
-            ring: Zn::new(m),
-            order: euler_phi(&factor(ZZi64, m as i64)) as usize
+        let ring = Zn::new(m);
+        let group = MultGroup(ring);
+        let m_factorization = factor(ZZi64, m as i64);
+        let order = euler_phi(&m_factorization);
+        let mut generators = Vec::new();
+        for (p, e) in &m_factorization {
+            let pe = ZZi64.pow(*p, *e);
+            let rest = ZZi64.checked_div(&(m as i64), &pe).unwrap();
+            if *p == 2 {
+                generators.push(inv_crt(-1, 1, &pe, &rest, ZZi64));
+                generators.push(inv_crt(5, 1, &pe, &rest, ZZi64));
+            } else {
+                let Zpe = Zn::new(pe as u64);
+                let gen = get_multiplicative_generator(Zpe);
+                generators.push(inv_crt(Zpe.smallest_lift(gen), 1, &pe, &rest, ZZi64));
+            }
+        }
+        return Self {
+            generating_set: GeneratingSet::for_zn(&group, generators.into_iter().map(|x| group.from_ring_el(ring.coerce(&ZZi64, x)).unwrap()).collect()),
+            order: order as usize,
+            group: group
+        };
+    }
+
+    pub fn subgroup(&self, gens: &[CyclotomicGaloisGroupEl]) -> Self {
+        let generating_set = GeneratingSet::for_zn(&self.group, gens.iter().map(|x| x.clone().value).collect());
+        return Self {
+            generating_set: generating_set,
+            group: self.group.clone(),
+            order: self.order
         }
     }
 
     pub fn identity(&self) -> CyclotomicGaloisGroupEl {
-        CyclotomicGaloisGroupEl { value: self.ring.one() }
+        CyclotomicGaloisGroupEl { value: self.group.identity() }
     }
 
-    pub fn mul(&self, lhs: CyclotomicGaloisGroupEl, rhs: CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
-        CyclotomicGaloisGroupEl { value: self.ring.mul(lhs.value, rhs.value) }
+    pub fn mul(&self, lhs: CyclotomicGaloisGroupEl, rhs: &CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
+        CyclotomicGaloisGroupEl { value: self.group.op(lhs.value, &rhs.value) }
     }
 
-    pub fn invert(&self, value: CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
-        CyclotomicGaloisGroupEl { value: self.ring.invert(&value.value).unwrap() }
+    pub fn invert(&self, value: &CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
+        CyclotomicGaloisGroupEl { value: self.group.inv(&value.value) }
     }
 
-    pub fn representative(&self, value: CyclotomicGaloisGroupEl) -> usize {
-        self.ring.smallest_positive_lift(value.value) as usize
+    pub fn representative(&self, value: &CyclotomicGaloisGroupEl) -> usize {
+        self.underlying_ring().smallest_positive_lift(self.underlying_ring().clone_el(self.group.as_ring_el(&value.value))) as usize
     }
 
     pub fn from_representative(&self, value: i64) -> CyclotomicGaloisGroupEl {
-        self.from_ring_el(self.ring.coerce(&ZZi64, value))
+        self.from_ring_el(self.underlying_ring().coerce(&ZZi64, value))
     }
 
     pub fn from_ring_el(&self, value: ZnEl) -> CyclotomicGaloisGroupEl {
-        assert!(self.ring.is_unit(&value));
-        CyclotomicGaloisGroupEl { value }
+        let group_el = self.group.from_ring_el(value).unwrap();
+        assert!(self.generating_set.dlog(&self.group, &group_el).is_some());
+        CyclotomicGaloisGroupEl { value: group_el }
     }
 
-    pub fn negate(&self, value: CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
-        CyclotomicGaloisGroupEl { value: self.ring.negate(value.value) }
+    pub fn negate(&self, value: &CyclotomicGaloisGroupEl) -> CyclotomicGaloisGroupEl {
+        self.from_ring_el(self.underlying_ring().negate(self.underlying_ring().clone_el(self.group.as_ring_el(&value.value))))
     }
 
     pub fn prod<I>(&self, it: I) -> CyclotomicGaloisGroupEl
         where I: IntoIterator<Item = CyclotomicGaloisGroupEl>
     {
-        it.into_iter().fold(self.identity(), |a, b| self.mul(a, b))
+        it.into_iter().fold(self.identity(), |a, b| self.mul(a, &b))
     }
 
-    pub fn pow(&self, base: CyclotomicGaloisGroupEl, power: i64) -> CyclotomicGaloisGroupEl {
-        if power >= 0 {
-            CyclotomicGaloisGroupEl { value: self.ring.pow(base.value, power as usize) }
-        } else {
-            self.invert(CyclotomicGaloisGroupEl { value: self.ring.pow(base.value, (-power) as usize) })
-        }
+    pub fn pow(&self, base: &CyclotomicGaloisGroupEl, power: i64) -> CyclotomicGaloisGroupEl {
+        CyclotomicGaloisGroupEl { value: self.group.pow(&base.value, power) }
     }
 
-    pub fn is_identity(&self, value: CyclotomicGaloisGroupEl) -> bool {
-        self.ring.is_one(&value.value)
+    pub fn is_identity(&self, value: &CyclotomicGaloisGroupEl) -> bool {
+        self.group.is_identity(&value.value)
     }
 
-    pub fn eq_el(&self, lhs: CyclotomicGaloisGroupEl, rhs: CyclotomicGaloisGroupEl) -> bool {
-        self.ring.eq_el(&lhs.value, &rhs.value)
+    pub fn eq_el(&self, lhs: &CyclotomicGaloisGroupEl, rhs: &CyclotomicGaloisGroupEl) -> bool {
+        self.group.eq_el(&lhs.value, &rhs.value)
     }
 
     ///
-    /// Returns `m` such that this group is the Galois group of the `m`-th cyclotomic number
-    /// field `Q[𝝵]`, where `𝝵` is an `m`-th primitive root of unity.
+    /// Returns `m` such that this group is a subgroup of the Galois group of the
+    /// `m`-th cyclotomic number field `Q[𝝵]`, where `𝝵` is an `m`-th primitive root of unity.
     /// 
     pub fn m(&self) -> usize {
-        *self.ring.modulus() as usize
+        *self.underlying_ring().modulus() as usize
     }
 
-    pub fn to_ring_el(&self, value: CyclotomicGaloisGroupEl) -> ZnEl {
-        value.value
+    pub fn to_ring_el(&self, value: &CyclotomicGaloisGroupEl) -> ZnEl {
+        self.underlying_ring().clone_el(self.group.as_ring_el(&value.value))
     }
 
     pub fn underlying_ring(&self) -> &Zn {
-        &self.ring
+        &self.group.0
     }
 
-    pub fn group_order(&self) -> usize {
+    pub fn ambient_order(&self) -> usize {
         self.order
     }
 
-    pub fn element_order(&self, value: CyclotomicGaloisGroupEl) -> usize {
+    pub fn group_order(&self) -> usize {
+        int_cast(self.generating_set.subgroup_order(), ZZi64, ZZbig) as usize
+    }
+
+    pub fn element_order(&self, value: &CyclotomicGaloisGroupEl) -> usize {
         multiplicative_order(
-            value.value,
-            &self.ring
+            self.to_ring_el(value),
+            self.underlying_ring()
         ) as usize
     }
 }
 
 impl Debug for CyclotomicGaloisGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(Z/{}Z)*", self.ring.modulus())
+        write!(f, "Subgroup of (Z/{}Z)* generated by {:?}", self.underlying_ring().modulus(), self.generating_set.as_iter().map(|g| self.underlying_ring().format(self.group.as_ring_el(g))).collect::<Vec<_>>())
     }
 }
 
@@ -142,7 +174,7 @@ impl<'a> SerializableCyclotomicGaloisGroupEl<'a> {
 
 impl<'a> Serialize for SerializableCyclotomicGaloisGroupEl<'a> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SerializableNewtypeStruct::new("CyclotomicGaloisGroupEl", &SerializeOwnedWithRing::new(self.1.value, &self.0.ring)).serialize(serializer)
+        SerializableNewtypeStruct::new("CyclotomicGaloisGroupEl", &SerializeOwnedWithRing::new(self.0.to_ring_el(&self.1), self.0.underlying_ring())).serialize(serializer)
     }
 }
 
@@ -159,7 +191,7 @@ impl<'a, 'de> DeserializeSeed<'de> for DeserializeSeedCyclotomicGaloisGroupEl<'a
     type Value = CyclotomicGaloisGroupEl;
 
     fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        Ok(DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroupEl", DeserializeWithRing::new(&self.0.ring)).deserialize(deserializer).map(|g| CyclotomicGaloisGroupEl { value: g }).unwrap())
+        Ok(DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroupEl", DeserializeWithRing::new(self.0.underlying_ring())).deserialize(deserializer).map(|g| self.0.from_ring_el(g)).unwrap())
     }
 }
 
@@ -168,7 +200,16 @@ impl Serialize for CyclotomicGaloisGroup {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
-        SerializableNewtypeStruct::new("CyclotomicGaloisGroup", self.ring.modulus()).serialize(serializer)
+        #[derive(Serialize)]
+        #[serde(rename = "CyclotomicGaloisGroup")]
+        struct SerializableCyclotomicGaloisGroup {
+            m: u64,
+            generators: Vec<u64>
+        }
+        SerializableCyclotomicGaloisGroup {
+            m: self.m() as u64,
+            generators: self.generating_set.as_iter().map(|g| self.underlying_ring().smallest_positive_lift(*self.group.as_ring_el(g)) as u64).collect()
+        }.serialize(serializer)
     }
 }
 
@@ -177,16 +218,22 @@ impl<'de> Deserialize<'de> for CyclotomicGaloisGroup {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: serde::Deserializer<'de>
     {
-        DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroup", PhantomData::<i64>).deserialize(deserializer).map(|m| Self {
-            ring: Zn::new(m as u64),
-            order: euler_phi(&factor(ZZi64, m as i64)) as usize
+        #[derive(Deserialize)]
+        #[serde(rename = "CyclotomicGaloisGroup")]
+        struct DeserializableCyclotomicGaloisGroup {
+            m: u64,
+            generators: Vec<u64>
+        }
+        DeserializableCyclotomicGaloisGroup::deserialize(deserializer).map(|res| {
+            let parent = CyclotomicGaloisGroup::new(res.m);
+            parent.subgroup(&res.generators.iter().map(|g| parent.from_representative(*g as i64)).collect::<Vec<_>>())
         })
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct CyclotomicGaloisGroupEl {
-    value: El<Zn>
+    value: MultGroupEl<Zn>
 }
 
 ///
@@ -217,7 +264,9 @@ pub trait CyclotomicRing: FreeAlgebra {
     /// The degree of this ring extension is `phi(self.m())` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn m(&self) -> usize;
+    fn m(&self) -> usize {
+        self.galois_group().m()
+    }
 
     ///
     /// Returns the Galois group of this ring, which we define as the Galois group of the number field
@@ -225,14 +274,12 @@ pub trait CyclotomicRing: FreeAlgebra {
     /// Galois group element does induce an automorphism of this ring, which can be accessed via
     /// [`CyclotomicRing::apply_galois_action()`].
     /// 
-    fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.m() as u64)
-    }
+    fn galois_group(&self) -> &CyclotomicGaloisGroup;
 
     ///
     /// Computes `g(x)` for the given Galois automorphism `g`.
     /// 
-    fn apply_galois_action(&self, x: &Self::Element, g: CyclotomicGaloisGroupEl) -> Self::Element;
+    fn apply_galois_action(&self, x: &Self::Element, g: &CyclotomicGaloisGroupEl) -> Self::Element;
 
     ///
     /// Computes `g(x)` for each Galois automorphism `g` in the given list.
@@ -240,7 +287,7 @@ pub trait CyclotomicRing: FreeAlgebra {
     /// This may be faster than using [`CyclotomicRing::apply_galois_action()`] multiple times.
     /// 
     fn apply_galois_action_many(&self, x: &Self::Element, gs: &[CyclotomicGaloisGroupEl]) -> Vec<Self::Element> {
-        gs.iter().map(move |g| self.apply_galois_action(&x, *g)).collect()
+        gs.iter().map(move |g| self.apply_galois_action(&x, g)).collect()
     }
 }
 
@@ -251,8 +298,8 @@ pub trait CyclotomicRingStore: RingStore
     where Self::Type: CyclotomicRing
 {
     delegate!{ CyclotomicRing, fn m(&self) -> usize }
-    delegate!{ CyclotomicRing, fn galois_group(&self) -> CyclotomicGaloisGroup }
-    delegate!{ CyclotomicRing, fn apply_galois_action(&self, el: &El<Self>, s: CyclotomicGaloisGroupEl) -> El<Self> }
+    delegate!{ CyclotomicRing, fn galois_group(&self) -> &CyclotomicGaloisGroup }
+    delegate!{ CyclotomicRing, fn apply_galois_action(&self, el: &El<Self>, s: &CyclotomicGaloisGroupEl) -> El<Self> }
     delegate!{ CyclotomicRing, fn apply_galois_action_many(&self, el: &El<Self>, gs: &[CyclotomicGaloisGroupEl]) -> Vec<El<Self>> }
 }
 

@@ -45,9 +45,9 @@ impl Serialize for HypercubeStructure {
         SerializableNewtypeStruct::new("HypercubeStructure", (&self.galois_group, SerializableHypercubeStructureData {
             choice: &self.choice,
             d: self.d,
-            p: SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, self.p),
+            p: SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, self.p.clone()),
             ls: &self.ls,
-            gs: SerializableSeq::new_with_len(self.gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, *g)), self.gs.len())
+            gs: SerializableSeq::new_with_len(self.gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(&self.galois_group, g.clone())), self.gs.len())
         })).serialize(serializer)
     }
 }
@@ -87,7 +87,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
         Ok(DeserializeSeedNewtypeStruct::new("HypercubeStructure", DeserializeSeedDependentTuple::new(
             PhantomData::<CyclotomicGaloisGroup>,
             |galois_group| {
-                deserialized_galois_group = Some(galois_group);
+                deserialized_galois_group = Some(galois_group.clone());
                 DeserializeSeedHypercubeStructureData { galois_group }
             }
         )).deserialize(deserializer).map(|data| {

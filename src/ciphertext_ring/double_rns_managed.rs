@@ -21,7 +21,7 @@ use tracing::instrument;
 use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
-use crate::cyclotomic::CyclotomicGaloisGroupEl;
+use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl};
 use crate::cyclotomic::CyclotomicRing;
 use crate::number_ring::HECyclotomicNumberRing;
 use crate::number_ring::HENumberRing;
@@ -741,11 +741,11 @@ impl<NumberRing, A> CyclotomicRing for ManagedDoubleRNSRingBase<NumberRing, A>
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {
-    fn m(&self) -> usize {
-        self.base.m()
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        self.number_ring().galois_group()
     }
 
-    fn apply_galois_action(&self, el: &Self::Element, g: CyclotomicGaloisGroupEl) -> Self::Element {
+    fn apply_galois_action(&self, el: &Self::Element, g: &CyclotomicGaloisGroupEl) -> Self::Element {
         let result = if let Some(value) = self.to_doublerns(el) {
             self.base.apply_galois_action(&*value, g)
         } else {

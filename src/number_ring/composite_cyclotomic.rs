@@ -30,7 +30,8 @@ use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HEN
 /// 
 pub struct CompositeCyclotomicNumberRing<L: HECyclotomicNumberRing = OddSquarefreeCyclotomicNumberRing, R: HECyclotomicNumberRing = OddSquarefreeCyclotomicNumberRing> {
     left_factor: L,
-    right_factor: R
+    right_factor: R,
+    joint_galois_group: CyclotomicGaloisGroup
 }
 
 impl CompositeCyclotomicNumberRing {
@@ -49,6 +50,7 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> CompositeCyclotomicNu
         assert!(m2 > 1);
         assert!(signed_gcd(m1 as i64, m2 as i64, StaticRing::<i64>::RING) == 1);
         Self {
+            joint_galois_group: CyclotomicGaloisGroup::new((m1 * m2) as u64),
             left_factor: left,
             right_factor: right
         }
@@ -67,6 +69,7 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> Clone for CompositeCy
     
     fn clone(&self) -> Self {
         Self {
+            joint_galois_group: self.joint_galois_group.clone(),
             left_factor: self.left_factor.clone(),
             right_factor: self.right_factor.clone(),
         }
@@ -88,9 +91,8 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> PartialEq for Composi
 }
 
 impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HECyclotomicNumberRing for CompositeCyclotomicNumberRing<L, R> {
-
-    fn m(&self) -> usize {
-        <_ as HECyclotomicNumberRing>::m(&self.left_factor) * <_ as HECyclotomicNumberRing>::m(&self.right_factor)
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.joint_galois_group
     }
 }
 
@@ -146,7 +148,8 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HENumberRing for Comp
             cyclotomic_poly_reducer: cyclotomic_poly_reducer,
             left_factor: self.left_factor.mod_p(Fp.clone()),
             right_factor: self.right_factor.mod_p(Fp),
-            allocator: Global
+            allocator: Global,
+            joint_galois_group: self.joint_galois_group.clone()
         }
     }
 
@@ -195,7 +198,8 @@ pub struct CompositeCyclotomicDecomposedNumberRing<L, R, A = Global>
     // the `i`-th entry is none if the `i`-th small basis vector equals the `i`-th coeff basis vector,
     // and otherwise, it contains the coeff basis representation of the `i`-th small basis vector
     coeff_to_small_conversion_matrix: Vec<Vec<(usize, ZnEl)>>,
-    cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>
+    cyclotomic_poly_reducer: CyclotomicPolyReducer<Zn>,
+    joint_galois_group: CyclotomicGaloisGroup
 }
 
 impl<L, R, A> PartialEq for CompositeCyclotomicDecomposedNumberRing<L, R, A> 
@@ -308,34 +312,33 @@ impl<L, R, A> HECyclotomicNumberRingMod for CompositeCyclotomicDecomposedNumberR
         R: HECyclotomicNumberRingMod,
         A: Allocator + Clone + Send + Sync
 {
-    fn m(&self) -> usize {
-        self.left_factor.m() * self.right_factor.m()
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.joint_galois_group
     }
 
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
         where V1: VectorView<ZnEl>,
             V2: SwappableVectorViewMut<ZnEl>
     {
-        let index_ring = self.galois_group();
         let ring_factor1 = self.left_factor.galois_group();
         let ring_factor2 = self.right_factor.galois_group();
 
-        let g1 = ring_factor1.from_representative(index_ring.representative(galois_element) as i64);
-        let g2 = ring_factor2.from_representative(index_ring.representative(galois_element) as i64);
+        let g1 = ring_factor1.from_representative(self.galois_group().representative(galois_element) as i64);
+        let g2 = ring_factor2.from_representative(self.galois_group().representative(galois_element) as i64);
         let mut tmp = Vec::with_capacity_in(self.rank(), &self.allocator);
         tmp.resize_with(self.rank(), || self.base_ring().zero());
         for i in 0..self.right_factor.rank() {
             self.left_factor.permute_galois_action(
                 SubvectorView::new(&src).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())), 
                 &mut tmp[(i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())], 
-                g1
+                &g1
             );
         }
         for j in 0..self.left_factor.rank() {
             self.right_factor.permute_galois_action(
                 SubvectorView::new(&tmp[..]).restrict(j..).step_by_view(self.left_factor.rank()), 
                 SubvectorView::new(&mut dst).restrict(j..).step_by_view(self.left_factor.rank()), 
-                g2
+                &g2
             );
         }
     }
@@ -452,8 +455,8 @@ fn test_permute_galois_automorphism() {
     let R = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
     let gal_el = |x: i64| R.galois_group().from_representative(x);
 
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(4)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), gal_el(8)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2)));
 }

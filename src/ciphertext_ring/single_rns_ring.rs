@@ -699,16 +699,12 @@ impl<NumberRing, A, C> CyclotomicRing for SingleRNSRingBase<NumberRing, A, C>
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>
 {
-    fn m(&self) -> usize {
-        self.number_ring.m()
-    }
-
-    fn galois_group(&self) -> CyclotomicGaloisGroup {
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
         self.number_ring.galois_group()
     }
 
     #[instrument(skip_all)]
-    fn apply_galois_action(&self, el: &Self::Element, s: CyclotomicGaloisGroupEl) -> Self::Element {
+    fn apply_galois_action(&self, el: &Self::Element, s: &CyclotomicGaloisGroupEl) -> Self::Element {
         let Gal = self.galois_group();
         let Gal_Zn = Gal.underlying_ring();
         let s = Gal.to_ring_el(s);
@@ -1150,7 +1146,7 @@ fn test_galois_automorphisms() {
         for j in 0..24 {
             let input = poly_ring.from_terms([(poly_ring.base_ring().one(), i), (poly_ring.base_ring().int_hom().map(10), j)]);
             let expected = from_poly(poly_ring.div_rem_monic(poly_ring.evaluate(&input, &poly_ring.pow(poly_ring.indeterminate(), 4), poly_ring.inclusion()), &Phi_m).1);
-            let actual = ring.apply_galois_action(&from_poly(input), g);
+            let actual = ring.apply_galois_action(&from_poly(input), &g);
             assert_el_eq!(&ring, &expected, &actual);
         }
     }

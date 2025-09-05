@@ -116,7 +116,7 @@ impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R>
                     rhs: serialize_lin_transform(rhs, self.ring)
                 }),
                 PlaintextCircuitGate::Gal(gs, val) => SerializablePlaintextCircuitGate::Gal(SerializablePlaintextCircuitGalGate {
-                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(self.galois_group.unwrap(), *g)), gs.len()), 
+                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(self.galois_group.unwrap(), g.clone())), gs.len()), 
                     input: serialize_lin_transform(val, self.ring)
                 }),
                 PlaintextCircuitGate::Square(val) => SerializablePlaintextCircuitGate::Square(SerializablePlaintextCircuitSquareGate { 

@@ -64,7 +64,7 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
     let smaller_cyclotomic_index_ring = Zn::new(4 * l as u64);
     let Gal = H.galois_group();
     let red = ZnReductionMap::new(Gal.underlying_ring(), &smaller_cyclotomic_index_ring).unwrap();
-    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(g)), l));
+    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(&g)), l));
 
     let l = l;
     assert!(l > 1);
@@ -93,7 +93,7 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
     let diagonal_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(Gal.mul(Gal.pow(g, (idx_in_block - l / 2) as i64), row_autos(&idxs))))
+            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.pow(&g, (idx_in_block - l / 2) as i64), &row_autos(&idxs))))
         } else {
             TwiddleFactor::PosPowerZeta(Gal.underlying_ring().zero())
         }
@@ -102,7 +102,7 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
     let backward_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block < l / 2 {
-            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(Gal.mul(Gal.pow(g, idx_in_block as i64), row_autos(&idxs))))
+            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.pow(&g, idx_in_block as i64), &row_autos(&idxs))))
         } else {
             TwiddleFactor::Zero
         }
@@ -140,7 +140,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
     let smaller_cyclotomic_index_ring = Zn::new(4 * l as u64);
     let Gal = H.galois_group();
     let red = ZnReductionMap::new(Gal.underlying_ring(), &smaller_cyclotomic_index_ring).unwrap();
-    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(g)), l));
+    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(&g)), l));
 
     let l = l;
     assert!(l > 1);
@@ -162,7 +162,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
     let mut forward_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(Gal.mul(Gal.negate(Gal.pow(g, (idx_in_block - l / 2) as i64)), row_autos(&idxs))))
+            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.negate(&Gal.pow(&g, (idx_in_block - l / 2) as i64)), &row_autos(&idxs))))
         } else {
             TwiddleFactor::Zero
         }
@@ -172,7 +172,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
     let mut diagonal_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(Gal.mul(Gal.negate(Gal.pow(g, (idx_in_block - l / 2) as i64)), row_autos(&idxs))))
+            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.negate(&Gal.pow(&g, (idx_in_block - l / 2) as i64)), &row_autos(&idxs))))
         } else {
             TwiddleFactor::PosPowerZeta(Gal.underlying_ring().zero())
         }
@@ -342,7 +342,7 @@ fn slots_to_coeffs_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Ve
             H.galois_group().identity()
         } else {
             debug_assert!(idxs[1] == 1);
-            H.galois_group().negate(H.galois_group().identity())
+            H.galois_group().negate(&H.galois_group().identity())
         }));
         
         return result;
@@ -375,7 +375,7 @@ fn slots_to_coeffs_thin_inv<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec
             H.galois_group().identity()
         } else {
             debug_assert!(idxs[1] == 1);
-            H.galois_group().negate(H.galois_group().identity())
+            H.galois_group().negate(&H.galois_group().identity())
         }));
 
         result.push(MatmulTransform::linear_combine_shifts(H, [
@@ -432,7 +432,7 @@ pub fn coeffs_to_slots_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Pla
     let last = MatmulTransform::mult_scalar_slots(H, &H.slot_ring().inclusion().map(H.slot_ring().base_ring().invert(&H.slot_ring().base_ring().int_hom().map(H.slot_ring().rank() as i32)).unwrap()));
     *result.last_mut().unwrap() = result.last().unwrap().compose(H.ring(), H.hypercube(), &last);
 
-    let trace_circuit = trace_circuit(H.ring().get_ring(), &H.galois_group(), H.hypercube().frobenius(1), H.slot_ring().rank());
+    let trace_circuit = trace_circuit(H.ring().get_ring(), &H.galois_group(), &H.hypercube().frobenius(1), H.slot_ring().rank());
     let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result);
     return trace_circuit.compose(result_circuit, H.ring());
 }

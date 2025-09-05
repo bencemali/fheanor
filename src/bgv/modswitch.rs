@@ -1497,14 +1497,14 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 assert!(x.dropped_rns_factor_indices.len() < C_master.base_ring().len());
                 **key_switches.borrow_mut() += gs.len();
                 
-                let get_gk = |g| if let Some(res) = gks.iter().filter(|(provided_g, _)| C_master.galois_group().eq_el(g, *provided_g)).next() {
+                let get_gk = |g| if let Some(res) = gks.iter().filter(|(provided_g, _)| C_master.galois_group().eq_el(g, provided_g)).next() {
                     res
                 } else {
                     panic!("Galois key for {} not found", C_master.galois_group().representative(g))
                 };
 
-                let gk_digits = get_gk(gs[0]).1.gadget_vector_digits();
-                assert!(gs.iter().all(|g| get_gk(*g).1.gadget_vector_digits() == gk_digits), "when using `gal_many()`, all Galois keys must have the same digits");
+                let gk_digits = get_gk(&gs[0]).1.gadget_vector_digits();
+                assert!(gs.iter().all(|g| get_gk(g).1.gadget_vector_digits() == gk_digits), "when using `gal_many()`, all Galois keys must have the same digits");
                 let (total_drop, special_modulus) = compute_optimal_special_modulus(C_master.get_ring(), &x.dropped_rns_factor_indices, 0, gk_digits);
                 assert!(total_drop.len() < C_master.base_ring().len());
 
@@ -1512,7 +1512,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 let total_drop_without_special = total_drop.subtract(&special_modulus);
                 let C_special = Params::mod_switch_down_C(&C_master, &total_drop_without_special);
 
-                let gks_mod_switched = gs.iter().map(|g| Params::mod_switch_down_gk(&C_special, C_master, &get_gk(*g).1)).collect::<Vec<_>>();
+                let gks_mod_switched = gs.iter().map(|g| Params::mod_switch_down_gk(&C_special, C_master, &get_gk(g).1)).collect::<Vec<_>>();
         
                 if LOG {
                     println!(
@@ -1524,23 +1524,9 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 }
 
                 let result = if gs.len() == 1 {
-                    vec![Params::hom_galois(
-                        P, 
-                        &C_target, 
-                        &C_special, 
-                        x.data, 
-                        gs[0], 
-                        gks_mod_switched.at(0)
-                    )]
+                    vec![Params::hom_galois(P, &C_target, &C_special, x.data, &gs[0], gks_mod_switched.at(0))]
                 } else {
-                    Params::hom_galois_many(
-                        P, 
-                        &C_target, 
-                        &C_special, 
-                        x.data, 
-                        gs, 
-                        gks_mod_switched.as_fn()
-                    )
+                    Params::hom_galois_many(P, &C_target, &C_special, x.data, gs, gks_mod_switched.as_fn())
                 };
                 result.into_iter().zip(gs.into_iter()).zip(gks_mod_switched.iter()).map(|((res, g), gk)| PlainOrCiphertext::Ciphertext(ModulusAwareCiphertext {
                     dropped_rns_factor_indices: total_drop.clone(),
@@ -1550,7 +1536,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                         &C_special, 
                         &total_drop.pushforward(&total_drop_without_special),
                         &x.info, 
-                        *g, 
+                        g, 
                         KeySwitchKeyDescriptor {
                             digits: gk.gadget_vector_digits(),
                             new_sk: used_sk,

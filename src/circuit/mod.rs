@@ -676,7 +676,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// input.
     /// 
     pub fn gal_many<S: RingStore<Type = R>>(gs: &[CyclotomicGaloisGroupEl], galois_group: &CyclotomicGaloisGroup, _ring: S) -> Self {
-        let non_identity_gs = gs.iter().filter(|g| !galois_group.is_identity(**g)).copied().collect::<Vec<_>>();
+        let non_identity_gs = gs.iter().filter(|g| !galois_group.is_identity(*g)).cloned().collect::<Vec<_>>();
         if non_identity_gs.len() == 0 {
             return PlaintextCircuit {
                 gates: Vec::new(),
@@ -697,7 +697,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
                     factors: vec![Coefficient::One]
                 }
             )],
-            output_transforms: gs.iter().scan(0, |nonzero_gs, g| if galois_group.is_identity(*g) {
+            output_transforms: gs.iter().scan(0, |nonzero_gs, g| if galois_group.is_identity(g) {
                 Some(LinearCombination {
                     constant: Coefficient::Zero,
                     factors: [Coefficient::One].into_iter().chain((1..len).map(|_| Coefficient::Zero)).collect()
@@ -1082,12 +1082,12 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// 
     pub fn required_galois_keys(&self, galois_group: &CyclotomicGaloisGroup) -> Vec<CyclotomicGaloisGroupEl> {
         let mut result = self.gates.iter().flat_map(|gate| match gate {
-            PlaintextCircuitGate::Gal(gs, _) => gs.iter().copied(),
-            PlaintextCircuitGate::Mul(_, _) => [].iter().copied(),
-            PlaintextCircuitGate::Square(_) => [].iter().copied()
+            PlaintextCircuitGate::Gal(gs, _) => gs.iter().cloned(),
+            PlaintextCircuitGate::Mul(_, _) => [].iter().cloned(),
+            PlaintextCircuitGate::Square(_) => [].iter().cloned()
         }).collect::<Vec<_>>();
-        result.sort_unstable_by_key(|g| galois_group.representative(*g));
-        result.dedup_by_key(|g| galois_group.representative(*g));
+        result.sort_unstable_by_key(|g| galois_group.representative(g));
+        result.dedup_by_key(|g| galois_group.representative(g));
         return result;
     }
     
@@ -1157,7 +1157,7 @@ pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataK
         <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
-    create_cached::<_, _, _, LOG>(&(ring, &ring.galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard })
+    create_cached::<_, _, _, LOG>(&(ring, ring.galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard })
 }
 
 #[cfg(test)]

@@ -113,7 +113,7 @@ impl<R> MatmulTransform<R>
             return false;
         }
         for (self_d, other_d) in self.data.iter().zip(other.data.iter()) {
-            if !H.galois_group().eq_el(H.map_incl_frobenius(&self_d.0), H.map_incl_frobenius(&other_d.0)) {
+            if !H.galois_group().eq_el(&H.map_incl_frobenius(&self_d.0), &H.map_incl_frobenius(&other_d.0)) {
                 return false;
             }
             if !ring.eq_el(&self_d.1, &other_d.1) {
@@ -185,7 +185,7 @@ impl<R> MatmulTransform<R>
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| poly_ring.evaluate(
             &H.slot_ring().poly_repr(&poly_ring, x, &H.slot_ring().base_ring().identity()), 
-            &H.slot_ring().pow(H.slot_ring().canonical_gen(), Gal.representative(H.hypercube().frobenius(count))), 
+            &H.slot_ring().pow(H.slot_ring().canonical_gen(), Gal.representative(&H.hypercube().frobenius(count))), 
             &H.slot_ring().inclusion()
         );
         
@@ -243,7 +243,7 @@ impl<R> MatmulTransform<R>
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| H.slot_ring().sum(
             H.slot_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| H.slot_ring().inclusion().mul_ref_map(
-                &*canonical_gen_powertable.get_power(i as i64 * Gal.representative(H.hypercube().frobenius(count)) as i64),
+                &*canonical_gen_powertable.get_power(i as i64 * Gal.representative(&H.hypercube().frobenius(count)) as i64),
                 &c
             )
         ));
@@ -308,17 +308,17 @@ impl<R> MatmulTransform<R>
         let mut composed_automorphisms = original_automorphisms.clone().flat_map(|g| inverse_automorphisms.iter().map(move |s| 
             g.iter().zip(s.iter()).map(|(i1, i2)| i1 + i2).collect::<Vec<_>>().into_boxed_slice()
         )).collect::<Vec<_>>();
-        composed_automorphisms.sort_unstable_by_key(|g| Gal.representative(H.hypercube().map_incl_frobenius(g)));
-        composed_automorphisms.dedup_by(|a, b| Gal.eq_el(H.hypercube().map_incl_frobenius(a), H.hypercube().map_incl_frobenius(b)));
+        composed_automorphisms.sort_unstable_by_key(|g| Gal.representative(&H.hypercube().map_incl_frobenius(g)));
+        composed_automorphisms.dedup_by(|a, b| Gal.eq_el(&H.hypercube().map_incl_frobenius(a), &H.hypercube().map_incl_frobenius(b)));
 
         let mut matrix: OwnedMatrix<_> = OwnedMatrix::zero(composed_automorphisms.len(), inverse_automorphisms.len(), H.ring());
         for (i, g) in original_automorphisms.enumerate() {
             for (j, s) in inverse_automorphisms.iter().enumerate() {
                 let row_index = composed_automorphisms.binary_search_by_key(
-                    &Gal.representative(H.hypercube().map_incl_frobenius(&g.iter().zip(s.iter()).map(|(i1, i2)| i1 + i2).collect::<Vec<_>>())), 
-                    |g| Gal.representative(H.hypercube().map_incl_frobenius(g))
+                    &Gal.representative(&H.hypercube().map_incl_frobenius(&g.iter().zip(s.iter()).map(|(i1, i2)| i1 + i2).collect::<Vec<_>>())), 
+                    |g| Gal.representative(&H.hypercube().map_incl_frobenius(g))
                 ).unwrap();
-                let entry = H.ring().get_ring().apply_galois_action(&self.data[i].1, H.hypercube().map_incl_frobenius(s));
+                let entry = H.ring().get_ring().apply_galois_action(&self.data[i].1, &H.hypercube().map_incl_frobenius(s));
                 *matrix.at_mut(row_index, j) = entry;
             }
         }
@@ -335,7 +335,7 @@ impl<R> MatmulTransform<R>
                     *lhs.at_mut(i, j) = matrix_by_slots[i][j].next().unwrap();
                 }
             }
-            assert!(H.galois_group().is_identity(H.hypercube().map_incl_frobenius(&composed_automorphisms[0])));
+            assert!(H.galois_group().is_identity(&H.hypercube().map_incl_frobenius(&composed_automorphisms[0])));
             *rhs.at_mut(0, 0) = H.slot_ring().one();
             for j in 1..matrix.row_count() {
                 *rhs.at_mut(j, 0) = H.slot_ring().zero();
@@ -370,11 +370,11 @@ impl<R> MatmulTransform<R>
         where S: RingStore<Type = R>
     {
         let Gal = H.galois_group();
-        assert!(self.data.is_sorted_by_key(|(g, _)| Gal.representative(H.map_incl_frobenius(g))));
+        assert!(self.data.is_sorted_by_key(|(g, _)| Gal.representative(&H.map_incl_frobenius(g))));
         for (i, (g, _)) in self.data.iter().enumerate() {
             assert_eq!(H.dim_count() + 1, g.len());
             for (j, (s, _)) in self.data.iter().enumerate() {
-                assert!(i == j || !Gal.eq_el(H.map_incl_frobenius(g), H.map_incl_frobenius(s)));
+                assert!(i == j || !Gal.eq_el(&H.map_incl_frobenius(g), &H.map_incl_frobenius(s)));
             }
         }
     }
@@ -395,7 +395,7 @@ impl<R> MatmulTransform<R>
         let mut result = Self {
             data: self.data.iter().flat_map(|(self_g, self_coeff)| run_first.data.iter().map(|(first_g, first_coeff)| (
                 self_g.iter().zip(first_g.iter()).map(|(i1, i2)| i1 + i2).collect::<Vec<_>>().into_boxed_slice(), 
-                ring.mul_ref_snd(ring.get_ring().apply_galois_action(first_coeff, H.map_incl_frobenius(self_g)), self_coeff)
+                ring.mul_ref_snd(ring.get_ring().apply_galois_action(first_coeff, &H.map_incl_frobenius(self_g)), self_coeff)
             ))).collect()
         };
         result.canonicalize(ring, &H);
@@ -498,10 +498,10 @@ impl<R> MatmulTransform<R>
     fn canonicalize<S>(&mut self, ring: S, H: &HypercubeStructure)
         where S: Copy + RingStore<Type = R>
     {
-        self.data.sort_unstable_by_key(|(g, _)| H.galois_group().representative(H.map_incl_frobenius(g)));
+        self.data.sort_unstable_by_key(|(g, _)| H.galois_group().representative(&H.map_incl_frobenius(g)));
         let mut normalize_all_shifts = false;
         self.data.dedup_by(|second, first| {
-            if H.galois_group().eq_el(H.map_incl_frobenius(&second.0), H.map_incl_frobenius(&first.0)) {
+            if H.galois_group().eq_el(&H.map_incl_frobenius(&second.0), &H.map_incl_frobenius(&first.0)) {
                 ring.add_assign_ref(&mut first.1, &second.1);
                 normalize_all_shifts = true;
                 return true;
@@ -513,7 +513,7 @@ impl<R> MatmulTransform<R>
             // is there a better way here that does not require us to discard all additional information,
             // which might be useful for a better baby-step-giant-step decomposition?
             for (g, _) in self.data.iter_mut() {
-                *g = H.std_preimage(H.map_incl_frobenius(g)).iter().map(|i| *i as i64).collect::<Vec<_>>().into_boxed_slice();
+                *g = H.std_preimage(&H.map_incl_frobenius(g)).iter().map(|i| *i as i64).collect::<Vec<_>>().into_boxed_slice();
             }
         }
         self.data.retain(|(_, coeff)| !ring.is_zero(coeff));
@@ -693,16 +693,16 @@ impl<R> MatmulTransform<R>
             indices[1..].iter()
                 .enumerate()
                 .map(|(i, s)| shift_or_frobenius(i + params.pure_giant_step_dimensions.start, *s))
-                .fold(shift_or_frobenius(mixed_dim_i, indices[0]), |a, b| H.galois_group().mul(a, b))
+                .fold(shift_or_frobenius(mixed_dim_i, indices[0]), |a, b| H.galois_group().mul(a, &b))
         }, |_, x| *x)
-            .map(|g_el| if H.galois_group().is_identity(g_el) { None } else { Some(g_el) })
+            .map(|g_el| if H.galois_group().is_identity(&g_el) { None } else { Some(g_el) })
             .collect::<Vec<_>>();
 
         let baby_steps_galois_els = multi_cartesian_product(baby_step_range_iters, move |indices| {
             indices.iter()
                 .enumerate()
                 .map(|(i, s)| shift_or_frobenius(i, *s))
-                .fold(identity, |a, b| H.galois_group().mul(a, b))
+                .fold(identity.clone(), |a, b| H.galois_group().mul(a, &b))
         }, |_, x| *x)
             .collect::<Vec<_>>();
 
@@ -710,11 +710,11 @@ impl<R> MatmulTransform<R>
         debug_assert!(params.unhoisted_automorphism_count == giant_steps_galois_els.len() - 1 || params.unhoisted_automorphism_count == giant_steps_galois_els.len());
 
         let mut lin_transform_data = self.data;
-        let compiled_coeffs = giant_steps_galois_els.iter().map(|gs_el| baby_steps_galois_els.iter().map(|bs_el| {
-            let gs_el = gs_el.unwrap_or(H.galois_group().identity());
-            let total_el = H.galois_group().mul(gs_el, *bs_el);
+        let compiled_coeffs: Vec<Vec<Coefficient<_>>> = giant_steps_galois_els.iter().map(|gs_el| baby_steps_galois_els.iter().map(|bs_el| {
+            let gs_el = gs_el.clone().unwrap_or(H.galois_group().identity());
+            let total_el = H.galois_group().mul(gs_el.clone(), bs_el);
             let mut coeff = None;
-            lin_transform_data.retain(|(g, c)| if H.galois_group().eq_el(H.map_incl_frobenius(g), total_el) {
+            lin_transform_data.retain(|(g, c)| if H.galois_group().eq_el(&H.map_incl_frobenius(g), &total_el) {
                 debug_assert!(coeff.is_none());
                 coeff = Some(ring.clone_el(c));
                 false
@@ -724,7 +724,7 @@ impl<R> MatmulTransform<R>
             if coeff.is_none() || ring.is_zero(coeff.as_ref().unwrap()) {
                 return Coefficient::Zero;
             } else {
-                return Coefficient::Other(ring.get_ring().apply_galois_action(coeff.as_ref().unwrap(), H.galois_group().invert(gs_el)));
+                return Coefficient::Other(ring.get_ring().apply_galois_action(coeff.as_ref().unwrap(), &H.galois_group().invert(&gs_el)));
             }
         }).collect::<Vec<_>>()).collect::<Vec<_>>();
 
@@ -740,7 +740,7 @@ impl<R> MatmulTransform<R>
         // we accumulate data in the leftmost wire
         let mut current = PlaintextCircuit::constant(ring.zero(), ring).tensor(baby_step_circuit, ring);
         
-        for (g, coeffs) in giant_steps_galois_els.iter().copied().zip(compiled_coeffs) {
+        for (g, coeffs) in giant_steps_galois_els.iter().cloned().zip(compiled_coeffs) {
             debug_assert_eq!(baby_steps_galois_els.len() + 1, current.output_count());
             // Put the circuit
             //
@@ -784,7 +784,7 @@ impl<NumberRing, A> NumberRingQuotientBase<NumberRing, Zn, A>
     #[instrument(skip_all)]
     pub fn compute_linear_transform(&self, H: &HypercubeStructure, el: &<Self as RingBase>::Element, transform: &MatmulTransform<Self>) -> <Self as RingBase>::Element {
         assert_eq!(H.m(), self.m());
-        <_ as RingBase>::sum(self, transform.data.iter().map(|(s, c)| self.mul_ref_fst(c, self.apply_galois_action(el, H.map_incl_frobenius(s)))))
+        <_ as RingBase>::sum(self, transform.data.iter().map(|(s, c)| self.mul_ref_fst(c, self.apply_galois_action(el, &H.map_incl_frobenius(s)))))
     }
 }
 

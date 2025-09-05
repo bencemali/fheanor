@@ -283,8 +283,8 @@ impl<Params> ThinBootstrapData<Params>
         let mut result = Vec::new();
         result.extend(self.slots_to_coeffs_thin.required_galois_keys(&P.galois_group()).into_iter());
         result.extend(self.coeffs_to_slots_thin.required_galois_keys(&P.galois_group()).into_iter());
-        result.sort_by_key(|g| P.galois_group().representative(*g));
-        result.dedup_by(|g, s| P.galois_group().eq_el(*g, *s));
+        result.sort_by_key(|g| P.galois_group().representative(g));
+        result.dedup_by(|g, s| P.galois_group().eq_el(g, s));
         return result;
     }
 
@@ -354,13 +354,13 @@ impl<Params> ThinBootstrapData<Params>
             let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
                 let galois_group = P_base.galois_group();
                 let modswitched_gks = self.slots_to_coeffs_thin.required_galois_keys(&galois_group).iter().map(|g| {
-                    if let Some((_, gk)) = gks.iter().filter(|(provided_g, _)| galois_group.eq_el(*g, *provided_g)).next() {
-                        (*g, (
+                    if let Some((_, gk)) = gks.iter().filter(|(provided_g, _)| galois_group.eq_el(g, provided_g)).next() {
+                        (g.clone(), (
                             gk.0.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &input_dropped_rns_factors, C.get_ring()),
                             gk.1.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &input_dropped_rns_factors, C.get_ring()), 
                         ))
                     } else {
-                        panic!("missing galois key for {}", galois_group.underlying_ring().format(&galois_group.to_ring_el(*g)))
+                        panic!("missing galois key for {}", galois_group.underlying_ring().format(&galois_group.to_ring_el(g)))
                     }
                 }).collect::<Vec<_>>();
                 let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params>(P_base, &C_input, None, std::slice::from_ref(&ct_input), None, &modswitched_gks, key_switches);
@@ -479,7 +479,10 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     
     let m = P.int_hom().map(2);
@@ -518,7 +521,10 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     
     let m = P.int_hom().map(2);
@@ -556,7 +562,10 @@ fn test_pow2_bfv_thin_bootstrapping_sparse_key_encapsulation() {
     let (C, C_mul) = params.create_ciphertext_rings(790..800);
     
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, Pow2BFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
     let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     let sparse_sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
     let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(RNSFactorIndexList::from_ref(&[0, 3, 4], C.base_ring().len())));
@@ -597,7 +606,10 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let (C, C_mul) = params.create_ciphertext_rings(685..700);
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
     let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     
     let m = P.int_hom().map(2);
@@ -640,7 +652,10 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
     
     let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeBFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = CompositeBFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
     let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
     let sparse_sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
@@ -674,7 +689,6 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     
     let params = CompositeSingleRNSBFV::new(37, 949);
     let t = 4;
-    let digits = 7;
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 6,
@@ -685,10 +699,14 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     
     let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
     let (C, C_mul) = params.create_ciphertext_rings(805..820);
+    let key_switch_params = RNSGadgetVectorDigitIndices::select_digits(7, C.base_ring().len());
     
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| (g, CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2))).collect::<Vec<_>>();
-    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &g, &key_switch_params, 3.2);
+        return (g, gk);
+    }).collect::<Vec<_>>();
+    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &key_switch_params, 3.2);
     let sparse_sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
     let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
     let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);

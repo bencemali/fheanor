@@ -122,11 +122,11 @@ pub trait HECyclotomicNumberRing: HENumberRing<Decomposed: HECyclotomicNumberRin
     /// The degree of this ring extension is `phi(m)` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn m(&self) -> usize;
-
-    fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.m() as u64)
+    fn m(&self) -> usize {
+        self.galois_group().m()
     }
+
+    fn galois_group(&self) -> &CyclotomicGaloisGroup;
 }
 
 ///
@@ -183,17 +183,17 @@ pub trait HECyclotomicNumberRingMod: HENumberRingMod {
     /// The degree of this ring extension is `phi(m)` where `phi` is Euler's totient
     /// function. This is sometimes also called the conductor of this cyclotomic ring.
     ///
-    fn m(&self) -> usize;
-
-    fn galois_group(&self) -> CyclotomicGaloisGroup {
-        CyclotomicGaloisGroup::new(self.m() as u64)
+    fn m(&self) -> usize {
+        self.galois_group().m()
     }
+
+    fn galois_group(&self) -> &CyclotomicGaloisGroup;
 
     ///
     /// Permutes the components of an element w.r.t. the mult basis to
     /// obtain its image under the given Galois action.
     /// 
-    fn permute_galois_action<V1, V2>(&self, src: V1, dst: V2, galois_element: CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, dst: V2, galois_element: &CyclotomicGaloisGroupEl)
         where V1: VectorView<zn_64::ZnEl>,
             V2: SwappableVectorViewMut<zn_64::ZnEl>;
 }

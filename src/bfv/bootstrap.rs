@@ -10,7 +10,7 @@ use feanor_math::rings::zn::ZnRingStore;
 
 use crate::bgv::modswitch::compute_optimal_special_modulus;
 use crate::circuit::create_circuit_cached;
-use crate::cyclotomic::CyclotomicRingStore;
+use crate::cyclotomic::CyclotomicQuotientStore;
 use crate::digit_extract::*;
 use crate::lin_transform::pow2;
 use crate::lin_transform::composite;

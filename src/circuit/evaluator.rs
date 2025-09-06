@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::ring::*;
 
-use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicRing, CyclotomicRingStore};
+use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicQuotient, CyclotomicQuotientStore};
 
 use super::Coefficient;
 
@@ -124,7 +124,7 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
 
 pub struct HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicRing,
+        S: ?Sized + RingBase + CyclotomicQuotient,
         H: Homomorphism<R, S>
 {
     from: PhantomData<Box<R>>,
@@ -134,7 +134,7 @@ pub struct HomEvaluatorGal<R, S, H>
 
 impl<R, S, H> HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicRing,
+        S: ?Sized + RingBase + CyclotomicQuotient,
         H: Homomorphism<R, S>
 {
     pub fn new(hom: H) -> Self {
@@ -148,7 +148,7 @@ impl<R, S, H> HomEvaluatorGal<R, S, H>
 
 impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicRing,
+        S: ?Sized + RingBase + CyclotomicQuotient,
         H: Homomorphism<R, S>
 {
     fn supports_gal(&self) -> bool { true }

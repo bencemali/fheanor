@@ -189,7 +189,7 @@ impl<'de, T0, F, T1> DeserializeSeed<'de> for DeserializeSeedDependentTuple<'de,
 /// 
 pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -198,7 +198,7 @@ pub struct SerializableHypercubeIsomorphismWithoutRing<'a, R>
 
 impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -209,7 +209,7 @@ impl<'a, R> SerializableHypercubeIsomorphismWithoutRing<'a, R>
 
 impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -280,7 +280,7 @@ impl_deserialize_seed_for_dependent_struct!{
 /// 
 pub struct DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -289,7 +289,7 @@ pub struct DeserializeSeedHypercubeIsomorphismWithoutRing<R>
 
 impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -300,7 +300,7 @@ impl<R> DeserializeSeedHypercubeIsomorphismWithoutRing<R>
 
 impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithoutRing<R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -328,7 +328,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
 
 impl<R> Serialize for HypercubeIsomorphism<R>
     where R: RingStore + Serialize,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -341,7 +341,7 @@ impl<R> Serialize for HypercubeIsomorphism<R>
 
 impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
     where R: RingStore + Deserialize<'de>,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {

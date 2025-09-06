@@ -4,7 +4,7 @@
 #![doc = include_str!("Readme.md")]
 
 use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
-use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::cyclotomic::CyclotomicQuotientStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::*;

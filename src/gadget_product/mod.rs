@@ -114,7 +114,7 @@ impl<NumberRing, A> GadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
 impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
 
     pub fn apply_galois_action(&self, ring: &R, g: &CyclotomicGaloisGroupEl) -> Self 
-        where R: CyclotomicRing
+        where R: CyclotomicQuotient
     {
         Self {
             element_decomposition: self.element_decomposition.iter().map(|(_prepared_el, el)| {
@@ -125,7 +125,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductLhsOperand<R> {
     }
 
     pub fn apply_galois_action_many(self, ring: &R, gs: &[CyclotomicGaloisGroupEl]) -> Vec<Self>
-        where R: CyclotomicRing
+        where R: CyclotomicQuotient
     {
         let mut result = Vec::with_capacity(gs.len());
         result.resize_with(gs.len(), || GadgetProductLhsOperand { element_decomposition: Vec::new() });

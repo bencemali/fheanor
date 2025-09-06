@@ -173,7 +173,7 @@ pub type DecoratedBaseRingBase<R> = AsLocalPIRBase<RingValue<BaseRing<R>>>;
 /// 
 pub struct HypercubeIsomorphism<R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -186,7 +186,7 @@ pub struct HypercubeIsomorphism<R>
 
 impl<R> HypercubeIsomorphism<R>
     where R: RingStore,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: NiceZn,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
@@ -237,7 +237,7 @@ impl<R> HypercubeIsomorphism<R>
 
     pub fn change_modulus<RNew>(&self, new_ring: RNew) -> HypercubeIsomorphism<RNew>
         where RNew: RingStore,
-            RNew::Type: CyclotomicRing,
+            RNew::Type: CyclotomicQuotient,
             BaseRing<RNew>: NiceZn,
             DecoratedBaseRingBase<RNew>: CanIsoFromTo<BaseRing<RNew>>
     {
@@ -551,7 +551,7 @@ impl<R> HypercubeIsomorphism<R>
 
 impl<R> SerializeDeserializeWith<R> for HypercubeIsomorphism<R>
     where R: RingStore + Clone,
-        R::Type: CyclotomicRing,
+        R::Type: CyclotomicQuotient,
         BaseRing<R>: SerializableElementRing,
         BaseRing<R>: NiceZn,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
@@ -826,7 +826,7 @@ fn test_serialization() {
 
     fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
         where R: RingStore + Clone,
-            R::Type: CyclotomicRing,
+            R::Type: CyclotomicQuotient,
             BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<ZnBase>,
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {

@@ -35,7 +35,7 @@ use crate::ciphertext_ring::drop_rns_factor_list_of_congruences;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
 use crate::cyclotomic::CyclotomicGaloisGroup;
-use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicRing};
+use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicQuotient};
 use crate::number_ring::*;
 use super::serialization::deserialize_rns_data;
 use super::serialization::serialize_rns_data;
@@ -775,7 +775,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
     }
 }
 
-impl<NumberRing, A> CyclotomicRing for DoubleRNSRingBase<NumberRing, A> 
+impl<NumberRing, A> CyclotomicQuotient for DoubleRNSRingBase<NumberRing, A> 
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {

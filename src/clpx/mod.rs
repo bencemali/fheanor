@@ -92,7 +92,7 @@ pub trait CLPXInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicRing + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicQuotient + FiniteRing;
     
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and

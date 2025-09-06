@@ -13,7 +13,7 @@ use feanor_math::seq::VectorView;
 use feanor_math::integer::*;
 use feanor_math::rings::zn::ZnRingStore;
 use fheanor::bfv::*;
-use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::cyclotomic::CyclotomicQuotientStore;
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 
 fn main() {    

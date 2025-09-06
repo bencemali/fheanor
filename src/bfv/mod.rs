@@ -139,7 +139,7 @@ pub trait BFVInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicRing + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicQuotient + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
@@ -149,7 +149,7 @@ pub trait BFVInstantiation {
     ///
     /// Type of the plaintext ring `R/tR`.
     /// 
-    type PlaintextRing: CyclotomicRing<BaseRing = RingValue<Self::PlaintextZnRing>>;
+    type PlaintextRing: CyclotomicQuotient<BaseRing = RingValue<Self::PlaintextZnRing>>;
 
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and

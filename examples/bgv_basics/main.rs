@@ -5,7 +5,7 @@
 #![doc = include_str!("Readme.md")]
 
 use fheanor::bgv::*;
-use fheanor::cyclotomic::CyclotomicRingStore;
+use fheanor::cyclotomic::CyclotomicQuotientStore;
 use fheanor::bgv::modswitch::drop_rns_factors_balanced;
 use fheanor::gadget_product::digits::*;
 use rand::{SeedableRng, rngs::StdRng};

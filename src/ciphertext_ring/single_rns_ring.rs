@@ -694,7 +694,7 @@ impl<NumberRing, A, C> FreeAlgebra for SingleRNSRingBase<NumberRing, A, C>
     }
 }
 
-impl<NumberRing, A, C> CyclotomicRing for SingleRNSRingBase<NumberRing, A, C> 
+impl<NumberRing, A, C> CyclotomicQuotient for SingleRNSRingBase<NumberRing, A, C> 
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnBase>

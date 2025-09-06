@@ -76,7 +76,7 @@ pub type DefaultMatmulTransform<NumberRing> = MatmulTransform<NumberRingQuotient
 /// In most cases, this is a sensible choice, but might discard carefully chosen representations.
 /// 
 pub struct MatmulTransform<R>
-    where R: CyclotomicRing,
+    where R: CyclotomicQuotient,
         <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
         DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
 {
@@ -93,7 +93,7 @@ pub struct MatmulTransform<R>
 }
 
 impl<R> MatmulTransform<R>
-    where R: CyclotomicRing,
+    where R: CyclotomicQuotient,
         <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
         DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
 {
@@ -278,7 +278,7 @@ impl<R> MatmulTransform<R>
     }
 
     pub fn switch_ring<H, S>(&self, hom: H) -> MatmulTransform<S>
-        where S: CyclotomicRing,
+        where S: CyclotomicQuotient,
             <S::BaseRing as RingStore>::Type: NiceZn,
             DecoratedBaseRingBase<RingValue<S>>: CanIsoFromTo<<<S as RingExtension>::BaseRing as RingStore>::Type>,
             H: Homomorphism<R, S>

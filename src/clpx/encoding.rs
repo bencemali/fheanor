@@ -22,7 +22,7 @@ use feanor_math::seq::sparse::SparseMapVector;
 use feanor_math::seq::VectorFn;
 use feanor_math::seq::VectorView;
 use feanor_math::seq::VectorViewMut;
-use crate::cyclotomic::{CyclotomicRing, CyclotomicRingStore};
+use crate::cyclotomic::{CyclotomicQuotient, CyclotomicQuotientStore};
 use crate::ciphertext_ring::BGFVCiphertextRing;
 use crate::{euler_phi, log_time, ZZbig, ZZi64};
 
@@ -335,7 +335,7 @@ impl CLPXEncoding {
     /// 
     pub fn encode<C>(&self, ciphertext_ring: C, x: &El<IsomorphicRing>) -> El<C>
         where C: RingStore,
-            C::Type: BGFVCiphertextRing + CyclotomicRing
+            C::Type: BGFVCiphertextRing + CyclotomicQuotient
     {
         assert_eq!(self.m(), ciphertext_ring.m() as usize);
         let x_lift = self.ZZX().from_terms(self.plaintext_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| (self.plaintext_ring().base_ring().smallest_lift(c), i)));
@@ -356,7 +356,7 @@ impl CLPXEncoding {
     /// 
     pub fn decode<C>(&self, ciphertext_ring: C, x: &El<C>) -> El<IsomorphicRing>
         where C: RingStore,
-            C::Type: BGFVCiphertextRing + CyclotomicRing
+            C::Type: BGFVCiphertextRing + CyclotomicQuotient
     {
         assert_eq!(self.m(), ciphertext_ring.m() as usize);
         let x_poly = self.ZZX().from_terms(ciphertext_ring.wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| (ciphertext_ring.base_ring().smallest_lift(c), i)));

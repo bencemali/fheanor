@@ -1042,7 +1042,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// you can use [`PlaintextCircuit::evaluate_no_galois()`].
     /// 
     pub fn evaluate<S, H>(&self, inputs: &[S::Element], hom: H) -> Vec<S::Element>
-        where S: ?Sized + RingBase + CyclotomicRing,
+        where S: ?Sized + RingBase + CyclotomicQuotient,
             H: Homomorphism<R, S>
     {
         return self.evaluate_generic(inputs, HomEvaluatorGal::new(hom));
@@ -1153,7 +1153,7 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a CyclotomicGaloisGroup)> for Plainte
 
 pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataKey], cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
-        R::Type: CyclotomicRing + SerializableElementRing,
+        R::Type: CyclotomicQuotient + SerializableElementRing,
         <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {

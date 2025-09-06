@@ -22,7 +22,7 @@ use crate::boo::{Boo, MappedRwLockReadGuardType};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::RNSFactorCongruence;
 use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl};
-use crate::cyclotomic::CyclotomicRing;
+use crate::cyclotomic::CyclotomicQuotient;
 use crate::number_ring::HECyclotomicNumberRing;
 use crate::number_ring::HENumberRing;
 
@@ -737,7 +737,7 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
     }
 }
 
-impl<NumberRing, A> CyclotomicRing for ManagedDoubleRNSRingBase<NumberRing, A> 
+impl<NumberRing, A> CyclotomicQuotient for ManagedDoubleRNSRingBase<NumberRing, A> 
     where NumberRing: HECyclotomicNumberRing,
         A: Allocator + Clone
 {

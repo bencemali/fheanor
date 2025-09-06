@@ -208,7 +208,7 @@ pub trait BGVInstantiation {
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicRing + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicQuotient + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
@@ -218,7 +218,7 @@ pub trait BGVInstantiation {
     ///
     /// Type of the plaintext ring `R/tR`.
     /// 
-    type PlaintextRing: CyclotomicRing<BaseRing = RingValue<Self::PlaintextZnRing>>;
+    type PlaintextRing: CyclotomicQuotient<BaseRing = RingValue<Self::PlaintextZnRing>>;
 
     ///
     /// Creates a new RNS base, by sampling a fresh, suitable `q` with the

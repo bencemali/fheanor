@@ -24,7 +24,7 @@ use feanor_serde::seq::*;
 use serde::{Deserializer, Serialize, Serializer};
 use crate::serde::de::DeserializeSeed;
 
-use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl, CyclotomicRing};
+use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl, CyclotomicQuotient};
 use super::{sample_primes, largest_prime_leq_congruent_to_one, HECyclotomicNumberRing, HENumberRing, HENumberRingMod, HECyclotomicNumberRingMod};
 
 ///
@@ -222,7 +222,7 @@ impl<NumberRing, ZnTy, A> NumberRingQuotientBase<NumberRing, ZnTy, A>
     }
 }
 
-impl<NumberRing, ZnTy, A> CyclotomicRing for NumberRingQuotientBase<NumberRing, ZnTy, A>
+impl<NumberRing, ZnTy, A> CyclotomicQuotient for NumberRingQuotientBase<NumberRing, ZnTy, A>
     where NumberRing: HECyclotomicNumberRing,
         ZnTy: RingStore,
         ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,

@@ -180,6 +180,8 @@ mod cache;
 /// 
 mod boo;
 
+pub mod prepared_mul;
+
 // Uncomment this to log allocations
 // mod allocator;
 
@@ -188,11 +190,6 @@ mod boo;
 /// used to configure the ring implementations in this crate.
 /// 
 pub mod ntt;
-
-///
-/// Defines the trait [`cyclotomic::CyclotomicRing`] for rings of the form `R[X]/(Phi_m)`, where `R` is any base ring.
-/// 
-pub mod cyclotomic;
 
 ///
 /// Implementation of fast RNS conversion algorithms.
@@ -204,71 +201,48 @@ pub mod rns_conv;
 /// 
 pub mod number_ring;
 
-///
-/// Implementation of rings using double-RNS representation.
-/// 
-pub mod ciphertext_ring;
+// ///
+// /// Implementation of rings using double-RNS representation.
+// /// 
+// pub mod ciphertext_ring;
 
-///
-/// Contains an implementation of "gadget products", which are a form of inner
-/// products that are commonly used in HE to compute multiplications of noisy values
-/// in a way that reduces the increase in noise.
-/// 
-pub mod gadget_product;
+// ///
+// /// Contains an implementation of "gadget products", which are a form of inner
+// /// products that are commonly used in HE to compute multiplications of noisy values
+// /// in a way that reduces the increase in noise.
+// /// 
+// pub mod gadget_product;
 
-///
-/// Contains an implementation of the BFV scheme.
-/// 
-pub mod bfv;
+// ///
+// /// Contains an implementation of the BFV scheme.
+// /// 
+// pub mod bfv;
 
-///
-/// The implementation of arithmetic-galois circuits (i.e. circuits built
-/// from linear combination, multiplication and galois gates).
-/// 
-pub mod circuit;
+// ///
+// /// The implementation of arithmetic-galois circuits (i.e. circuits built
+// /// from linear combination, multiplication and galois gates).
+// /// 
+// pub mod circuit;
 
-///
-/// Contains algorithms to compute linear transformations and represent
-/// them as linear combination of Galois automorphisms, as required for
-/// (second-generation) HE schemes.
-/// 
-pub mod lin_transform;
+// ///
+// /// Contains algorithms to compute linear transformations and represent
+// /// them as linear combination of Galois automorphisms, as required for
+// /// (second-generation) HE schemes.
+// /// 
+// pub mod lin_transform;
 
-///
-/// Contains algorithms to build arithmetic circuits, with a focus on
-/// digit extraction polynomials.
-/// 
-pub mod digit_extract;
+// ///
+// /// Contains algorithms to build arithmetic circuits, with a focus on
+// /// digit extraction polynomials.
+// /// 
+// pub mod digit_extract;
 
-///
-/// Contains an implementation of the BGV scheme.
-/// 
-pub mod bgv;
+// ///
+// /// Contains an implementation of the BGV scheme.
+// /// 
+// pub mod bgv;
 
-///
-/// Contains an implementation of the CLPX/GBFV scheme.
-/// 
-pub mod clpx;
-
-///
-/// This is a workaround for displaying examples on `docs.rs`.
-/// 
-/// Contains an empty submodule for each example, whose documentation gives
-/// a guide to the corresponding concepts of Fheanor.
-/// 
-/// Note that this module is only included when building the documentation,
-/// you cannot use it when importing `fheanor` as a crate.
-/// 
-#[cfg(any(doc, doctest))]
-pub mod examples {
-    #[doc = include_str!("../examples/bfv_basics/Readme.md")]
-    pub mod bfv_basics {}
-    #[doc = include_str!("../examples/bgv_basics/Readme.md")]
-    pub mod bgv_basics {}
-    #[doc = include_str!("../examples/bfv_impl_v1/Readme.md")]
-    pub mod bfv_impl_v1 {}
-    #[doc = include_str!("../examples/bfv_impl_v2/Readme.md")]
-    pub mod bfv_impl_v2 {}
-    #[doc = include_str!("../examples/clpx_basics/Readme.md")]
-    pub mod clpx_basics {}
-}
+// ///
+// /// Contains an implementation of the CLPX/GBFV scheme.
+// /// 
+// pub mod clpx;

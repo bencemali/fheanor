@@ -431,26 +431,6 @@ impl HypercubeStructure {
     }
 }
 
-pub fn get_multiplicative_generator(ring: Zn) -> ZnEl {
-    let (p, e) = is_prime_power(ZZi64, ring.modulus()).unwrap();
-    assert!(*ring.modulus() % 2 == 1, "for even m, Z/mZ* is either equal to Z/(m/2)Z* or not cyclic");
-    let mut rng = oorandom::Rand64::new(ring.integer_ring().default_hash(ring.modulus()) as u128);
-    let order = ZZi64.pow(p, e - 1) * (p - 1);
-    let order_factorization = factor(&ZZi64, order);
-    'test_generator: loop {
-        let potential_generator = ring.random_element(|| rng.rand_u64());
-        if !ring.is_unit(&potential_generator) {
-            continue 'test_generator;
-        }
-        for (p, _) in &order_factorization {
-            if ring.is_one(&ring.pow(potential_generator, (order / p) as usize)) {
-                continue 'test_generator;
-            }
-        }
-        return potential_generator;
-    }
-}
-
 pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
     finite_field_discrete_log(
         value,

@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use feanor_math::group::AbelianGroupStore;
 use tracing::instrument;
 
 use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
@@ -17,12 +18,14 @@ use feanor_math::seq::*;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::Zn;
 
-use crate::cyclotomic::*;
 use crate::ntt::FheanorNegacyclicNTT;
+use crate::number_ring::galois::CyclotomicGaloisGroup;
+use crate::number_ring::galois::CyclotomicGaloisGroupBase;
+use crate::number_ring::galois::GaloisGroupEl;
+use crate::number_ring::AbstractNumberRing;
+use crate::number_ring::NumberRingQuotientBases;
 use crate::DefaultNegacyclicNTT;
 use crate::ZZi64;
-
-use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
 
 pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     log2_m: usize,
@@ -32,15 +35,19 @@ pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
 
 impl<N> Pow2CyclotomicNumberRing<N> {
 
-    pub fn new(m: usize) -> Self {
+    pub fn new(m: u64) -> Self {
         assert!(m > 2);
         let log2_m = StaticRing::<i64>::RING.abs_log2_floor(&(m as i64)).unwrap();
         assert_eq!(m, 1 << log2_m);
         Self {
             log2_m: log2_m,
-            galois_group: CyclotomicGaloisGroup::new(m as u64),
+            galois_group: CyclotomicGaloisGroupBase::new(m as u64),
             ntt: PhantomData
         }
+    }
+
+    pub fn m(&self) -> u64 {
+        self.galois_group.get_group().m()
     }
 }
 
@@ -66,14 +73,10 @@ impl<N> PartialEq for Pow2CyclotomicNumberRing<N> {
     }
 }
 
-impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
+impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
     where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
 {
-    type Decomposed = Pow2CyclotomicDecomposedNumberRing<N, Global>;
-
-    fn product_expansion_factor(&self) -> f64 {
-        (1 << (self.log2_m - 1)) as f64
-    }
+    type NumberRingQuotientBases = Pow2CyclotomicNumberRingQuotientBases<N, Global>;
 
     fn can_to_inf_norm_expansion_factor(&self) -> f64 {
         1. / ((1 << (self.log2_m - 1)) as f64).sqrt()
@@ -85,8 +88,12 @@ impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
         (1 << (self.log2_m - 1)) as f64
     }
 
-    fn mod_p(&self, Fp: zn_64::Zn) -> Self::Decomposed {
-        return Pow2CyclotomicDecomposedNumberRing {
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
+    }
+
+    fn bases_mod_p(&self, Fp: zn_64::Zn) -> Self::NumberRingQuotientBases {
+        return Pow2CyclotomicNumberRingQuotientBases {
             ntt: N::new(Fp, self.log2_m - 1),
             galois_group: self.galois_group.clone(),
             allocator: Global
@@ -110,15 +117,7 @@ impl<N> HENumberRing for Pow2CyclotomicNumberRing<N>
     }
 }
 
-impl<N> HECyclotomicNumberRing for Pow2CyclotomicNumberRing<N>
-    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>
-{
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.galois_group
-    }
-}
-
-pub struct Pow2CyclotomicDecomposedNumberRing<N, A> 
+pub struct Pow2CyclotomicNumberRingQuotientBases<N, A> 
     where N: FheanorNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
@@ -127,24 +126,30 @@ pub struct Pow2CyclotomicDecomposedNumberRing<N, A>
     allocator: A
 }
 
-impl<N, A> HECyclotomicNumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A> 
+impl<N, A> PartialEq for Pow2CyclotomicNumberRingQuotientBases<N, A> 
+    where N: FheanorNegacyclicNTT<zn_64::Zn>,
+        A: Allocator
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.ntt == other.ntt
+    }
+}
+
+impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, A> 
     where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
         A: Send + Sync + Allocator
 {
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.galois_group
-    }
-
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
+    #[instrument(skip_all)]
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
         where V1: VectorView<zn_64::ZnEl>,
             V2: SwappableVectorViewMut<zn_64::ZnEl>
     {
         assert_eq!(self.rank(), src.len());
         assert_eq!(self.rank(), dst.len());
 
-        let galois_group = self.galois_group();
-        let galois_group_ring = galois_group.underlying_ring();
-        let galois_element = galois_group.to_ring_el(galois_element);
+        let galois_group = &self.galois_group;
+        let galois_group_ring = galois_group.get_group().underlying_ring();
+        let galois_element = *galois_group.get_group().as_ring_el(galois_element);
         let bitlength = StaticRing::<i64>::RING.abs_log2_ceil(&(self.rank() as i64)).unwrap();
         debug_assert_eq!(1 << bitlength, self.rank());
         let hom = galois_group_ring.can_hom(&ZZi64).unwrap();
@@ -157,21 +162,7 @@ impl<N, A> HECyclotomicNumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A
             *dst.at_mut(i) = *src.at(galois_el_to_index(galois_group_ring.mul(galois_element, index_to_galois_el(i))));
         }
     }
-}
 
-impl<N, A> PartialEq for Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: FheanorNegacyclicNTT<zn_64::Zn>,
-        A: Allocator
-{
-    fn eq(&self, other: &Self) -> bool {
-        self.ntt == other.ntt
-    }
-}
-
-impl<N, A> HENumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A> 
-    where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
-        A: Send + Sync + Allocator
-{
     #[instrument(skip_all)]
     fn mult_basis_to_small_basis<V>(&self, mut data: V)
         where V: SwappableVectorViewMut<zn_64::ZnEl>
@@ -217,56 +208,56 @@ impl<N, A> HENumberRingMod for Pow2CyclotomicDecomposedNumberRing<N, A>
     }
 }
 
-#[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
-#[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
+// #[cfg(test)]
+// use crate::ciphertext_ring::double_rns_ring;
+// #[cfg(test)]
+// use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
-#[cfg(test)]
-use crate::number_ring::quotient;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_rns;
 #[cfg(test)]
 use feanor_math::rings::extension::FreeAlgebraStore;
+#[cfg(test)]
+use crate::number_ring::arithmetic_impl;
+
+// #[test]
+// fn test_pow2_cyclotomic_double_rns_ring() {
+//     double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+//     double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+// }
+
+// #[test]
+// fn test_pow2_cyclotomic_single_rns_ring() {
+//     single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+//     single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+// }
 
 #[test]
-fn test_pow2_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    double_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+fn test_pow2_cyclotomic_number_ring_quotient() {
+    arithmetic_impl::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+    arithmetic_impl::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
-#[test]
-fn test_pow2_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    single_rns_ring::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
-}
+// #[test]
+// fn test_permute_galois_automorphism() {
+//     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
+//     let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+//     let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
+//     assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), &R.get_ring().galois_group().from_representative(3)));
+//     assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), &R.get_ring().galois_group().from_representative(3)));
+// }
 
-#[test]
-fn test_pow2_cyclotomic_decomposition_ring() {
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    quotient::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
-}
-
-#[test]
-fn test_permute_galois_automorphism() {
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
-    let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
-    assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), &R.get_ring().galois_group().from_representative(3)));
-    assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), &R.get_ring().galois_group().from_representative(3)));
-}
-
-#[bench]
-fn bench_permute_galois_action(bencher: &mut test::Bencher) {
-    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
-    let Fp = Zn::new(65537);
-    let number_ring_mod_p = number_ring.mod_p(Fp);
-    let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
-    let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();
-    bencher.iter(|| {
-        number_ring_mod_p.permute_galois_action(std::hint::black_box(&input), &mut output, &number_ring.galois_group().from_representative(5));
-        assert_el_eq!(&Fp, &input[1 << 12], &output[0]);
-        assert_el_eq!(&Fp, &input[(1 << 13) + (1 << 12) + (1 << 11)], &output[1 << 13]);
-    });
-}
+// #[bench]
+// fn bench_permute_galois_action(bencher: &mut test::Bencher) {
+//     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
+//     let Fp = Zn::new(65537);
+//     let number_ring_mod_p = number_ring.mod_p(Fp);
+//     let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
+//     let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();
+//     bencher.iter(|| {
+//         number_ring_mod_p.permute_galois_action(std::hint::black_box(&input), &mut output, &number_ring.galois_group().from_representative(5));
+//         assert_el_eq!(&Fp, &input[1 << 12], &output[0]);
+//         assert_el_eq!(&Fp, &input[(1 << 13) + (1 << 12) + (1 << 11)], &output[1 << 13]);
+//     });
+// }

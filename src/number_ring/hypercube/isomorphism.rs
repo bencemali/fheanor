@@ -35,7 +35,6 @@ use feanor_math::serialization::SerializableElementRing;
 use tracing::instrument;
 
 use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
-use crate::cyclotomic::*;
 use crate::*;
 use crate::ntt::dyn_convolution::*;
 use crate::number_ring::hypercube::interpolate::FastPolyInterpolation;

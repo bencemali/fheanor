@@ -267,8 +267,11 @@ impl<R, C> CyclotomicPolyReducer<R, C>
     pub fn remainder(&self, data: &mut [El<R>]) {
         let mut current_len = data.len();
         for reducer in &self.sparse_reducers {
-            reducer.remainder(&mut data[..current_len]);
-            current_len = reducer.degree;
+            if reducer.degree < data.len() {
+                reducer.remainder(&mut data[..current_len]);
+                current_len = reducer.degree;
+                println!("{:?}", data.iter().map(|x| self.base_ring().format(x)).collect::<Vec<_>>());
+            }
         }
         data[current_len] = self.final_reducer.ring.zero();
         self.final_reducer.remainder(&mut data[..(current_len + 1)]);

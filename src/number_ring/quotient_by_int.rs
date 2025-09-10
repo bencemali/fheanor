@@ -29,14 +29,23 @@ use tracing::instrument;
 
 use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
-use crate::number_ring::*;
+use crate::{number_ring::*, ZZi64};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::serde::de::DeserializeSeed;
-use crate::{ZZbig, ZZi64};
+use crate::ZZbig;
 
 ///
 /// Implementation of `R/tR` for any modulus `t in R` (without restriction on the
 /// splitting behaviour of `t` over `R`).
+/// 
+/// # Implementation and assumptions
+/// 
+/// Currently, Fheanor only supports cyclotomic number rings, thus this implementation
+/// always represents a ring of the form `(Z/qZ)[X]/(Phi_m(X))`. We assume that the
+/// generating polynomial of the given number ring is indeed `Phi_m(X)`. In theory it
+/// might not be - there can be other generators - but I don't think these other cases
+/// are relevant. We then store ring elements as polynomials modulo `X^m - 1`, i.e. not
+/// completely reduced, unless when required (e.g. in [`FreeAlgebra::wrt_canonical_basis()`]).
 /// 
 pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,
@@ -121,6 +130,10 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
     fn convolution(&self) -> &C {
         self.reducer.convolution()
     }
+
+    fn m(&self) -> usize {
+        self.acting_galois_group().parent().m() as usize
+    }
 }
 
 impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
@@ -159,7 +172,19 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<
 
     #[instrument(skip_all)]
     fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
-        unimplemented!()
+        let m = self.m();
+        let mut result = Vec::with_capacity_in(m, self.allocator.clone());
+        result.resize_with(m, || self.base_ring().zero());
+        let Zm = self.acting_galois_group().parent().underlying_ring();
+        let mod_m = Zm.can_hom(&ZZi64).unwrap();
+        let g_Zm = self.acting_galois_group().parent().as_ring_el(g);
+        for i in 0..m {
+            result[Zm.smallest_positive_lift(mod_m.mul_ref_map(g_Zm, &(i as i64))) as usize] = self.base_ring().clone_el(&x.data[i]);
+        }
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
     }
 }
 
@@ -176,19 +201,22 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
     fn prepare_multiplicant(&self, x: &Self::Element) -> Self::PreparedMultiplicant {
         NumberRingQuotientByIntPreparedMultiplicant {
             ring: PhantomData,
-            data: self.convolution().prepare_convolution_operand(&x.data, Some(2 * self.rank()), self.base_ring())
+            data: self.convolution().prepare_convolution_operand(&x.data, Some(2 * self.m()), self.base_ring())
         }
     }
 
     #[instrument(skip_all)]
     fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: &Self::PreparedMultiplicant, rhs: &Self::Element, rhs_prep: &Self::PreparedMultiplicant) -> Self::Element {
-        assert_eq!(self.rank(), lhs.data.len());
-        assert_eq!(self.rank(), rhs.data.len());
-        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
-        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        assert_eq!(self.m(), lhs.data.len());
+        assert_eq!(self.m(), rhs.data.len());
+        let mut result = Vec::with_capacity_in(2 * self.m(), self.allocator.clone());
+        result.resize_with(2 * self.m(), || self.base_ring().zero());
         self.convolution().compute_convolution_prepared(&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data), &mut result, self.base_ring());
-        self.reducer.remainder(&mut result);
-        result.truncate(self.rank());
+        let (part1, part2) = result.split_at_mut(self.m());
+        for (dst, src) in part1.iter_mut().zip(part2.iter()) {
+            self.base_ring().add_assign_ref(dst, src);
+        }
+        result.truncate(self.m());
         return NumberRingQuotientByIntEl {
             ring: PhantomData,
             data: result
@@ -201,15 +229,15 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
             I::IntoIter: ExactSizeIterator,
             Self: 'a
     {
-        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
-        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        let mut result = Vec::with_capacity_in(2 * self.m(), self.allocator.clone());
+        result.resize_with(2 * self.m(), || self.base_ring().zero());
         self.convolution().compute_convolution_sum(parts.into_iter().map(|(lhs, lhs_prep, rhs, rhs_prep)| {
-            assert_eq!(self.rank(), lhs.data.len());
-            assert_eq!(self.rank(), rhs.data.len());
+            assert_eq!(self.m(), lhs.data.len());
+            assert_eq!(self.m(), rhs.data.len());
             (&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data))
         }), &mut result, self.base_ring());
         self.reducer.remainder(&mut result);
-        result.truncate(self.rank());
+        result.truncate(self.m());
         return NumberRingQuotientByIntEl {
             ring: PhantomData,
             data: result
@@ -239,7 +267,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
     type Element = NumberRingQuotientByIntEl<NumberRing, ZnTy, A, C>;
 
     fn clone_el(&self, val: &Self::Element) -> Self::Element {
-        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        let mut result = Vec::with_capacity_in(self.m(), self.allocator.clone());
         result.extend(val.data.iter().map(|x| self.base_ring().clone_el(x)));
         return NumberRingQuotientByIntEl {
             data: result,
@@ -248,32 +276,32 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
     }
 
     fn add_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
-        assert_eq!(lhs.data.len(), self.rank());
-        assert_eq!(rhs.data.len(), self.rank());
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(rhs.data.len(), self.m());
         for (i, x) in rhs.data.into_iter().enumerate() {
             self.base_ring().add_assign(&mut lhs.data[i], x)
         }
     }
 
     fn add_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
-        assert_eq!(lhs.data.len(), self.rank());
-        assert_eq!(rhs.data.len(), self.rank());
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(rhs.data.len(), self.m());
         for (i, x) in (&rhs.data).into_iter().enumerate() {
             self.base_ring().add_assign_ref(&mut lhs.data[i], x)
         }
     }
 
     fn sub_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
-        assert_eq!(lhs.data.len(), self.rank());
-        assert_eq!(rhs.data.len(), self.rank());
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(rhs.data.len(), self.m());
         for (i, x) in (&rhs.data).into_iter().enumerate() {
             self.base_ring().sub_assign_ref(&mut lhs.data[i], x)
         }
     }
 
     fn negate_inplace(&self, lhs: &mut Self::Element) {
-        assert_eq!(lhs.data.len(), self.rank());
-        for i in 0..self.rank() {
+        assert_eq!(lhs.data.len(), self.m());
+        for i in 0..self.m() {
             self.base_ring().negate_inplace(&mut lhs.data[i]);
         }
     }
@@ -288,17 +316,21 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
 
     #[instrument(skip_all)]
     fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        assert_eq!(lhs.data.len(), self.rank());
-        assert_eq!(rhs.data.len(), self.rank());
-        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
-        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(rhs.data.len(), self.m());
+        let mut result = Vec::with_capacity_in(2 * self.m(), self.allocator.clone());
+        result.resize_with(2 * self.m(), || self.base_ring().zero());
         self.convolution().compute_convolution_prepared(&lhs.data, None, &rhs.data, None, &mut result, self.base_ring());
-        self.reducer.remainder(&mut result);
-        result.truncate(self.rank());
-        return NumberRingQuotientByIntEl {
+        let (part1, part2) = result.split_at_mut(self.m());
+        for (dst, src) in part1.iter_mut().zip(part2.iter()) {
+            self.base_ring().add_assign_ref(dst, src);
+        }
+        result.truncate(self.m());
+        let result = NumberRingQuotientByIntEl {
             ring: PhantomData,
             data: result
         };
+        return result;
     }
     
     fn from_int(&self, value: i32) -> Self::Element {
@@ -306,10 +338,12 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
     }
 
     fn eq_el(&self, lhs: &Self::Element, rhs: &Self::Element) -> bool {
-        assert_eq!(lhs.data.len(), self.rank());
-        assert_eq!(rhs.data.len(), self.rank());
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(rhs.data.len(), self.m());
+        let mut difference = self.sub_ref(lhs, rhs);
+        self.reducer.remainder(&mut difference.data);
         for i in 0..self.rank() {
-            if !self.base_ring().eq_el(&lhs.data[i], &rhs.data[i]) {
+            if !self.base_ring().is_zero(&difference.data[i]) {
                 return false;
             }
         }
@@ -317,27 +351,12 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
     }
 
     fn zero(&self) -> Self::Element {
-        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
-        result.extend((0..self.rank()).map(|_| self.base_ring().zero()));
+        let mut result = Vec::with_capacity_in(self.m(), self.allocator.clone());
+        result.extend((0..self.m()).map(|_| self.base_ring().zero()));
         return NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData
         };
-    }
-
-    fn is_zero(&self, value: &Self::Element) -> bool {
-        assert_eq!(value.data.len(), self.rank());
-        value.data.iter().all(|x| self.base_ring().is_zero(x))
-    }
-
-    fn is_one(&self, value: &Self::Element) -> bool {
-        assert_eq!(value.data.len(), self.rank());
-        self.base_ring().is_one(&value.data[0]) && value.data[1..].iter().all(|x| self.base_ring().is_zero(x))
-    }
-
-    fn is_neg_one(&self, value: &Self::Element) -> bool {
-        assert_eq!(value.data.len(), self.rank());
-        self.base_ring().is_neg_one(&value.data[0]) && value.data[1..].iter().all(|x| self.base_ring().is_zero(x))
     }
     
     fn is_commutative(&self) -> bool { true }
@@ -350,7 +369,8 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
 
     fn dbg_within<'a>(&self, value: &Self::Element, out: &mut std::fmt::Formatter<'a>, _env: EnvBindingStrength) -> std::fmt::Result {
         let poly_ring = DensePolyRing::new(self.base_ring(), "X");
-        poly_ring.get_ring().dbg(&RingRef::new(self).poly_repr(&poly_ring, value, self.base_ring().identity()), out)
+        let poly = RingRef::new(self).poly_repr(&poly_ring, value, self.base_ring().identity());
+        poly_ring.get_ring().dbg(&poly, out)
     }
 
     fn characteristic<I: IntegerRingStore + Copy>(&self, ZZ: I) -> Option<El<I>>
@@ -387,15 +407,16 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberR
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    type VectorRepresentation<'a> = CloneElFn<&'a [El<ZnTy>], El<ZnTy>, CloneRingEl<&'a ZnTy>>
+    type VectorRepresentation<'a> = CloneElFn<Vec<El<ZnTy>, A>, El<ZnTy>, CloneRingEl<&'a ZnTy>>
         where Self: 'a;
 
     fn from_canonical_basis<V>(&self, vec: V) -> Self::Element
         where V: IntoIterator<Item = El<Self::BaseRing>>
     {
-        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        let mut result = Vec::with_capacity_in(self.m(), self.allocator.clone());
         result.extend(vec);
         assert_eq!(result.len(), self.rank());
+        result.resize_with(self.m(), || self.base_ring().zero());
         return NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData
@@ -403,12 +424,15 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberR
     }
 
     fn wrt_canonical_basis<'a>(&'a self, el: &'a Self::Element) -> Self::VectorRepresentation<'a> {
-        (&el.data[..]).clone_ring_els(self.base_ring())
+        let mut el_reduced = self.clone_el(el);
+        self.reducer.remainder(&mut el_reduced.data);
+        el_reduced.data.truncate(self.rank());
+        return el_reduced.data.into_clone_ring_els(self.base_ring());
     }
 
     fn canonical_gen(&self) -> Self::Element {
         let mut result = self.zero();
-        if result.data.len() > 1 {
+        if self.rank() > 1 {
             result.data[1] = self.base_ring().one();
         } else {
             result.data[0] = self.base_ring().one();
@@ -516,8 +540,9 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIntBase<NumberRi
     }
 
     fn random_element<G: FnMut() -> u64>(&self, mut rng: G) -> Self::Element {
-        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        let mut result = Vec::with_capacity_in(self.m(), self.allocator.clone());
         result.extend((0..self.rank()).map(|_| self.base_ring().random_element(&mut rng)));
+        result.resize_with(self.m(), || self.base_ring().zero());
         return NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData
@@ -568,20 +593,23 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByInt
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
     {
-        SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(el.data.iter().map(|x| SerializeWithRing::new(x, self.base_ring())), el.data.len())).serialize(serializer)
+        let mut el_reduced = self.clone_el(el);
+        self.reducer.remainder(&mut el_reduced.data);
+        SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(el_reduced.data[..self.rank()].iter().map(|x| SerializeWithRing::new(x, self.base_ring())), self.rank())).serialize(serializer)
     }
 
     fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self::Element, D::Error>
         where D: Deserializer<'de> 
     {
-        let result = DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSeq::new(
+        let mut result = DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSeq::new(
             (0..(self.rank() + 1)).map(|_| DeserializeWithRing::new(self.base_ring())),
-            Vec::with_capacity_in(self.rank(), self.allocator.clone()),
+            Vec::with_capacity_in(self.m(), self.allocator.clone()),
             |mut current, next| { current.push(next); current }
         )).deserialize(deserializer)?;
         if result.len() != self.rank() {
             return Err(serde::de::Error::invalid_length(result.len(), &format!("expected {} elements", self.rank()).as_str()));
         }
+        result.resize_with(self.m(), || self.base_ring().zero());
         return Ok(NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData
@@ -638,9 +666,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIn
     }
 
     fn map_in(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>, el: <NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
-        assert_eq!(el.data.len(), self.rank());
-        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
-        result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_in(from.base_ring().get_ring(), from.base_ring().clone_el(&el.data[i]), hom)));
+        assert_eq!(el.data.len(), self.m());
+        let mut result = Vec::with_capacity_in(self.m(), self.allocator.clone());
+        result.extend((0..self.m()).map(|i| self.base_ring().get_ring().map_in(from.base_ring().get_ring(), from.base_ring().clone_el(&el.data[i]), hom)));
         return NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData
@@ -671,9 +699,9 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
     }
 
     fn map_out(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>, el: Self::Element, iso: &Self::Isomorphism) -> <NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element {
-        assert_eq!(el.data.len(), self.rank());
-        let mut result = Vec::with_capacity_in(self.rank(), from.allocator.clone());
-        result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_out(from.base_ring().get_ring(), self.base_ring().clone_el(&el.data[i]), iso)));
+        assert_eq!(el.data.len(), self.m());
+        let mut result = Vec::with_capacity_in(self.m(), from.allocator.clone());
+        result.extend((0..self.m()).map(|i| self.base_ring().get_ring().map_out(from.base_ring().get_ring(), self.base_ring().clone_el(&el.data[i]), iso)));
         return NumberRingQuotientByIntEl {
             data: result,
             ring: PhantomData

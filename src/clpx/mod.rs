@@ -301,7 +301,7 @@ pub trait CLPXInstantiation {
         let noise = C.sub(noisy_m, best_repr);
         let noise_coeffs = C.wrt_canonical_basis(&noise);
         let log2_size_of_noise: usize = (0..C.rank()).map(|i| C.base_ring().integer_ring().abs_log2_ceil(&C.base_ring().smallest_lift(noise_coeffs.at(i))).unwrap_or(0)).max().unwrap();
-        let log2_can_norm_t_estimate = P.ZZX().terms(P.t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.get_ring().number_ring().inf_to_can_norm_expansion_factor().log2().ceil() as usize;
+        let log2_can_norm_t_estimate = P.ZZX().terms(P.t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.number_ring().inf_to_can_norm_expansion_factor().log2().ceil() as usize;
         return ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap().saturating_sub(log2_size_of_noise + log2_can_norm_t_estimate);
     }
 
@@ -471,7 +471,7 @@ pub trait CLPXInstantiation {
     }
 
     fn rescale_to_C<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        assert!(C.get_ring().number_ring() == C_mul.get_ring().number_ring());
+        assert!(C.number_ring() == C_mul.number_ring());
         assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
         let rescale = AlmostExactRescalingConvert::new_with_alloc(

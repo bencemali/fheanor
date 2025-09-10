@@ -1,19 +1,19 @@
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use feanor_math::algorithms::discrete_log::{multiplicative_order, Subgroup};
 use feanor_math::algorithms::eea::inv_crt;
 use feanor_math::algorithms::int_factor::{factor, is_prime_power};
 use feanor_math::divisibility::DivisibilityRingStore;
-use feanor_math::group::{AbelianGroupBase, AbelianGroupStore, GroupValue, MultGroup, MultGroupEl};
+use feanor_math::group::{AbelianGroupBase, AbelianGroupStore, GroupValue, MultGroup, MultGroupEl, SerializableElementGroup};
 use feanor_math::integer::int_cast;
 use feanor_math::rings::finite::FiniteRingStore;
 use feanor_math::rings::zn::zn_64::{Zn, ZnEl};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
-use feanor_math::serialization::{DeserializeWithRing, SerializeOwnedWithRing};
 use feanor_serde::newtype_struct::{DeserializeSeedNewtypeStruct, SerializableNewtypeStruct};
 use serde::de::DeserializeSeed;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{euler_phi, ZZbig, ZZi64};
 
@@ -96,7 +96,48 @@ impl CyclotomicGaloisGroupBase {
     pub fn representative(&self, x: &GaloisGroupEl) -> u64 {
         self.underlying_ring().smallest_positive_lift(*self.as_ring_el(x)) as u64
     }
+
+    pub fn group_order(&self) -> usize {
+        self.order
+    }
 }
+
+pub trait CyclotomicGaloisGroupOps: AbelianGroupStore<Type = CyclotomicGaloisGroupBase> {
+
+    fn underlying_ring(&self) -> &Zn {
+        self.get_group().underlying_ring()
+    }
+
+    fn as_ring_el<'a>(&self, value: &'a GaloisGroupEl) -> &'a ZnEl {
+        self.get_group().as_ring_el(value)
+    }
+
+    fn from_ring_el(&self, el: ZnEl) -> GaloisGroupEl {
+        self.get_group().from_ring_el(el)
+    }
+
+    fn m(&self) -> u64 {
+        self.get_group().m()
+    }
+
+    fn element_order(&self, value: &GaloisGroupEl) -> usize {
+        self.get_group().element_order(value)
+    }
+
+    fn from_representative(&self, x: i64) -> GaloisGroupEl {
+        self.get_group().from_representative(x)
+    }
+
+    fn representative(&self, x: &GaloisGroupEl) -> u64 {
+        self.get_group().representative(x)
+    }
+
+    fn group_order(&self) -> usize {
+        self.get_group().group_order()
+    }
+}
+
+impl<G: AbelianGroupStore<Type = CyclotomicGaloisGroupBase>> CyclotomicGaloisGroupOps for G {}
 
 impl PartialEq for CyclotomicGaloisGroupBase {
 
@@ -143,34 +184,18 @@ impl Debug for CyclotomicGaloisGroupBase {
     }
 }
 
-pub struct SerializableCyclotomicGaloisGroupEl<'a>(&'a CyclotomicGaloisGroupBase, GaloisGroupEl);
+impl SerializableElementGroup for CyclotomicGaloisGroupBase {
 
-impl<'a> SerializableCyclotomicGaloisGroupEl<'a> {
-    pub fn new(galois_group: &'a CyclotomicGaloisGroupBase, el: GaloisGroupEl) -> Self {
-        Self(galois_group, el)
+    fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        SerializableNewtypeStruct::new("GaloisGroupEl", self.representative(el)).serialize(serializer)
     }
-}
 
-impl<'a> Serialize for SerializableCyclotomicGaloisGroupEl<'a> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        SerializableNewtypeStruct::new("CyclotomicGaloisGroupEl", &SerializeOwnedWithRing::new(*self.0.as_ring_el(&self.1), self.0.underlying_ring())).serialize(serializer)
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct DeserializeSeedCyclotomicGaloisGroupEl<'a>(&'a CyclotomicGaloisGroupBase);
-
-impl<'a> DeserializeSeedCyclotomicGaloisGroupEl<'a> {
-    pub fn new(galois_group: &'a CyclotomicGaloisGroupBase) -> Self {
-        Self(galois_group)
-    }
-}
-
-impl<'a, 'de> DeserializeSeed<'de> for DeserializeSeedCyclotomicGaloisGroupEl<'a> {
-    type Value = GaloisGroupEl;
-
-    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-        Ok(DeserializeSeedNewtypeStruct::new("CyclotomicGaloisGroupEl", DeserializeWithRing::new(self.0.underlying_ring())).deserialize(deserializer).map(|g| self.0.from_ring_el(g)).unwrap())
+    fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self::Element, D::Error>
+        where D: Deserializer<'de>
+    {
+        DeserializeSeedNewtypeStruct::new("GaloisGroupEl", PhantomData::<u64>).deserialize(deserializer).map(|x| self.from_representative(x as i64))
     }
 }
 

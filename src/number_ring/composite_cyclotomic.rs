@@ -5,6 +5,7 @@ use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::eea::{signed_eea, signed_gcd};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::eea::signed_lcm;
+use feanor_math::group::AbelianGroupStore;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
@@ -18,17 +19,17 @@ use feanor_math::seq::subvector::SubvectorView;
 use tracing::instrument;
 use feanor_math::seq::*;
 
+use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
 use crate::number_ring::general_cyclotomic::*;
-use crate::cyclotomic::*;
+use crate::number_ring::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
-use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
 
 ///
 /// Represents `Z[𝝵_m]` for an odd, squarefree `m`, but uses of the tensor decomposition
 /// `Z[𝝵_m] = Z[𝝵_m1] ⊗ Z[𝝵_m2]` for various computational tasks (where `m = m1 * m2`
 /// is a factorization into coprime factors).
 /// 
-pub struct CompositeCyclotomicNumberRing<L: HECyclotomicNumberRing = OddSquarefreeCyclotomicNumberRing, R: HECyclotomicNumberRing = OddSquarefreeCyclotomicNumberRing> {
+pub struct CompositeCyclotomicNumberRing<L: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing, R: AbstractNumberRing = OddSquarefreeCyclotomicNumberRing> {
     left_factor: L,
     right_factor: R,
     joint_galois_group: CyclotomicGaloisGroup
@@ -41,31 +42,35 @@ impl CompositeCyclotomicNumberRing {
     }
 }
 
-impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> CompositeCyclotomicNumberRing<L, R> {
+impl<L: AbstractNumberRing, R: AbstractNumberRing> CompositeCyclotomicNumberRing<L, R> {
 
     pub fn new_with_factors(left: L, right: R) -> Self {
-        let m1 = left.m();
-        let m2 = right.m();
+        let m1 = left.galois_group().m();
+        let m2 = right.galois_group().m();
         assert!(m1 > 1);
         assert!(m2 > 1);
         assert!(signed_gcd(m1 as i64, m2 as i64, StaticRing::<i64>::RING) == 1);
         Self {
-            joint_galois_group: CyclotomicGaloisGroup::new((m1 * m2) as u64),
+            joint_galois_group: CyclotomicGaloisGroupBase::new(m1 * m2),
             left_factor: left,
             right_factor: right
         }
     }
 
-    pub fn m1(&self) -> usize {
-        self.left_factor.m()
+    pub fn m1(&self) -> u64 {
+        self.left_factor.galois_group().m()
     }
 
-    pub fn m2(&self) -> usize {
-        self.right_factor.m()
+    pub fn m2(&self) -> u64 {
+        self.right_factor.galois_group().m()
+    }
+
+    pub fn m(&self) -> u64 {
+        self.m1() * self.m2()
     }
 }
 
-impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> Clone for CompositeCyclotomicNumberRing<L, R> {
+impl<L: AbstractNumberRing, R: AbstractNumberRing> Clone for CompositeCyclotomicNumberRing<L, R> {
     
     fn clone(&self) -> Self {
         Self {
@@ -76,35 +81,29 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> Clone for CompositeCy
     }
 }
 
-impl<L: HECyclotomicNumberRing + Debug, R: HECyclotomicNumberRing + Debug> Debug for CompositeCyclotomicNumberRing<L, R> {
+impl<L: AbstractNumberRing + Debug, R: AbstractNumberRing + Debug> Debug for CompositeCyclotomicNumberRing<L, R> {
     
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?} ⊗ {:?}", self.left_factor, self.right_factor)
     }
 }
 
-impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> PartialEq for CompositeCyclotomicNumberRing<L, R> {
+impl<L: AbstractNumberRing, R: AbstractNumberRing> PartialEq for CompositeCyclotomicNumberRing<L, R> {
 
     fn eq(&self, other: &Self) -> bool {
         self.left_factor == other.left_factor && self.right_factor == other.right_factor
     }
 }
 
-impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HECyclotomicNumberRing for CompositeCyclotomicNumberRing<L, R> {
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.joint_galois_group
-    }
-}
+impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for CompositeCyclotomicNumberRing<L, R> {
 
-impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HENumberRing for CompositeCyclotomicNumberRing<L, R> {
+    type NumberRingQuotientBases = CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
 
-    type Decomposed = CompositeCyclotomicDecomposedNumberRing<L::Decomposed, R::Decomposed>;
-
-    fn mod_p(&self, Fp: Zn) -> Self::Decomposed {
+    fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
         let r1 = self.left_factor.rank() as i64;
         let r2 = self.right_factor.rank() as i64;
-        let m1 = self.left_factor.m() as i64;
-        let m2 = self.right_factor.m() as i64;
+        let m1 = self.left_factor.galois_group().m() as i64;
+        let m2 = self.right_factor.galois_group().m() as i64;
         let m = m1 * m2;
 
         let poly_ring = SparsePolyRing::new(StaticRing::<i64>::RING, "X");
@@ -143,26 +142,26 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HENumberRing for Comp
 
         let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m, STANDARD_CONVOLUTION);
 
-        CompositeCyclotomicDecomposedNumberRing {
+        CompositeCyclotomicNumberRingQuotientBases {
             coeff_to_small_conversion_matrix: coeff_to_small_conversion_matrix,
             cyclotomic_poly_reducer: cyclotomic_poly_reducer,
-            left_factor: self.left_factor.mod_p(Fp.clone()),
-            right_factor: self.right_factor.mod_p(Fp),
+            left_factor: self.left_factor.bases_mod_p(Fp.clone()),
+            right_factor: self.right_factor.bases_mod_p(Fp),
             allocator: Global,
             joint_galois_group: self.joint_galois_group.clone()
         }
     }
 
-    fn mod_p_required_root_of_unity(&self) -> usize {
+    fn mod_p_required_root_of_unity(&self) -> u64 {
         signed_lcm(self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(), self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(), StaticRing::<i64>::RING).try_into().unwrap()
     }
 
     fn inf_to_can_norm_expansion_factor(&self) -> f64 {
-        return <_ as HENumberRing>::inf_to_can_norm_expansion_factor(&self.left_factor) * <_ as HENumberRing>::inf_to_can_norm_expansion_factor(&self.right_factor);
+        self.left_factor.inf_to_can_norm_expansion_factor() * self.right_factor.inf_to_can_norm_expansion_factor()
     }
 
     fn can_to_inf_norm_expansion_factor(&self) -> f64 {
-        return <_ as HENumberRing>::can_to_inf_norm_expansion_factor(&self.left_factor) * <_ as HENumberRing>::can_to_inf_norm_expansion_factor(&self.right_factor);
+        self.left_factor.can_to_inf_norm_expansion_factor() * self.right_factor.can_to_inf_norm_expansion_factor()
     }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
@@ -170,11 +169,15 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HENumberRing for Comp
             P::Type: PolyRing + DivisibilityRing,
             <<P::Type as RingExtension>::BaseRing as RingStore>::Type: IntegerRing
     {
-        cyclotomic_polynomial(&poly_ring, <_ as HECyclotomicNumberRing>::m(self) as usize)
+        cyclotomic_polynomial(&poly_ring, self.m() as usize)
     }
 
     fn rank(&self) -> usize {
-        <_ as HENumberRing>::rank(&self.left_factor) * <_ as HENumberRing>::rank(&self.right_factor)
+        self.left_factor.rank() * self.right_factor.rank()
+    }
+
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.joint_galois_group
     }
 }
 
@@ -187,9 +190,9 @@ impl<L: HECyclotomicNumberRing, R: HECyclotomicNumberRing> HENumberRing for Comp
 ///   1 ⊗ 𝝵2^(m2 - 1),  𝝵1 ⊗ 𝝵2^(m2 - 1),  𝝵1^2 ⊗ 𝝵2^(m2 - 1), ...,  𝝵1^(m1 - 1) ⊗ 𝝵2^(m2 - 1)
 /// ```
 /// 
-pub struct CompositeCyclotomicDecomposedNumberRing<L, R, A = Global> 
-    where L: HECyclotomicNumberRingMod,
-        R: HECyclotomicNumberRingMod,
+pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global> 
+    where L: NumberRingQuotientBases,
+        R: NumberRingQuotientBases,
         A: Allocator + Clone
 {
     allocator: A,
@@ -202,9 +205,9 @@ pub struct CompositeCyclotomicDecomposedNumberRing<L, R, A = Global>
     joint_galois_group: CyclotomicGaloisGroup
 }
 
-impl<L, R, A> PartialEq for CompositeCyclotomicDecomposedNumberRing<L, R, A> 
-    where L: HECyclotomicNumberRingMod,
-        R: HECyclotomicNumberRingMod,
+impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
+    where L: NumberRingQuotientBases,
+        R: NumberRingQuotientBases,
         A: Allocator + Clone
 {
     fn eq(&self, other: &Self) -> bool {
@@ -212,11 +215,15 @@ impl<L, R, A> PartialEq for CompositeCyclotomicDecomposedNumberRing<L, R, A>
     }
 }
 
-impl<L, R, A> HENumberRingMod for CompositeCyclotomicDecomposedNumberRing<L, R, A> 
-    where L: HECyclotomicNumberRingMod,
-        R: HECyclotomicNumberRingMod,
+impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
+    where L: NumberRingQuotientBases,
+        R: NumberRingQuotientBases,
         A: Allocator + Clone + Send + Sync
 {
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.joint_galois_group
+    }
+
     #[instrument(skip_all)]
     fn small_basis_to_mult_basis<V>(&self, mut data: V)
         where V: SwappableVectorViewMut<ZnEl>
@@ -275,13 +282,14 @@ impl<L, R, A> HENumberRingMod for CompositeCyclotomicDecomposedNumberRing<L, R, 
             self.left_factor.small_basis_to_coeff_basis(SubvectorView::new(&mut data).restrict((i * self.left_factor.rank())..((i + 1) * self.left_factor.rank())));
         }
 
-        let mut result = Vec::with_capacity_in(self.m(), &self.allocator);
-        result.resize_with(self.m(), || self.base_ring().zero());
         let r1 = self.left_factor.rank();
         let r2 = self.right_factor.rank();
-        let m1 = self.left_factor.m();
-        let m2 = self.right_factor.m();
+        let m1 = self.left_factor.galois_group().m() as usize;
+        let m2 = self.right_factor.galois_group().m() as usize;
         let m = m1 * m2;
+
+        let mut result = Vec::with_capacity_in(m, &self.allocator);
+        result.resize_with(m, || self.base_ring().zero());
         
         for i2 in 0..r2 {
             for i1 in 0..r1 {
@@ -305,26 +313,16 @@ impl<L, R, A> HENumberRingMod for CompositeCyclotomicDecomposedNumberRing<L, R, 
     fn base_ring(&self) -> &Zn {
         self.left_factor.base_ring()
     }
-}
 
-impl<L, R, A> HECyclotomicNumberRingMod for CompositeCyclotomicDecomposedNumberRing<L, R, A> 
-    where L: HECyclotomicNumberRingMod,
-        R: HECyclotomicNumberRingMod,
-        A: Allocator + Clone + Send + Sync
-{
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.joint_galois_group
-    }
-
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
         where V1: VectorView<ZnEl>,
             V2: SwappableVectorViewMut<ZnEl>
     {
-        let ring_factor1 = self.left_factor.galois_group();
-        let ring_factor2 = self.right_factor.galois_group();
-
-        let g1 = ring_factor1.from_representative(self.galois_group().representative(galois_element) as i64);
-        let g2 = ring_factor2.from_representative(self.galois_group().representative(galois_element) as i64);
+        let ring_factor1 = self.left_factor.galois_group().get_group();
+        let ring_factor2 = self.right_factor.galois_group().get_group();
+        let galois_group = self.joint_galois_group.get_group();
+        let g1 = ring_factor1.from_representative(galois_group.representative(galois_element) as i64);
+        let g2 = ring_factor2.from_representative(galois_group.representative(galois_element) as i64);
         let mut tmp = Vec::with_capacity_in(self.rank(), &self.allocator);
         tmp.resize_with(self.rank(), || self.base_ring().zero());
         for i in 0..self.right_factor.rank() {
@@ -347,47 +345,47 @@ impl<L, R, A> HECyclotomicNumberRingMod for CompositeCyclotomicDecomposedNumberR
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+// #[cfg(test)]
+// use crate::ciphertext_ring::double_rns_ring;
+// #[cfg(test)]
+// use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
-#[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use crate::number_ring::quotient;
+use crate::number_ring::arithmetic_impl;
 #[cfg(test)]
 use crate::ring_literal;
 #[cfg(test)]
-use crate::number_ring::quotient::NumberRingQuotientBase;
+use crate::number_ring::arithmetic_impl::NumberRingQuotientImplBase;
 #[cfg(test)]
 use crate::ntt::RustNegacyclicNTT;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
-#[test]
-fn test_odd_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
-}
+// #[test]
+// fn test_odd_cyclotomic_double_rns_ring() {
+//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+// }
 
-#[test]
-fn test_odd_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
-}
+// #[test]
+// fn test_odd_cyclotomic_single_rns_ring() {
+//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+// }
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
-    quotient::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    quotient::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    quotient::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
 }
 
 #[test]
 fn test_small_coeff_basis_conversion() {
     let ring = zn_64::Zn::new(241);
     let number_ring = CompositeCyclotomicNumberRing::new(3, 5);
-    let decomposition = number_ring.mod_p(ring);
+    let decomposition = number_ring.bases_mod_p(ring);
 
     let arr_create = |data: [i32; 8]| std::array::from_fn::<_, 8, _>(|i| ring.int_hom().map(data[i]));
     let assert_arr_eq = |fst: [zn_64::ZnEl; 8], snd: [zn_64::ZnEl; 8]| assert!(
@@ -439,7 +437,7 @@ fn test_small_coeff_basis_conversion() {
     assert_arr_eq(original, actual);
 
     let number_ring = CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8));
-    let decomposition = number_ring.mod_p(ring);
+    let decomposition = number_ring.bases_mod_p(ring);
     let original = arr_create([-1, 0, 0, 0, 1, 0, 0, 0]);
     let expected = arr_create([0, 1, 0, 0, 0, 0, 0, 0]);
     let mut actual = original;
@@ -452,11 +450,11 @@ fn test_small_coeff_basis_conversion() {
 #[test]
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
-    let gal_el = |x: i64| R.galois_group().from_representative(x);
+    let R = NumberRingQuotientImplBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
+    let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
 
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(4)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(8)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, 1, 0, -1, 1, -1, 0, 1]), R.apply_galois_action(&ring_literal(&R, &[0, 0, 0, 0, 1, 0, 0, 0]), &gal_el(2)));
 }

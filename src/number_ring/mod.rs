@@ -4,7 +4,7 @@ use feanor_math::divisibility::DivisibilityRing;
 use feanor_math::integer::{BigIntRing, IntegerRing, IntegerRingStore};
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::primitive_int::StaticRing;
-use feanor_math::ring::*;
+use feanor_math::{delegate, ring::*};
 use feanor_math::rings::extension::FreeAlgebra;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::PolyRing;
@@ -15,11 +15,35 @@ use crate::number_ring::galois::{CyclotomicGaloisGroup, GaloisGroupEl};
 
 pub mod galois;
 
+///
+/// Code for fast polynomial division by a cyclotomic polynomial.
+/// 
 pub mod poly_remainder;
-
+///
+/// Contains [`arithmetic_impl::NumberRingQuotientImpl`], the main implementation
+/// for rings satisfying [`NumberRingQuotient`].
+/// 
 pub mod arithmetic_impl;
-
+///
+/// Contains [`pow2_cyclotomic::Pow2CyclotomicNumberRing`], an implementation of
+/// [`AbstractNumberRing`] for `Z[X]/(X^m + 1)` with `m` a power of two.
+/// 
 pub mod pow2_cyclotomic;
+///
+/// Contains [`composite_cyclotomic::CompositeCyclotomicNumberRing`], an implementation
+/// of [`AbstractNumberRing`] for `Z[X]/(Phi_(m1 m2))` with `m1, m2` coprime integers.
+/// 
+pub mod composite_cyclotomic;
+///
+/// Contains [`general_cyclotomic::OddSquarefreeCyclotomicNumberRing`], an implementation
+/// of [`AbstractNumberRing`] for `Z[X]/(Phi_m)` with `m` an odd and squarefree integer.
+/// 
+pub mod general_cyclotomic;
+///
+/// Contains various types to represent the isomorphism `Fp[X]/(Phi_m(X)) ~ F_(p^d)^(phi(m) / d)`
+/// via "hypercube structures".
+/// 
+pub mod hypercube;
 
 ///
 /// Trait for rings of the form `R/I`, where `R` is a number ring and
@@ -30,8 +54,14 @@ pub mod pow2_cyclotomic;
 /// 
 pub trait NumberRingQuotient: FiniteRing + FreeAlgebra {
 
+    ///
+    /// Type of the number ring that this ring is a quotient of.
+    /// 
     type NumberRing: AbstractNumberRing;
 
+    ///
+    /// Returns the number ring that this ring is a quotient of.
+    /// 
     fn number_ring(&self) -> &Self::NumberRing;
 
     ///
@@ -59,6 +89,22 @@ pub trait NumberRingQuotient: FiniteRing + FreeAlgebra {
 }
 
 ///
+/// [`RingStore`] for [`NumberRingQuotient`]
+/// 
+pub trait NumberRingQuotientStore: RingStore
+    where Self::Type: NumberRingQuotient
+{
+    delegate!{ NumberRingQuotient, fn number_ring(&self) -> &<Self::Type as NumberRingQuotient>::NumberRing }
+    delegate!{ NumberRingQuotient, fn acting_galois_group(&self) -> &Subgroup<CyclotomicGaloisGroup> }
+    delegate!{ NumberRingQuotient, fn apply_galois_action(&self, x: &El<Self>, g: &GaloisGroupEl) -> El<Self> }
+    delegate!{ NumberRingQuotient, fn apply_galois_action_many(&self, x: &El<Self>, gs: &[GaloisGroupEl]) -> Vec<El<Self>> }
+}
+
+impl<R: RingStore> NumberRingQuotientStore for R
+    where R::Type: NumberRingQuotient
+{}
+
+///
 /// Trait for objects that represent number rings (more concretely, orders in number
 /// fields), endowed with certain information that is necessary to perform HE-related
 /// operations efficiently.
@@ -83,7 +129,7 @@ pub trait AbstractNumberRing: Send + Sync + PartialEq + Clone {
 
     fn bases_mod_p(&self, Fp: zn_64::Zn) -> Self::NumberRingQuotientBases;
 
-    fn mod_p_required_root_of_unity(&self) -> usize;
+    fn mod_p_required_root_of_unity(&self) -> u64;
 
     ///
     /// Returns an upper bound on the value
@@ -173,6 +219,8 @@ pub trait NumberRingQuotientBases: Send + Sync + PartialEq {
     fn permute_galois_action<V1, V2>(&self, src: V1, dst: V2, g: &GaloisGroupEl)
         where V1: VectorView<zn_64::ZnEl>,
             V2: SwappableVectorViewMut<zn_64::ZnEl>;
+            
+    fn galois_group(&self) -> &CyclotomicGaloisGroup;
 }
 
 ///

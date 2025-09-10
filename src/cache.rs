@@ -11,13 +11,10 @@ use feanor_math::ring::*;
 use feanor_math::rings::rust_bigint::RustBigint;
 use feanor_math::serialization::*;
 use serde::de::DeserializeSeed;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 
-use crate::log_time;
-use crate::ZZbig;
-use crate::ZZi64;
+use crate::{log_time, ZZbig, ZZi64};
 
 pub enum CachedDataKey {
     Integer(String, El<BigIntRing>),
@@ -133,7 +130,14 @@ impl<'a> From<(&'a str, i64)> for CachedDataKey {
 impl<'a> From<(&'a str, usize)> for CachedDataKey {
 
     fn from(value: (&'a str, usize)) -> Self {
-        Self::from((value.0, value.1 as i64))
+        Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
+    }
+}
+
+impl<'a> From<(&'a str, u64)> for CachedDataKey {
+
+    fn from(value: (&'a str, u64)) -> Self {
+        Self::from((value.0, TryInto::<i64>::try_into(value.1).unwrap()))
     }
 }
 

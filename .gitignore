@@ -11,3 +11,4 @@ coeffs2slots_*.pcd
 slots2coeffs_*.pcd
 bgv_memtrace
 .vscode
+**/*.old.rs

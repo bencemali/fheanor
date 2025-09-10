@@ -1,11 +1,11 @@
 use std::alloc::{Allocator, Global};
 use std::marker::PhantomData;
-use std::cmp::max;
 
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::divisibility::DivisibilityRing;
 use feanor_math::field::Field;
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::homomorphism::{CanHomFrom, CanIsoFromTo, Homomorphism};
 use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::integer::{int_cast, BigIntRing, BigIntRingBase, IntegerRing, IntegerRingStore};
@@ -83,6 +83,16 @@ pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, 
 {
     ring: PhantomData<NumberRingQuotientImplBase<NumberRing, ZnTy, A, C>>,
     data: C::PreparedConvolutionOperand
+}
+
+impl<NumberRing, ZnTy> NumberRingQuotientImplBase<NumberRing, ZnTy>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>
+{
+    pub fn new(number_ring: NumberRing, base_ring: ZnTy) -> RingValue<Self> {
+        Self::quotient_by_integer(number_ring, base_ring, Global, STANDARD_CONVOLUTION)
+    }
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientImplBase<NumberRing, ZnTy, A, C>
@@ -273,6 +283,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientImplBase<N
         &self.acting_galois_group
     }
 
+    #[instrument(skip_all)]
     fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
         assert!(self.acting_galois_group().dlog(g).is_some());
         let gen_conjugate = &self.generator_galois_conjugates.iter().filter(|(h, _)| self.acting_galois_group().parent().eq_el(h, g)).next().unwrap().1;
@@ -295,6 +306,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientIm
 {
     type PreparedMultiplicant = NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A, C>;
 
+    #[instrument(skip_all)]
     fn prepare_multiplicant(&self, x: &Self::Element) -> Self::PreparedMultiplicant {
         NumberRingQuotientPreparedMultiplicant {
             ring: PhantomData,
@@ -302,6 +314,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientIm
         }
     }
 
+    #[instrument(skip_all)]
     fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: &Self::PreparedMultiplicant, rhs: &Self::Element, rhs_prep: &Self::PreparedMultiplicant) -> Self::Element {
         assert_eq!(self.rank(), lhs.data.len());
         assert_eq!(self.rank(), rhs.data.len());
@@ -316,6 +329,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientIm
         };
     }
 
+    #[instrument(skip_all)]
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
         where I: IntoIterator<Item = (&'a Self::Element, &'a Self::PreparedMultiplicant, &'a Self::Element, &'a Self::PreparedMultiplicant)>,
             I::IntoIter: ExactSizeIterator,
@@ -406,6 +420,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientImplBase<NumberRing,
         *lhs = self.mul_ref(lhs, rhs);
     }
 
+    #[instrument(skip_all)]
     fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
         assert_eq!(lhs.data.len(), self.rank());
         assert_eq!(rhs.data.len(), self.rank());
@@ -800,8 +815,6 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientIm
     }
 }
 
-#[cfg(test)]
-use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 

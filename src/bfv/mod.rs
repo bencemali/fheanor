@@ -745,7 +745,7 @@ pub trait BFVInstantiation {
     }
 
     fn rescale_to_C<'a>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
-        assert!(C.get_ring().number_ring() == C_mul.get_ring().number_ring());
+        assert!(C.number_ring() == C_mul.number_ring());
         assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
 
         let ZZ = P.base_ring().integer_ring();

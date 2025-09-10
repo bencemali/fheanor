@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
-use feanor_math::group::AbelianGroupStore;
 use tracing::instrument;
 
 use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
@@ -21,6 +20,7 @@ use feanor_math::rings::zn::zn_64::Zn;
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::galois::CyclotomicGaloisGroup;
 use crate::number_ring::galois::CyclotomicGaloisGroupBase;
+use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::number_ring::galois::GaloisGroupEl;
 use crate::number_ring::AbstractNumberRing;
 use crate::number_ring::NumberRingQuotientBases;
@@ -47,7 +47,7 @@ impl<N> Pow2CyclotomicNumberRing<N> {
     }
 
     pub fn m(&self) -> u64 {
-        self.galois_group.get_group().m()
+        self.galois_group.m()
     }
 }
 
@@ -100,7 +100,7 @@ impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
         };
     }
 
-    fn mod_p_required_root_of_unity(&self) -> usize {
+    fn mod_p_required_root_of_unity(&self) -> u64 {
         return 1 << self.log2_m;
     }
     
@@ -139,6 +139,10 @@ impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, 
     where N: Send + Sync + FheanorNegacyclicNTT<zn_64::Zn>,
         A: Send + Sync + Allocator
 {
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
+    }
+
     #[instrument(skip_all)]
     fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
         where V1: VectorView<zn_64::ZnEl>,
@@ -148,8 +152,8 @@ impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, 
         assert_eq!(self.rank(), dst.len());
 
         let galois_group = &self.galois_group;
-        let galois_group_ring = galois_group.get_group().underlying_ring();
-        let galois_element = *galois_group.get_group().as_ring_el(galois_element);
+        let galois_group_ring = galois_group.underlying_ring();
+        let galois_element = *galois_group.as_ring_el(galois_element);
         let bitlength = StaticRing::<i64>::RING.abs_log2_ceil(&(self.rank() as i64)).unwrap();
         debug_assert_eq!(1 << bitlength, self.rank());
         let hom = galois_group_ring.can_hom(&ZZi64).unwrap();
@@ -212,12 +216,6 @@ impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, 
 // use crate::ciphertext_ring::double_rns_ring;
 // #[cfg(test)]
 // use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use feanor_math::rings::zn::zn_rns;
-#[cfg(test)]
-use feanor_math::rings::extension::FreeAlgebraStore;
 #[cfg(test)]
 use crate::number_ring::arithmetic_impl;
 

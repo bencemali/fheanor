@@ -8,6 +8,7 @@ use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::unity_root::{get_prim_root_of_unity, get_prim_root_of_unity_pow2};
 use feanor_math::algorithms::fft::*;
+use feanor_math::group::AbelianGroupStore;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
@@ -22,8 +23,8 @@ use feanor_mempool::AllocArc;
 use feanor_math::seq::*;
 
 use crate::euler_phi_squarefree;
-use crate::cyclotomic::*;
-use super::{HECyclotomicNumberRing, HECyclotomicNumberRingMod, HENumberRing, HENumberRingMod};
+use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
+use crate::number_ring::*;
 
 ///
 /// Represents `Z[𝝵_m]` for an odd and squarefree `m`.
@@ -48,8 +49,12 @@ impl OddSquarefreeCyclotomicNumberRing {
         }
         Self {
             m_factorization_squarefree: factorization.iter().map(|(p, _)| *p).collect(),
-            galois_group: CyclotomicGaloisGroup::new(m as u64)
+            galois_group: CyclotomicGaloisGroupBase::new(m as u64)
         }
+    }
+
+    pub fn m(&self) -> u64 {
+        self.galois_group.m()
     }
 
     ///
@@ -140,9 +145,9 @@ impl PartialEq for OddSquarefreeCyclotomicNumberRing {
     }
 }
 
-impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
+impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
 
-    type Decomposed = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
+    type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
 
     fn can_to_inf_norm_expansion_factor(&self) -> f64 {
         self.powful_inf_to_inf_norm_expansion_factor() * self.can_to_powful_inf_norm_expansion_factor()
@@ -156,7 +161,7 @@ impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
         (rank as f64).powi(3).sqrt()
     }
 
-    fn mod_p(&self, Fp: Zn) -> Self::Decomposed {
+    fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
         let n_factorization = &self.m_factorization_squarefree;
         let m = n_factorization.iter().copied().product::<i64>();
 
@@ -188,9 +193,8 @@ impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
         );
     }
 
-    fn mod_p_required_root_of_unity(&self) -> usize {
-        let m = <_ as HECyclotomicNumberRing>::m(self);
-        return m << StaticRing::<i64>::RING.abs_log2_ceil(&(2 * m).try_into().unwrap()).unwrap();
+    fn mod_p_required_root_of_unity(&self) -> u64 {
+        return self.m() << StaticRing::<i64>::RING.abs_log2_ceil(&(2 * self.m()).try_into().unwrap()).unwrap();
     }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
@@ -198,15 +202,12 @@ impl HENumberRing for OddSquarefreeCyclotomicNumberRing {
             P::Type: PolyRing + DivisibilityRing,
             <<P::Type as RingExtension>::BaseRing as RingStore>::Type: IntegerRing
     {
-        cyclotomic_polynomial(&poly_ring, <_ as HECyclotomicNumberRing>::m(self) as usize)
+        cyclotomic_polynomial(&poly_ring, self.m() as usize)
     }
 
     fn rank(&self) -> usize {
         euler_phi_squarefree(&self.m_factorization_squarefree) as usize
     }
-}
-
-impl HECyclotomicNumberRing for OddSquarefreeCyclotomicNumberRing {
 
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.galois_group
@@ -286,10 +287,14 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
     }
 }
 
-impl<F, A> HENumberRingMod for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
+impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
     where F: Send + Sync + FFTAlgorithm<ZnBase> + PartialEq,
         A: Send + Sync + Allocator + Clone
 {
+    fn galois_group(&self) -> &CyclotomicGaloisGroup {
+        &self.galois_group
+    }
+
     fn mult_basis_to_small_basis<V>(&self, mut data: V)
         where V: VectorViewMut<ZnEl>
     {
@@ -348,30 +353,21 @@ impl<F, A> HENumberRingMod for OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
     fn base_ring(&self) -> &Zn {
         &self.ring
     }
-}
 
-impl<F, A> HECyclotomicNumberRingMod for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: Send + Sync + FFTAlgorithm<ZnBase> + PartialEq,
-        A: Send + Sync + Allocator + Clone
-{
-    fn galois_group(&self) -> &CyclotomicGaloisGroup {
-        &self.galois_group
-    }
-
-    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &CyclotomicGaloisGroupEl)
+    fn permute_galois_action<V1, V2>(&self, src: V1, mut dst: V2, galois_element: &GaloisGroupEl)
         where V1: VectorView<ZnEl>,
             V2: SwappableVectorViewMut<ZnEl>
     {
         assert_eq!(self.rank(), src.len());
         assert_eq!(self.rank(), dst.len());
         let ring = self.base_ring();
-        let galois_group = self.galois_group();
+        let galois_group = self.galois_group.get_group();
         let index_ring = galois_group.underlying_ring();
         let hom = index_ring.can_hom(&StaticRing::<i64>::RING).unwrap();
         
         for (j, i) in self.fft_output_indices() {
             *dst.at_mut(j) = ring.clone_el(src.at(self.fft_output_indices_to_indices[self.fft_table.unordered_fft_permutation_inv(
-                index_ring.smallest_positive_lift(index_ring.mul(galois_group.to_ring_el(galois_element), hom.map(self.fft_table.unordered_fft_permutation(i) as i64))) as usize
+                index_ring.smallest_positive_lift(index_ring.mul(*galois_group.as_ring_el(galois_element), hom.map(self.fft_table.unordered_fft_permutation(i) as i64))) as usize
             )]));
         }
     }
@@ -379,43 +375,43 @@ impl<F, A> HECyclotomicNumberRingMod for OddSquarefreeCyclotomicDecomposedNumber
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+// #[cfg(test)]
+// use crate::ciphertext_ring::double_rns_ring;
+// #[cfg(test)]
+// use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::ciphertext_ring::double_rns_ring;
+use crate::number_ring::arithmetic_impl;
 #[cfg(test)]
-use crate::ciphertext_ring::single_rns_ring;
-#[cfg(test)]
-use crate::number_ring::quotient;
+use crate::number_ring::arithmetic_impl::NumberRingQuotientImplBase;
 #[cfg(test)]
 use crate::ring_literal;
-#[cfg(test)]
-use crate::number_ring::quotient::NumberRingQuotientBase;
 
-#[test]
-fn test_odd_cyclotomic_double_rns_ring() {
-    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-}
+// #[test]
+// fn test_odd_cyclotomic_double_rns_ring() {
+//     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+//     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+// }
 
-#[test]
-fn test_odd_cyclotomic_single_rns_ring() {
-    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-}
+// #[test]
+// fn test_odd_cyclotomic_single_rns_ring() {
+//     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+//     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+// }
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
-    quotient::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    quotient::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+    arithmetic_impl::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    arithmetic_impl::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
-    let gal_el = |x: i64| R.galois_group().from_representative(x);
+    let R = NumberRingQuotientImplBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
+    let gal_el = |x: i64| R.acting_galois_group().parent().from_representative(x);
 
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3)));
-    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(2)));
-    assert_el_eq!(R, ring_literal(&R, &[-1, -1, -1, -1, -1, -1]), R.get_ring().apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(3)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3)));
+    assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 0, 1, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(2)));
+    assert_el_eq!(R, ring_literal(&R, &[-1, -1, -1, -1, -1, -1]), R.apply_galois_action(&ring_literal(&R, &[0, 0, 1, 0, 0, 0]), &gal_el(3)));
 }

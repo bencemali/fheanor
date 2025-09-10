@@ -201,7 +201,7 @@ dependencies = [
 [[package]]
 name = "feanor-math"
 version = "3.4.10"
-source = "git+https://github.com/feanortheelf/feanor-math#56e1df445f50968642b69b6acf564ea4f7106e5f"
+source = "git+https://github.com/feanortheelf/feanor-math#b9c2267168253f661649ae4f07d1b232309bc1a0"
 dependencies = [
  "append-only-vec",
  "atomicbox",

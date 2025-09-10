@@ -2,13 +2,12 @@ use std::cmp::max;
 
 use feanor_math::algorithms::discrete_log::*;
 use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
-use feanor_math::divisibility::DivisibilityRingStore;
+use feanor_math::group::*;
 use feanor_math::integer::{int_cast, BigIntRing};
 use feanor_math::iters::clone_slice;
-use feanor_math::algorithms::int_factor::{factor, is_prime_power};
+use feanor_math::algorithms::int_factor::factor;
 use feanor_math::iters::multi_cartesian_product;
 use feanor_math::ring::*;
-use feanor_math::rings::finite::FiniteRingStore;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::homomorphism::*;
 use feanor_math::pid::*;
@@ -17,20 +16,25 @@ use feanor_math::rings::zn::zn_rns;
 use feanor_math::seq::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{cyclotomic::*, ZZbig, ZZi64};
-use crate::euler_phi;
+use crate::{euler_phi, ZZbig, ZZi64};
+use crate::number_ring::galois::*;
 
 ///
-/// Represents a hypercube structure, which is a map
+/// Represents a hypercube structure, which is a map into the relative Galois
+/// group `G` of a number ring over a subring
 /// ```text
-///   h: { 0, ..., l_1 - 1 } x ... x { 0, ..., l_r - 1 } -> (Z/mZ)^*
+///   h: { 0, ..., l_1 - 1 } x ... x { 0, ..., l_r - 1 } -> G
 ///                      a_1,  ...,  a_r                 -> prod_i g_i^a_i
 /// ```
-/// such that the composition `(mod <p>) ∘ h` is a bijection.
+/// such that the composition `(mod <p>) ∘ h` is a bijection, where `p` is
+/// distinguished element of `G`.
 /// 
 /// We use the following notation:
-///  - `m` and `p` as above
-///  - `d` is the order of `<p>` as subgroup of `(Z/mZ)*`
+///  - `G` is the Galois group of a number ring over a subring, thus a subgroup
+///    of `(Z/mZ)*` (since fheanor currently only supports cyclotomic rings)
+///  - `p` is a distinguished element of `G`; In applications, it will be the
+///    Frobenius automorphism associated to a prime ideal of the subring
+///  - `d` is the order of `<p>` as subgroup of `G`
 ///  - `l_i` is the length of the `i`-th "hypercube dimension" as above
 ///  - `l` is the product of all `l_i`, thus the total number of slots
 ///  - `g_i` is the generator of the `i`-th hypercube dimension
@@ -48,13 +52,14 @@ use crate::euler_phi;
 /// 
 #[derive(Clone)]
 pub struct HypercubeStructure {
-    pub(super) galois_group: CyclotomicGaloisGroup,
-    pub(super) p: CyclotomicGaloisGroupEl,
+    // visible at pub(super) to be accessed by serialization routines
+    pub(super) galois_group: Subgroup<CyclotomicGaloisGroup>,
+    pub(super) frobenius: GaloisGroupEl,
     pub(super) d: usize,
     pub(super) ls: Vec<usize>,
     pub(super) ord_gs: Vec<usize>,
-    pub(super) gs: Vec<CyclotomicGaloisGroupEl>,
-    pub(super) representations: Vec<(CyclotomicGaloisGroupEl, /* first element is frobenius */ Box<[usize]>)>,
+    pub(super) gs: Vec<GaloisGroupEl>,
+    pub(super) representations: Vec<(GaloisGroupEl, /* first element is frobenius */ Box<[usize]>)>,
     pub(super) choice: HypercubeTypeData
 }
 
@@ -70,7 +75,7 @@ pub enum HypercubeTypeData {
 impl PartialEq for HypercubeStructure {
     fn eq(&self, other: &Self) -> bool {
         self.galois_group == other.galois_group && 
-            self.galois_group.eq_el(&self.p, &other.p) &&
+            self.galois_group.eq_el(self.p(), &other.p()) &&
             self.d == other.d && 
             self.ls == other.ls &&
             self.gs.iter().zip(other.gs.iter()).all(|(l, r)| self.galois_group.eq_el(l, r)) &&
@@ -80,26 +85,27 @@ impl PartialEq for HypercubeStructure {
 
 impl HypercubeStructure {
 
-    pub fn new(galois_group: CyclotomicGaloisGroup, p: CyclotomicGaloisGroupEl, d: usize, ls: Vec<usize>, gs: Vec<CyclotomicGaloisGroupEl>) -> Self {
+    pub fn new(galois_group: Subgroup<CyclotomicGaloisGroup>, frobenius: GaloisGroupEl, d: usize, ls: Vec<usize>, gs: Vec<GaloisGroupEl>) -> Self {
         assert_eq!(ls.len(), gs.len());
-        // check order of p
-        assert!(galois_group.is_identity(&galois_group.pow(&p, d as i64)));
-        for (factor, _) in factor(ZZi64, d as i64) {
-            assert!(!galois_group.is_identity(&galois_group.pow(&p, d as i64 / factor)));
-        }
+        assert_eq!(d, galois_group.parent().element_order(&frobenius));
+        assert!(galois_group.dlog(&frobenius).is_some());
+        assert!(gs.iter().all(|g| galois_group.dlog(g).is_some()));
+
         // check whether the given values indeed define a bijection modulo `<p>`
         let mut all_elements = multi_cartesian_product([(0..d)].into_iter().chain(ls.iter().map(|l_i| 0..*l_i)), |idxs| (
-            galois_group.prod(idxs.iter().zip([&p].into_iter().chain(gs.iter())).map(|(i, g)| galois_group.pow(g, *i as i64))),
+            idxs.iter().zip([&frobenius].into_iter().chain(gs.iter()))
+                .map(|(i, g)| galois_group.pow(g, &int_cast(*i as i64, ZZbig, ZZi64)))
+                .fold(galois_group.identity(), |current, next| galois_group.op(current, next)),
             clone_slice(idxs)
         ), |_, x| *x).collect::<Vec<_>>();
-        all_elements.sort_unstable_by_key(|(g, _)| galois_group.representative(g));
+        all_elements.sort_unstable_by_key(|(g, _)| galois_group.parent().representative(g));
         assert!((1..all_elements.len()).all(|i| !galois_group.eq_el(&all_elements[i - 1].0, &all_elements[i].0)), "not a bijection");
-        assert_eq!(galois_group.group_order(), all_elements.len());
+        assert_eq!(int_cast(galois_group.subgroup_order(), ZZi64, ZZbig) as usize, all_elements.len());
 
-        let ord_gs = gs.iter().map(|g| galois_group.element_order(g)).collect();
+        let ord_gs = gs.iter().map(|g| galois_group.parent().element_order(g)).collect();
         return Self {
             galois_group: galois_group,
-            p: p,
+            frobenius: frobenius,
             d: d,
             ls,
             ord_gs: ord_gs,
@@ -208,13 +214,13 @@ impl HypercubeStructure {
             let new_d = signed_lcm(current_d, dim.order_of_projected_p as i64, ZZi64);
             let len = dim.group_order as i64 / (new_d / current_d);
             current_d = new_d;
-            return len as usize;
+            len as usize
         }).collect::<Vec<_>>();
 
         let p_repr = galois_group.from_representative(p);
         let gs = dimensions.iter().map(|dim| galois_group.from_ring_el(dim.g_main)).collect();
         let mut result = Self::new(
-            galois_group,
+            galois_group.into().full_subgroup(),
             p_repr,
             current_d as usize,
             lengths,
@@ -236,9 +242,9 @@ impl HypercubeStructure {
     /// in at the other end. Moving out zeros will never cause any problems, however, but always move
     /// in zero on the other side.
     /// 
-    pub fn map_1d(&self, dim_idx: usize, steps: i64) -> CyclotomicGaloisGroupEl {
+    pub fn map_1d(&self, dim_idx: usize, steps: i64) -> GaloisGroupEl {
         assert!(dim_idx < self.dim_count());
-        self.galois_group.pow(&self.gs[dim_idx], steps)
+        self.galois_group.pow(&self.gs[dim_idx], &int_cast(steps, ZZbig, ZZi64))
     }
 
     ///
@@ -252,9 +258,10 @@ impl HypercubeStructure {
     ///      a_1,  ...,  a_r  -> prod_i g_i^a_i
     /// ```
     /// 
-    pub fn map(&self, idxs: &[i64]) -> CyclotomicGaloisGroupEl {
+    pub fn map(&self, idxs: &[i64]) -> GaloisGroupEl {
         assert_eq!(self.ls.len(), idxs.len());
-        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, *i)))
+        idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, &int_cast(*i, ZZbig, ZZi64)))
+            .fold(self.galois_group().identity(), |current, next| self.galois_group().op(current, next))
     }
 
     ///
@@ -262,18 +269,19 @@ impl HypercubeStructure {
     /// have `dim_count + 1` entries, and the first entry is treated as the exponent
     /// of the Frobenius.
     /// 
-    pub fn map_incl_frobenius(&self, idxs: &[i64]) -> CyclotomicGaloisGroupEl {
+    pub fn map_incl_frobenius(&self, idxs: &[i64]) -> GaloisGroupEl {
         assert_eq!(self.ls.len() + 1, idxs.len());
-        self.galois_group.mul(self.map(&idxs[1..]), &self.frobenius(idxs[0]))
+        self.galois_group.op(self.map(&idxs[1..]), self.frobenius(idxs[0]))
     }
 
     ///
     /// Same as [`HypercubeStructure::map()`], but for a vector with
     /// unsigned entries.
     /// 
-    pub fn map_usize(&self, idxs: &[usize]) -> CyclotomicGaloisGroupEl {
+    pub fn map_usize(&self, idxs: &[usize]) -> GaloisGroupEl {
         assert_eq!(self.ls.len(), idxs.len());
-        self.galois_group.prod(idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, *i as i64)))
+        idxs.iter().zip(self.gs.iter()).map(|(i, g)| self.galois_group.pow(g, &int_cast(*i as i64, ZZbig, ZZi64)))
+            .fold(self.galois_group().identity(), |current, next| self.galois_group().op(current, next))
     }
 
     ///
@@ -282,8 +290,8 @@ impl HypercubeStructure {
     /// This is the vector `(a_0, a_1, ..., a_r)` such that `g = p^a_0 h(a_1, ..., a_r)` and
     /// `a_0 in { 0, ..., d - 1 }` and `a_i` for `i > 0` is within `{ 0, ..., l_i - 1 }`.
     /// 
-    pub fn std_preimage(&self, g: &CyclotomicGaloisGroupEl) -> &[usize] {
-        let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(g)).unwrap();
+    pub fn std_preimage(&self, g: &GaloisGroupEl) -> &[usize] {
+        let idx = self.representations.binary_search_by_key(&self.galois_group.parent().representative(g), |(g, _)| self.galois_group.parent().representative(g)).unwrap();
         return &self.representations[idx].1;
     }
 
@@ -322,18 +330,17 @@ impl HypercubeStructure {
     }
 
     ///
-    /// Returns `p` as an element of the galois group.
+    /// Returns the distinguished Galois element `p`, also referred to as Frobenius automorphism.
     /// 
-    pub fn p(&self) -> &CyclotomicGaloisGroupEl {
-        &self.p
+    pub fn p(&self) -> &GaloisGroupEl {
+        &self.frobenius
     }
 
     ///
-    /// Returns the Galois automorphism corresponding to the power-of-`p^power`
-    /// frobenius automorphism of the slot ring.
+    /// Returns `p^e`, i.e. the `e`-th power of the Frobenius automorphism.
     /// 
-    pub fn frobenius(&self, power: i64) -> CyclotomicGaloisGroupEl {
-        self.galois_group.pow(self.p(), power)
+    pub fn frobenius(&self, e: i64) -> GaloisGroupEl {
+        self.galois_group.pow(self.p(), &int_cast(e, ZZbig, ZZi64))
     }
 
     ///
@@ -354,7 +361,7 @@ impl HypercubeStructure {
     ///
     /// Returns the generator `g_i` corresponding to the `i`-th hypercube dimension.
     /// 
-    pub fn dim_generator(&self, i: usize) -> &CyclotomicGaloisGroupEl {
+    pub fn dim_generator(&self, i: usize) -> &GaloisGroupEl {
         assert!(i < self.ls.len());
         &self.gs[i]
     }
@@ -370,14 +377,6 @@ impl HypercubeStructure {
     }
 
     ///
-    /// Returns `m`, i.e. the multiplicative order of the root of unity of the main ring.
-    /// This is also sometimes called the conductor of the cyclotomic number ring.
-    /// 
-    pub fn m(&self) -> usize {
-        self.galois_group().m()
-    }
-
-    ///
     /// Returns the number of dimensions in the hypercube.
     /// 
     pub fn dim_count(&self) -> usize {
@@ -388,7 +387,7 @@ impl HypercubeStructure {
     /// Returns the Galois group isomorphic to `(Z/mZ)*` that this hypercube
     /// describes.
     /// 
-    pub fn galois_group(&self) -> &CyclotomicGaloisGroup {
+    pub fn galois_group(&self) -> &Subgroup<CyclotomicGaloisGroup> {
         &self.galois_group
     }
 
@@ -426,7 +425,7 @@ impl HypercubeStructure {
     /// 
     /// The order is compatible with [`HypercubeStructure::hypercube_iter()`].
     /// 
-    pub fn element_iter<'b>(&'b self) -> impl ExactSizeIterator<Item = CyclotomicGaloisGroupEl> + use<'b> {
+    pub fn element_iter<'b>(&'b self) -> impl ExactSizeIterator<Item = GaloisGroupEl> + use<'b> {
         self.hypercube_iter(|idxs| self.map_usize(idxs))
     }
 }
@@ -441,7 +440,7 @@ pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
 
 #[test]
 fn test_halevi_shoup_hypercube() {
-    let galois_group = CyclotomicGaloisGroup::new(11 * 31);
+    let galois_group = CyclotomicGaloisGroupBase::new(11 * 31);
     let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(2, ZZbig, ZZi64));
     assert_eq!(10, hypercube_structure.d());
     assert_eq!(2, hypercube_structure.dim_count());
@@ -449,14 +448,14 @@ fn test_halevi_shoup_hypercube() {
     assert_eq!(1, hypercube_structure.dim_length(0));
     assert_eq!(30, hypercube_structure.dim_length(1));
 
-    let galois_group = CyclotomicGaloisGroup::new(32);
+    let galois_group = CyclotomicGaloisGroupBase::new(32);
     let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(7, ZZbig, ZZi64));
     assert_eq!(4, hypercube_structure.d());
     assert_eq!(1, hypercube_structure.dim_count());
 
     assert_eq!(4, hypercube_structure.dim_length(0));
 
-    let galois_group = CyclotomicGaloisGroup::new(32);
+    let galois_group = CyclotomicGaloisGroupBase::new(32);
     let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(17, ZZbig, ZZi64));
     assert_eq!(2, hypercube_structure.d());
     assert_eq!(2, hypercube_structure.dim_count());
@@ -468,9 +467,9 @@ fn test_halevi_shoup_hypercube() {
 #[test]
 fn test_serialization() {
     for hypercube in [
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(11 * 31), int_cast(2, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(32), int_cast(7, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(32), int_cast(17, ZZbig, ZZi64))
+        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(11 * 31), int_cast(2, ZZbig, ZZi64)),
+        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(32), int_cast(7, ZZbig, ZZi64)),
+        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(32), int_cast(17, ZZbig, ZZi64))
     ] {
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
         let tokens = hypercube.serialize(&serializer).unwrap();

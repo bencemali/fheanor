@@ -217,7 +217,7 @@ impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, 
 // #[cfg(test)]
 // use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::number_ring::arithmetic_impl;
+use crate::number_ring::quotient_by_int;
 
 // #[test]
 // fn test_pow2_cyclotomic_double_rns_ring() {
@@ -233,8 +233,8 @@ use crate::number_ring::arithmetic_impl;
 
 #[test]
 fn test_pow2_cyclotomic_number_ring_quotient() {
-    arithmetic_impl::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
-    arithmetic_impl::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
+    quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(8));
+    quotient_by_int::test_with_number_ring(Pow2CyclotomicNumberRing::<DefaultNegacyclicNTT>::new(16));
 }
 
 // #[test]

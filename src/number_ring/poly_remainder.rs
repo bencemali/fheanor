@@ -14,6 +14,7 @@ enum SmallCoeff {
     Zero = 0, One = 1, NegOne = -1
 }
 
+#[derive(Clone)]
 struct SparsePolyReducer<R>
     where R: RingStore
 {
@@ -196,7 +197,7 @@ pub struct CyclotomicPolyReducer<R, C = KaratsubaAlgorithm>
         C: ConvolutionAlgorithm<R::Type>
 {
     sparse_reducers: Vec<SparsePolyReducer<R>>,
-    final_reducer: Option<BarettPolyReducer<R, C>>
+    final_reducer: BarettPolyReducer<R, C>
 }
 
 impl<R, C> CyclotomicPolyReducer<R, C>
@@ -204,8 +205,8 @@ impl<R, C> CyclotomicPolyReducer<R, C>
         C: ConvolutionAlgorithm<R::Type>
 {
     #[instrument(skip_all)]
-    pub fn new(ring: R, m: i64, convolution: C) -> Self {
-        let factorization = factor(StaticRing::<i64>::RING, m);
+    pub fn new(ring: R, m: u64, convolution: C) -> Self {
+        let factorization = factor(StaticRing::<i64>::RING, m as i64);
         let poly_ring = SparsePolyRing::new(StaticRing::<i32>::RING, "X");
         let ring_poly_ring = DensePolyRing::new(ring.clone(), "X");
         let hom = ring_poly_ring.lifted_hom(&poly_ring, ring.int_hom());
@@ -214,19 +215,19 @@ impl<R, C> CyclotomicPolyReducer<R, C>
             let (p, e) = factorization[0];
             return Self {
                 sparse_reducers: vec![SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_polynomial(&poly_ring, p as usize)), ring.clone(), StaticRing::<i64>::RING.pow(p, e - 1) as usize)],
-                final_reducer: None
+                final_reducer: unimplemented!()
             };
         }
 
         let mut sparse_reducers = Vec::new();
         let mut current_n = 1;
-        let mut current_stride = m;
+        let mut current_stride = m as usize;
         for i in 0..factorization.len() {
-            let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, current_n as usize);
-            sparse_reducers.push(SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_poly), ring.clone(), current_stride as usize));
-            let (p, _e) = factorization[i];
-            current_n *= p;
-            current_stride /= p;
+            let cyclotomic_poly = cyclotomic_polynomial(&poly_ring, current_n);
+            sparse_reducers.push(SparsePolyReducer::new(&ring_poly_ring, &hom.map(cyclotomic_poly), ring.clone(), current_stride));
+            let (p, e) = factorization[i];
+            current_n *= p as usize;
+            current_stride /= ZZi64.pow(p, e) as usize;
         }
 
         let cyclotomic_poly = hom.map(cyclotomic_polynomial(&poly_ring, m as usize));
@@ -234,7 +235,7 @@ impl<R, C> CyclotomicPolyReducer<R, C>
 
         return Self {
             sparse_reducers: sparse_reducers,
-            final_reducer: Some(final_reducer)
+            final_reducer: final_reducer
         };
     }
 
@@ -245,9 +246,27 @@ impl<R, C> CyclotomicPolyReducer<R, C>
             reducer.remainder(&mut data[..current_len]);
             current_len = reducer.degree;
         }
-        if let Some(final_reducer) = &self.final_reducer {
-            data[current_len] = final_reducer.ring.zero();
-            final_reducer.remainder(&mut data[..(current_len + 1)]);
+        data[current_len] = self.final_reducer.ring.zero();
+        self.final_reducer.remainder(&mut data[..(current_len + 1)]);
+    }
+
+    pub fn base_ring(&self) -> &R {
+        self.final_reducer.base_ring()
+    }
+
+    pub fn convolution(&self) -> &C {
+        self.final_reducer.convolution()
+    }
+}
+
+impl<R, C> Clone for CyclotomicPolyReducer<R, C>
+    where R: RingStore + Clone,
+        C: ConvolutionAlgorithm<R::Type> + Clone
+{
+    fn clone(&self) -> Self {
+        Self {
+            sparse_reducers: self.sparse_reducers.clone(),
+            final_reducer: self.final_reducer.clone()
         }
     }
 }
@@ -260,6 +279,8 @@ use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 #[cfg(test)]
 use feanor_math::algorithms::convolution::ntt::NTTConvolution;
+
+use crate::ZZi64;
 
 #[test]
 fn test_sparse_poly_remainder() {

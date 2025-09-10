@@ -19,11 +19,8 @@ pub mod galois;
 /// Code for fast polynomial division by a cyclotomic polynomial.
 /// 
 pub mod poly_remainder;
-///
-/// Contains [`arithmetic_impl::NumberRingQuotientImpl`], the main implementation
-/// for rings satisfying [`NumberRingQuotient`].
-/// 
-pub mod arithmetic_impl;
+pub mod quotient_by_int;
+pub mod quotient_by_ideal;
 ///
 /// Contains [`pow2_cyclotomic::Pow2CyclotomicNumberRing`], an implementation of
 /// [`AbstractNumberRing`] for `Z[X]/(X^m + 1)` with `m` a power of two.

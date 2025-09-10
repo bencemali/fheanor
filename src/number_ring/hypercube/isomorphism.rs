@@ -31,11 +31,8 @@ use feanor_math::rings::zn::*;
 use feanor_math::seq::*;
 use feanor_math::serialization::SerializableElementRing;
 use tracing::instrument;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
-use crate::number_ring::arithmetic_impl::*;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::*;
@@ -98,12 +95,6 @@ pub type SlotRingOver<R> = AsLocalPIR<FreeAlgebraImpl<R, Vec<El<R>>, Global, Dyn
 /// slots of the given ring `R`.
 /// 
 pub type SlotRingOf<R> = SlotRingOver<RingValue<BaseRing<R>>>;
-
-///
-/// Instantiation of [`HypercubeIsomorphism`] for the probably most
-/// commonly used ring.
-/// 
-pub type DefaultHypercube<'a, NumberRing, A = Global> = HypercubeIsomorphism<&'a NumberRingQuotientImpl<NumberRing, Zn, A>>;
 
 ///
 /// Shortcut to access the base ring of a ring extension `R`.
@@ -495,29 +486,32 @@ use serde::de::DeserializeSeed;
 use serde::Serialize;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+#[cfg(test)]
+use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
 
 #[cfg(test)]
-fn test_ring1() -> (NumberRingQuotientImpl<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring1() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
+
     let galois_group = CyclotomicGaloisGroupBase::new(32);
     let p = galois_group.from_representative(7);
     let gs = vec![galois_group.from_representative(5)];
     let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 4, vec![4], gs);
-    let ring = NumberRingQuotientImplBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(7));
+    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(7));
     return (ring, hypercube_structure);
 }
 
 #[cfg(test)]
-fn test_ring2() -> (NumberRingQuotientImpl<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring2() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
     let galois_group = CyclotomicGaloisGroupBase::new(32);
     let gs = vec![galois_group.from_representative(5), galois_group.from_representative(-1)];
     let p = galois_group.from_representative(17);
     let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 2, vec![4, 2], gs);
-    let ring = NumberRingQuotientImplBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(17));
+    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(17));
     return (ring, hypercube_structure);
 }
 
 #[cfg(test)]
-fn test_ring3() -> (NumberRingQuotientImpl<CompositeCyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, Zn>, HypercubeStructure) {
     let galois_group = CyclotomicGaloisGroupBase::new(11 * 13);
     let p = galois_group.from_representative(3);
     let gs = vec![galois_group.from_representative(79), galois_group.from_representative(67)];
@@ -528,15 +522,12 @@ fn test_ring3() -> (NumberRingQuotientImpl<CompositeCyclotomicNumberRing, Zn>, H
         vec![2, 4],
         gs
     );
-    let ring = NumberRingQuotientImplBase::new(CompositeCyclotomicNumberRing::new(11, 13), Zn::new(3));
+    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(11, 13), Zn::new(3));
     return (ring, hypercube_structure);
 }
 
 #[test]
 fn test_hypercube_isomorphism_from_to_slot_vector() {
-    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
-    tracing_subscriber::registry().with(chrome_layer).init();
-
     let mut rng = oorandom::Rand64::new(0);
 
     let (ring, hypercube) = test_ring1();

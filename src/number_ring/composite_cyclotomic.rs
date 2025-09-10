@@ -140,7 +140,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
             ))).collect::<Vec<_>>();
         }
 
-        let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m, STANDARD_CONVOLUTION);
+        let cyclotomic_poly_reducer = CyclotomicPolyReducer::new(Fp, m as u64, STANDARD_CONVOLUTION);
 
         CompositeCyclotomicNumberRingQuotientBases {
             coeff_to_small_conversion_matrix: coeff_to_small_conversion_matrix,
@@ -350,11 +350,11 @@ use feanor_math::assert_el_eq;
 // #[cfg(test)]
 // use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::number_ring::arithmetic_impl;
+use crate::number_ring::quotient_by_int;
 #[cfg(test)]
 use crate::ring_literal;
 #[cfg(test)]
-use crate::number_ring::arithmetic_impl::NumberRingQuotientImplBase;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
 use crate::ntt::RustNegacyclicNTT;
 #[cfg(test)]
@@ -376,9 +376,9 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
-    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-    arithmetic_impl::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+    quotient_by_int::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn test_small_coeff_basis_conversion() {
 #[test]
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientImplBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
+    let R = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(5, 3), Fp);
     let gal_el = |x: i64| R.number_ring().galois_group().from_representative(x);
 
     assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0, 0, 0]), &gal_el(2)));

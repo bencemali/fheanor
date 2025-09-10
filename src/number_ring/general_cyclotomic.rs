@@ -380,9 +380,9 @@ use feanor_math::assert_el_eq;
 // #[cfg(test)]
 // use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
-use crate::number_ring::arithmetic_impl;
+use crate::number_ring::quotient_by_int;
 #[cfg(test)]
-use crate::number_ring::arithmetic_impl::NumberRingQuotientImplBase;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
 use crate::ring_literal;
 
@@ -400,14 +400,14 @@ use crate::ring_literal;
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
-    arithmetic_impl::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-    arithmetic_impl::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+    quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    quotient_by_int::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
 }
 
 #[test]
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
-    let R = NumberRingQuotientImplBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
+    let R = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
     let gal_el = |x: i64| R.acting_galois_group().parent().from_representative(x);
 
     assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2)));

@@ -1,0 +1,707 @@
+use std::alloc::{Allocator, Global};
+use std::marker::PhantomData;
+
+use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
+use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
+use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::divisibility::DivisibilityRing;
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
+use feanor_math::homomorphism::*;
+use feanor_math::algorithms::linsolve::LinSolveRing;
+use feanor_math::integer::*;
+use feanor_math::iters::{multi_cartesian_product, MultiProduct};
+use feanor_math::matrix::OwnedMatrix;
+use feanor_math::rings::extension::{create_multiplication_matrix, FreeAlgebra, FreeAlgebraStore};
+use feanor_math::rings::finite::FiniteRing;
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
+use feanor_math::rings::zn::*;
+use feanor_math::ring::*;
+use feanor_math::seq::*;
+use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
+use feanor_math::rings::finite::*;
+use feanor_math::specialization::{FiniteRingOperation, FiniteRingSpecializable};
+
+use feanor_serde::newtype_struct::*;
+use feanor_serde::seq::*;
+use serde::{Deserializer, Serialize, Serializer};
+
+use tracing::instrument;
+
+use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
+use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
+use crate::number_ring::*;
+use crate::prepared_mul::PreparedMultiplicationRing;
+use crate::serde::de::DeserializeSeed;
+use crate::{ZZbig, ZZi64};
+
+///
+/// Implementation of `R/tR` for any modulus `t in R` (without restriction on the
+/// splitting behaviour of `t` over `R`).
+/// 
+pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
+    where NumberRing: AbstractNumberRing,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    number_ring: NumberRing,
+    galois_group: Subgroup<CyclotomicGaloisGroup>,
+    allocator: A,
+    reducer: CyclotomicPolyReducer<ZnTy, C>,
+}
+
+///
+/// [`RingStore`] for [`NumberRingQuotientImplBase`]
+/// 
+pub type NumberRingQuotientByInt<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>;
+
+pub struct NumberRingQuotientByIntEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
+    where NumberRing: AbstractNumberRing,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    ring: PhantomData<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>,
+    data: Vec<El<ZnTy>, A>
+}
+
+pub struct NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
+    where NumberRing: AbstractNumberRing,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    ring: PhantomData<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>,
+    data: C::PreparedConvolutionOperand
+}
+
+impl<NumberRing, ZnTy> NumberRingQuotientByIntBase<NumberRing, ZnTy>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>
+{
+    pub fn new(number_ring: NumberRing, base_ring: ZnTy) -> RingValue<Self> {
+        Self::create(number_ring, base_ring, Global, STANDARD_CONVOLUTION)
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    #[instrument(skip_all)]
+    pub fn create(number_ring: NumberRing, base_ring: ZnTy, allocator: A, convolution: C) -> RingValue<Self> {
+        let poly_ring = DensePolyRing::new(base_ring, "X");
+        let ZZX = DensePolyRing::new(ZZbig, "X");
+        assert!(ZZX.eq_el(&number_ring.generating_poly(&ZZX), &cyclotomic_polynomial(&ZZX, number_ring.galois_group().m() as usize)));
+        let acting_galois_group = number_ring.galois_group().clone().into().full_subgroup();
+        let reducer = CyclotomicPolyReducer::new(poly_ring.into().into_base_ring(), number_ring.galois_group().m(), convolution);
+        return RingValue::from(Self {
+            allocator: allocator,
+            galois_group: acting_galois_group,
+            number_ring: number_ring,
+            reducer: reducer
+        });
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn convolution(&self) -> &C {
+        self.reducer.convolution()
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type> + Clone
+{
+    fn clone(&self) -> Self {
+        Self {
+            allocator: self.allocator.clone(),
+            number_ring: self.number_ring.clone(),
+            reducer: self.reducer.clone(),
+            galois_group: self.galois_group.clone()
+        }
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type NumberRing = NumberRing;
+
+    fn number_ring(&self) -> &Self::NumberRing {
+        &self.number_ring
+    }
+
+    fn acting_galois_group(&self) -> &Subgroup<CyclotomicGaloisGroup> {
+        &self.galois_group
+    }
+
+    #[instrument(skip_all)]
+    fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
+        unimplemented!()
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type PreparedMultiplicant = NumberRingQuotientByIntPreparedMultiplicant<NumberRing, ZnTy, A, C>;
+
+    #[instrument(skip_all)]
+    fn prepare_multiplicant(&self, x: &Self::Element) -> Self::PreparedMultiplicant {
+        NumberRingQuotientByIntPreparedMultiplicant {
+            ring: PhantomData,
+            data: self.convolution().prepare_convolution_operand(&x.data, Some(2 * self.rank()), self.base_ring())
+        }
+    }
+
+    #[instrument(skip_all)]
+    fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: &Self::PreparedMultiplicant, rhs: &Self::Element, rhs_prep: &Self::PreparedMultiplicant) -> Self::Element {
+        assert_eq!(self.rank(), lhs.data.len());
+        assert_eq!(self.rank(), rhs.data.len());
+        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
+        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        self.convolution().compute_convolution_prepared(&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data), &mut result, self.base_ring());
+        self.reducer.remainder(&mut result);
+        result.truncate(self.rank());
+        return NumberRingQuotientByIntEl {
+            ring: PhantomData,
+            data: result
+        };
+    }
+
+    #[instrument(skip_all)]
+    fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
+        where I: IntoIterator<Item = (&'a Self::Element, &'a Self::PreparedMultiplicant, &'a Self::Element, &'a Self::PreparedMultiplicant)>,
+            I::IntoIter: ExactSizeIterator,
+            Self: 'a
+    {
+        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
+        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        self.convolution().compute_convolution_sum(parts.into_iter().map(|(lhs, lhs_prep, rhs, rhs_prep)| {
+            assert_eq!(self.rank(), lhs.data.len());
+            assert_eq!(self.rank(), rhs.data.len());
+            (&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data))
+        }), &mut result, self.base_ring());
+        self.reducer.remainder(&mut result);
+        result.truncate(self.rank());
+        return NumberRingQuotientByIntEl {
+            ring: PhantomData,
+            data: result
+        };
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.number_ring == other.number_ring && self.base_ring().get_ring() == other.base_ring().get_ring()
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type Element = NumberRingQuotientByIntEl<NumberRing, ZnTy, A, C>;
+
+    fn clone_el(&self, val: &Self::Element) -> Self::Element {
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend(val.data.iter().map(|x| self.base_ring().clone_el(x)));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn add_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
+        assert_eq!(lhs.data.len(), self.rank());
+        assert_eq!(rhs.data.len(), self.rank());
+        for (i, x) in rhs.data.into_iter().enumerate() {
+            self.base_ring().add_assign(&mut lhs.data[i], x)
+        }
+    }
+
+    fn add_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
+        assert_eq!(lhs.data.len(), self.rank());
+        assert_eq!(rhs.data.len(), self.rank());
+        for (i, x) in (&rhs.data).into_iter().enumerate() {
+            self.base_ring().add_assign_ref(&mut lhs.data[i], x)
+        }
+    }
+
+    fn sub_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
+        assert_eq!(lhs.data.len(), self.rank());
+        assert_eq!(rhs.data.len(), self.rank());
+        for (i, x) in (&rhs.data).into_iter().enumerate() {
+            self.base_ring().sub_assign_ref(&mut lhs.data[i], x)
+        }
+    }
+
+    fn negate_inplace(&self, lhs: &mut Self::Element) {
+        assert_eq!(lhs.data.len(), self.rank());
+        for i in 0..self.rank() {
+            self.base_ring().negate_inplace(&mut lhs.data[i]);
+        }
+    }
+
+    fn mul_assign(&self, lhs: &mut Self::Element, rhs: Self::Element) {
+        *lhs = self.mul_ref(lhs, &rhs);
+    }
+
+    fn mul_assign_ref(&self, lhs: &mut Self::Element, rhs: &Self::Element) {
+        *lhs = self.mul_ref(lhs, rhs);
+    }
+
+    #[instrument(skip_all)]
+    fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
+        assert_eq!(lhs.data.len(), self.rank());
+        assert_eq!(rhs.data.len(), self.rank());
+        let mut result = Vec::with_capacity_in(2 * self.rank(), self.allocator.clone());
+        result.resize_with(2 * self.rank(), || self.base_ring().zero());
+        self.convolution().compute_convolution_prepared(&lhs.data, None, &rhs.data, None, &mut result, self.base_ring());
+        self.reducer.remainder(&mut result);
+        result.truncate(self.rank());
+        return NumberRingQuotientByIntEl {
+            ring: PhantomData,
+            data: result
+        };
+    }
+    
+    fn from_int(&self, value: i32) -> Self::Element {
+        self.from(self.base_ring().get_ring().from_int(value))
+    }
+
+    fn eq_el(&self, lhs: &Self::Element, rhs: &Self::Element) -> bool {
+        assert_eq!(lhs.data.len(), self.rank());
+        assert_eq!(rhs.data.len(), self.rank());
+        for i in 0..self.rank() {
+            if !self.base_ring().eq_el(&lhs.data[i], &rhs.data[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn zero(&self) -> Self::Element {
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend((0..self.rank()).map(|_| self.base_ring().zero()));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn is_zero(&self, value: &Self::Element) -> bool {
+        assert_eq!(value.data.len(), self.rank());
+        value.data.iter().all(|x| self.base_ring().is_zero(x))
+    }
+
+    fn is_one(&self, value: &Self::Element) -> bool {
+        assert_eq!(value.data.len(), self.rank());
+        self.base_ring().is_one(&value.data[0]) && value.data[1..].iter().all(|x| self.base_ring().is_zero(x))
+    }
+
+    fn is_neg_one(&self, value: &Self::Element) -> bool {
+        assert_eq!(value.data.len(), self.rank());
+        self.base_ring().is_neg_one(&value.data[0]) && value.data[1..].iter().all(|x| self.base_ring().is_zero(x))
+    }
+    
+    fn is_commutative(&self) -> bool { true }
+    fn is_noetherian(&self) -> bool { true }
+    fn is_approximate(&self) -> bool { false }
+
+    fn dbg<'a>(&self, value: &Self::Element, out: &mut std::fmt::Formatter<'a>) -> std::fmt::Result {
+        self.dbg_within(value, out, EnvBindingStrength::Weakest)
+    }
+
+    fn dbg_within<'a>(&self, value: &Self::Element, out: &mut std::fmt::Formatter<'a>, _env: EnvBindingStrength) -> std::fmt::Result {
+        let poly_ring = DensePolyRing::new(self.base_ring(), "X");
+        poly_ring.get_ring().dbg(&RingRef::new(self).poly_repr(&poly_ring, value, self.base_ring().identity()), out)
+    }
+
+    fn characteristic<I: IntegerRingStore + Copy>(&self, ZZ: I) -> Option<El<I>>
+        where I::Type: IntegerRing
+    {
+        self.base_ring().characteristic(ZZ)
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type BaseRing = ZnTy;
+
+    fn base_ring<'a>(&'a self) -> &'a Self::BaseRing {
+        self.reducer.base_ring()
+    }
+
+    fn from(&self, x: El<Self::BaseRing>) -> Self::Element {
+        let mut result = self.zero();
+        result.data[0] = x;
+        return result;
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type VectorRepresentation<'a> = CloneElFn<&'a [El<ZnTy>], El<ZnTy>, CloneRingEl<&'a ZnTy>>
+        where Self: 'a;
+
+    fn from_canonical_basis<V>(&self, vec: V) -> Self::Element
+        where V: IntoIterator<Item = El<Self::BaseRing>>
+    {
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend(vec);
+        assert_eq!(result.len(), self.rank());
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn wrt_canonical_basis<'a>(&'a self, el: &'a Self::Element) -> Self::VectorRepresentation<'a> {
+        (&el.data[..]).clone_ring_els(self.base_ring())
+    }
+
+    fn canonical_gen(&self) -> Self::Element {
+        let mut result = self.zero();
+        if result.data.len() > 1 {
+            result.data[1] = self.base_ring().one();
+        } else {
+            result.data[0] = self.base_ring().one();
+        }
+        return result;
+    }
+
+    fn rank(&self) -> usize {
+        self.number_ring.rank()
+    }
+}
+
+pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    ring: &'a NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>,
+}
+
+impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{}
+
+impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type Output = El<NumberRingQuotientByInt<NumberRing, ZnTy, A, C>>;
+
+    extern "rust-call" fn call_once(self, args: (&'b [El<ZnTy>],)) -> Self::Output {
+        self.call(args)
+    }
+}
+
+impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    extern "rust-call" fn call_mut(&mut self, args: (&'b [El<ZnTy>],)) -> Self::Output {
+        self.call(args)
+    }
+}
+
+impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    extern "rust-call" fn call(&self, args: (&'b [El<ZnTy>],)) -> Self::Output {
+        self.ring.from_canonical_basis(args.0.iter().map(|x| self.ring.base_ring().clone_el(x)))
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn specialize<O: FiniteRingOperation<Self>>(op: O) -> O::Output {
+        op.execute()
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type ElementsIter<'a> = MultiProduct<<ZnTy::Type as FiniteRing>::ElementsIter<'a>, WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>, CloneRingEl<&'a ZnTy>, Self::Element>
+        where Self: 'a;
+
+    fn elements<'a>(&'a self) -> Self::ElementsIter<'a> {
+        multi_cartesian_product((0..self.rank()).map(|_| self.base_ring().elements()), WRTCanonicalBasisElementCreator { ring: self }, CloneRingEl(self.base_ring()))
+    }
+
+    fn random_element<G: FnMut() -> u64>(&self, mut rng: G) -> Self::Element {
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend((0..self.rank()).map(|_| self.base_ring().random_element(&mut rng)));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn size<I: IntegerRingStore + Copy>(&self, ZZ: I) -> Option<El<I>>
+        where I::Type: IntegerRing
+    {
+        let characteristic = self.base_ring().size(ZZ)?;
+        if ZZ.get_ring().representable_bits().is_none() || ZZ.get_ring().representable_bits().unwrap() >= self.rank() * ZZ.abs_log2_ceil(&characteristic).unwrap() {
+            Some(ZZ.pow(characteristic, self.rank()))
+        } else {
+            None
+        }
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn checked_left_div(&self, lhs: &Self::Element, rhs: &Self::Element) -> Option<Self::Element> {
+        let mut mul_matrix: OwnedMatrix<_> = create_multiplication_matrix(RingRef::new(self), rhs, Global);
+        let data = self.wrt_canonical_basis(&lhs);
+        let mut lhs_matrix: OwnedMatrix<_> = OwnedMatrix::from_fn(self.rank(), 1, |i, _| data.at(i));
+
+        let mut solution: OwnedMatrix<_> = OwnedMatrix::zero(self.rank(), 1, self.base_ring());
+        let has_sol = self.base_ring().get_ring().solve_right(mul_matrix.data_mut(), lhs_matrix.data_mut(), solution.data_mut(), Global);
+        if has_sol.is_solved() {
+            return Some(self.from_canonical_basis((0..self.rank()).map(|i| self.base_ring().clone_el(solution.at(i, 0)))));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: SerializableElementRing + ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(el.data.iter().map(|x| SerializeWithRing::new(x, self.base_ring())), el.data.len())).serialize(serializer)
+    }
+
+    fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self::Element, D::Error>
+        where D: Deserializer<'de> 
+    {
+        let result = DeserializeSeedNewtypeStruct::new("RingEl", DeserializeSeedSeq::new(
+            (0..(self.rank() + 1)).map(|_| DeserializeWithRing::new(self.base_ring())),
+            Vec::with_capacity_in(self.rank(), self.allocator.clone()),
+            |mut current, next| { current.push(next); current }
+        )).deserialize(deserializer)?;
+        if result.len() != self.rank() {
+            return Err(serde::de::Error::invalid_length(result.len(), &format!("expected {} elements", self.rank()).as_str()));
+        }
+        return Ok(NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        });
+    }
+}
+
+impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy: RingStore + Clone,
+        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type Homomorphism = <ZnTy::Type as CanHomFrom<BigIntRingBase>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &BigIntRingBase) -> Option<Self::Homomorphism> {
+        self.base_ring().get_ring().has_canonical_hom(from)
+    }
+
+    fn map_in(&self, from: &BigIntRingBase, el: El<BigIntRing>, hom: &Self::Homomorphism) -> Self::Element {
+        self.from(self.base_ring().get_ring().map_in(from, el, hom))
+    }
+
+    fn mul_assign_map_in(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: <BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base_ring().get_ring().map_in(from, rhs, hom));
+    }
+
+    fn mul_assign_map_in_ref(&self, from: &BigIntRingBase, lhs: &mut Self::Element, rhs: &<BigIntRingBase as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.mul_assign_base(lhs, &self.base_ring().get_ring().map_in_ref(from, rhs, hom));
+    }
+}
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIntBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy1: RingStore + Clone,
+        ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
+        ZnTy2: RingStore + Clone,
+        ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
+        ZnTy1::Type: CanHomFrom<ZnTy2::Type>
+{
+    type Homomorphism = <ZnTy1::Type as CanHomFrom<ZnTy2::Type>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Homomorphism> {
+        if self.number_ring == from.number_ring {
+            self.base_ring().get_ring().has_canonical_hom(from.base_ring().get_ring())
+        } else {
+            None
+        }
+    }
+
+    fn map_in(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>, el: <NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
+        assert_eq!(el.data.len(), self.rank());
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_in(from.base_ring().get_ring(), from.base_ring().clone_el(&el.data[i]), hom)));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+}
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIntBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing + Clone,
+        ZnTy1: RingStore + Clone,
+        ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
+        ZnTy2: RingStore + Clone,
+        ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
+        ZnTy1::Type: CanIsoFromTo<ZnTy2::Type>
+{
+    type Isomorphism = <ZnTy1::Type as CanIsoFromTo<ZnTy2::Type>>::Isomorphism;
+
+    fn has_canonical_iso(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Isomorphism> {
+        if self.number_ring == from.number_ring {
+            self.base_ring().get_ring().has_canonical_iso(from.base_ring().get_ring())
+        } else {
+            None
+        }
+    }
+
+    fn map_out(&self, from: &NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2>, el: Self::Element, iso: &Self::Isomorphism) -> <NumberRingQuotientByIntBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element {
+        assert_eq!(el.data.len(), self.rank());
+        let mut result = Vec::with_capacity_in(self.rank(), from.allocator.clone());
+        result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_out(from.base_ring().get_ring(), self.base_ring().clone_el(&el.data[i]), iso)));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+}
+
+#[cfg(test)]
+pub fn test_with_number_ring<NumberRing: AbstractNumberRing>(number_ring: NumberRing) {
+
+    let base_ring = zn_64::Zn::new(5);
+    let rank = number_ring.rank();
+    let ring = NumberRingQuotientByIntBase::new(number_ring, base_ring);
+
+    let elements = vec![
+        ring.zero(),
+        ring.one(),
+        ring.neg_one(),
+        ring.int_hom().map(2),
+        ring.canonical_gen(),
+        ring.pow(ring.canonical_gen(), 2),
+        ring.pow(ring.canonical_gen(), rank - 1),
+        ring.int_hom().mul_map(ring.canonical_gen(), 2),
+        ring.int_hom().mul_map(ring.pow(ring.canonical_gen(), rank - 1), 2)
+    ];
+
+    feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
+    feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
+    feanor_math::rings::extension::generic_tests::test_free_algebra_axioms(&ring);
+    feanor_math::serialization::generic_tests::test_serialization(&ring, elements.iter().map(|x| ring.clone_el(x)));
+}

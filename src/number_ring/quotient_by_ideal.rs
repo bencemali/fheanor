@@ -163,6 +163,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
         let gen_mipo = number_ring.generating_poly(&ZZX);
         let ZZX_to_poly_ring = poly_ring.lifted_hom(&ZZX, poly_ring.base_ring().can_hom(poly_ring.base_ring().integer_ring()).unwrap().compose(poly_ring.base_ring().integer_ring().can_hom(&ZZbig).unwrap()));
         let modulus = poly_ring.ideal_gen(&ideal_generator, &ZZX_to_poly_ring.map(gen_mipo));
+        let rank = poly_ring.degree(&modulus).unwrap();
 
         let FpX = DensePolyRing::new(base_ring, "X");
         let Fp = FpX.base_ring();
@@ -173,7 +174,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
             acting_galois_group: acting_galois_group,
             allocator: allocator,
             generator_galois_conjugates: Vec::new(),
-            reducer: BarettPolyReducer::new(FpX, &modulus_FpX, 2 * number_ring.rank() - 2, convolution),
+            reducer: BarettPolyReducer::new(FpX, &modulus_FpX, 2 * rank - 2, convolution),
             number_ring: number_ring
         };
         result.init_galois_conjugates();

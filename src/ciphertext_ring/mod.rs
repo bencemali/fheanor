@@ -4,14 +4,14 @@ use std::convert::identity;
 use feanor_math::integer::BigIntRing;
 use feanor_math::matrix::*;
 use feanor_math::ring::*;
-use feanor_math::rings::extension::FreeAlgebra;
 use feanor_math::rings::zn::zn_64::{ZnEl, Zn, ZnBase};
 use feanor_math::rings::zn::zn_rns;
 use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::number_ring::HENumberRing;
+use crate::number_ring::NumberRingQuotient;
+use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::RNSOperation;
 
 pub mod indices;
@@ -76,11 +76,7 @@ pub fn add_rns_factor_list_of_congruences<'a, R, E>(to: &'a R, from: &'a R, adde
 /// RNS basis, which provide all necessary operations for use as ciphertext ring in BFV/BGV-style
 /// HE schemes.
 /// 
-pub trait BGFVCiphertextRing: PreparedMultiplicationRing + FreeAlgebra + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
-
-    type NumberRing: HENumberRing;
-
-    fn number_ring(&self) -> &Self::NumberRing;
+pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
 
     ///
     /// Computes the element of this ring that satisfies the given congruences.

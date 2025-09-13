@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::ring::*;
 
-use crate::cyclotomic::{CyclotomicGaloisGroupEl, CyclotomicQuotient, CyclotomicQuotientStore};
+use crate::number_ring::galois::*;
+use crate::number_ring::{NumberRingQuotient, NumberRingQuotientStore};
 
 use super::Coefficient;
 
@@ -49,7 +50,7 @@ pub trait CircuitEvaluator<'a, T, R: ?Sized + RingBase> {
     fn mul(&mut self, lhs: T, rhs: T) -> T;
     fn square(&mut self, val: T) -> T;
     fn constant(&mut self, constant: &'a Coefficient<R>) -> T;
-    fn gal(&mut self, val: T, gs: &'a [CyclotomicGaloisGroupEl]) -> Vec<T>;
+    fn gal(&mut self, val: T, gs: &'a [GaloisGroupEl]) -> Vec<T>;
 
     fn add_inner_prod<'b, I>(&mut self, dst: T, data: I) -> T
         where I: Iterator<Item = (&'a Coefficient<R>, &'b T)>,
@@ -109,7 +110,7 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
         self.hom.map(constant.clone(self.hom.domain()).to_ring_el(self.hom.domain()))
     }
 
-    fn gal(&mut self, _val: S::Element, _gs: &[CyclotomicGaloisGroupEl]) -> Vec<S::Element> {
+    fn gal(&mut self, _val: S::Element, _gs: &[GaloisGroupEl]) -> Vec<S::Element> {
         panic!()
     }
 
@@ -124,7 +125,7 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluator<R, S, H>
 
 pub struct HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicQuotient,
+        S: ?Sized + RingBase + NumberRingQuotient,
         H: Homomorphism<R, S>
 {
     from: PhantomData<Box<R>>,
@@ -134,7 +135,7 @@ pub struct HomEvaluatorGal<R, S, H>
 
 impl<R, S, H> HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicQuotient,
+        S: ?Sized + RingBase + NumberRingQuotient,
         H: Homomorphism<R, S>
 {
     pub fn new(hom: H) -> Self {
@@ -148,7 +149,7 @@ impl<R, S, H> HomEvaluatorGal<R, S, H>
 
 impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, H>
     where R: ?Sized + RingBase,
-        S: ?Sized + RingBase + CyclotomicQuotient,
+        S: ?Sized + RingBase + NumberRingQuotient,
         H: Homomorphism<R, S>
 {
     fn supports_gal(&self) -> bool { true }
@@ -174,7 +175,7 @@ impl<'a, R, S, H> CircuitEvaluator<'a, S::Element, R> for HomEvaluatorGal<R, S, 
         self.hom.map(constant.clone(self.hom.domain()).to_ring_el(self.hom.domain()))
     }
 
-    fn gal(&mut self, val: S::Element, gs: &[CyclotomicGaloisGroupEl]) -> Vec<S::Element> {
+    fn gal(&mut self, val: S::Element, gs: &[GaloisGroupEl]) -> Vec<S::Element> {
         self.hom.codomain().apply_galois_action_many(&val, gs)
     }
 
@@ -251,7 +252,7 @@ pub struct DefaultCircuitEvaluator<'a, T, R: ?Sized + RingBase, FnMul, FnConst, 
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
-        FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
+        FnGal: Possibly, FnGal::T: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>,
         FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a
 {
@@ -265,7 +266,7 @@ pub struct DefaultCircuitEvaluator<'a, T, R: ?Sized + RingBase, FnMul, FnConst, 
     inner_product: FnInnerProd
 }
 
-impl<'a, T, R: ?Sized + RingBase, FnConst, FnAddProd> DefaultCircuitEvaluator<'a, T, R, Absent<fn(T, T) -> T>, FnConst, Present<FnAddProd>, Absent<fn(T) -> T>, Absent<fn(T, &[CyclotomicGaloisGroupEl]) -> Vec<T>>, Absent<fn(T, &[&'a Coefficient<R>], &[&T]) -> T>>
+impl<'a, T, R: ?Sized + RingBase, FnConst, FnAddProd> DefaultCircuitEvaluator<'a, T, R, Absent<fn(T, T) -> T>, FnConst, Present<FnAddProd>, Absent<fn(T) -> T>, Absent<fn(T, &[GaloisGroupEl]) -> Vec<T>>, Absent<fn(T, &[&'a Coefficient<R>], &[&T]) -> T>>
     where FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: FnMut(T, &'a Coefficient<R>, &T) -> T,
         R: 'a
@@ -289,7 +290,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Fn
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
-        FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
+        FnGal: Possibly, FnGal::T: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>,
         FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
@@ -332,7 +333,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal, Fn
         (self.constant)(constant)
     }
 
-    fn gal(&mut self, val: T, gs: &'a [CyclotomicGaloisGroupEl]) -> Vec<T> {
+    fn gal(&mut self, val: T, gs: &'a [GaloisGroupEl]) -> Vec<T> {
         if let Some(gal) = self.gal.get_mut_option() {
             gal(val, gs)
         } else {
@@ -355,7 +356,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnGal, FnInnerProd>
     where FnMul: Possibly, FnMul::T: FnMut(T, T) -> T,
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
-        FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
+        FnGal: Possibly, FnGal::T: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>,
         FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
@@ -380,7 +381,7 @@ impl<'a, T, R: ?Sized + RingBase, FnSquare, FnConst, FnAddProd, FnGal, FnInnerPr
     where FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
-        FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
+        FnGal: Possibly, FnGal::T: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>,
         FnInnerProd: Possibly, FnInnerProd::T: FnMut(T, &[&'a Coefficient<R>], &[&T]) -> T,
         R: 'a,
         T: 'a
@@ -401,7 +402,7 @@ impl<'a, T, R: ?Sized + RingBase, FnSquare, FnConst, FnAddProd, FnGal, FnInnerPr
     }
 }
 
-impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnInnerProd> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, Absent<fn(T, &[CyclotomicGaloisGroupEl]) -> Vec<T>>, FnInnerProd>
+impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnInnerProd> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, Absent<fn(T, &[GaloisGroupEl]) -> Vec<T>>, FnInnerProd>
     where FnMul: Possibly, FnMul::T: FnMut(T, T) -> T,
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
@@ -411,7 +412,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnInnerPr
         T: 'a
 {
     pub fn with_gal<FnGal>(self, gal: FnGal) -> DefaultCircuitEvaluator<'a, T, R, FnMul, FnConst, FnAddProd, FnSquare, Present<FnGal>, FnInnerProd>
-        where FnGal: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>
+        where FnGal: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>
     {
         DefaultCircuitEvaluator {
             add_prod: self.add_prod,
@@ -431,7 +432,7 @@ impl<'a, T, R: ?Sized + RingBase, FnMul, FnConst, FnAddProd, FnSquare, FnGal> De
         FnConst: FnMut(&'a Coefficient<R>) -> T,
         FnAddProd: Possibly, FnAddProd::T: FnMut(T, &'a Coefficient<R>, &T) -> T,
         FnSquare: Possibly, FnSquare::T: FnMut(T) -> T,
-        FnGal: Possibly, FnGal::T: FnMut(T, &'a [CyclotomicGaloisGroupEl]) -> Vec<T>,
+        FnGal: Possibly, FnGal::T: FnMut(T, &'a [GaloisGroupEl]) -> Vec<T>,
         R: 'a,
         T: 'a
 {

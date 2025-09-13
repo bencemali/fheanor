@@ -19,7 +19,7 @@ use feanor_math::seq::subvector::SubvectorView;
 use tracing::instrument;
 use feanor_math::seq::*;
 
-use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
+use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;
 use crate::number_ring::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
@@ -218,7 +218,7 @@ impl<L, R, A> PartialEq for CompositeCyclotomicNumberRingQuotientBases<L, R, A>
 impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientBases<L, R, A> 
     where L: NumberRingQuotientBases,
         R: NumberRingQuotientBases,
-        A: Allocator + Clone + Send + Sync
+        A: Allocator + Clone 
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.joint_galois_group
@@ -318,9 +318,9 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
         where V1: VectorView<ZnEl>,
             V2: SwappableVectorViewMut<ZnEl>
     {
-        let ring_factor1 = self.left_factor.galois_group().get_group();
-        let ring_factor2 = self.right_factor.galois_group().get_group();
-        let galois_group = self.joint_galois_group.get_group();
+        let ring_factor1 = self.left_factor.galois_group();
+        let ring_factor2 = self.right_factor.galois_group();
+        let galois_group = &self.joint_galois_group;
         let g1 = ring_factor1.from_representative(galois_group.representative(galois_element) as i64);
         let g2 = ring_factor2.from_representative(galois_group.representative(galois_element) as i64);
         let mut tmp = Vec::with_capacity_in(self.rank(), &self.allocator);
@@ -345,10 +345,10 @@ impl<L, R, A> NumberRingQuotientBases for CompositeCyclotomicNumberRingQuotientB
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
-// #[cfg(test)]
-// use crate::ciphertext_ring::double_rns_ring;
-// #[cfg(test)]
-// use crate::ciphertext_ring::single_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::double_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int;
 #[cfg(test)]
@@ -360,19 +360,19 @@ use crate::ntt::RustNegacyclicNTT;
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 
-// #[test]
-// fn test_odd_cyclotomic_double_rns_ring() {
-//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-//     double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
-// }
+#[test]
+fn test_odd_cyclotomic_double_rns_ring() {
+    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+    double_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+}
 
-// #[test]
-// fn test_odd_cyclotomic_single_rns_ring() {
-//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
-//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
-//     single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
-// }
+#[test]
+fn test_odd_cyclotomic_single_rns_ring() {
+    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 5));
+    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new(3, 7));
+    single_rns_ring::test_with_number_ring(CompositeCyclotomicNumberRing::new_with_factors(OddSquarefreeCyclotomicNumberRing::new(3), Pow2CyclotomicNumberRing::<RustNegacyclicNTT<_>>::new(8)));
+}
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {

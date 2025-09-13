@@ -487,7 +487,7 @@ pub trait CLPXInstantiation {
 
 pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Pow2BFV<A, C>;
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
@@ -523,7 +523,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 
 pub type CompositeCLPX<A = DefaultCiphertextAllocator> = CompositeBFV<A>;
 
-impl<A: Allocator + Clone + Send + Sync> CLPXInstantiation for CompositeCLPX<A> {
+impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;

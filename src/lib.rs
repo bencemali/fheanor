@@ -151,9 +151,9 @@ pub fn log_time<F, T, const LOG: bool, const COUNTER_VAR_COUNT: usize>(descripti
 /// Having a single trait for all these cases looses a little bit of
 /// flexibility, but significantly simplifies many trait bounds.
 /// 
-pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing + Send + Sync {}
+pub trait NiceZn: Sized + Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing  {}
 
-impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing + Send + Sync> NiceZn for R
+impl<R: Clone + ZnRing + SelfIso + CanHomFrom<StaticRingBase<i64>> + CanHomFrom<BigIntRingBase> + LinSolveRing + FromModulusCreateableZnRing + SerializableElementRing > NiceZn for R
     where AsLocalPIRBase<RingValue<R>>: CanIsoFromTo<R>
 {}
 
@@ -201,41 +201,41 @@ pub mod rns_conv;
 /// 
 pub mod number_ring;
 
-// ///
-// /// Implementation of rings using double-RNS representation.
-// /// 
-// pub mod ciphertext_ring;
+///
+/// Implementation of rings using double-RNS representation.
+/// 
+pub mod ciphertext_ring;
 
-// ///
-// /// Contains an implementation of "gadget products", which are a form of inner
-// /// products that are commonly used in HE to compute multiplications of noisy values
-// /// in a way that reduces the increase in noise.
-// /// 
-// pub mod gadget_product;
+///
+/// Contains an implementation of "gadget products", which are a form of inner
+/// products that are commonly used in HE to compute multiplications of noisy values
+/// in a way that reduces the increase in noise.
+/// 
+pub mod gadget_product;
+
+///
+/// The implementation of arithmetic-galois circuits (i.e. circuits built
+/// from linear combination, multiplication and galois gates).
+/// 
+pub mod circuit;
+
+///
+/// Contains algorithms to compute linear transformations and represent
+/// them as linear combination of Galois automorphisms, as required for
+/// (second-generation) HE schemes.
+/// 
+pub mod lin_transform;
+
+///
+/// Contains algorithms to build arithmetic circuits, with a focus on
+/// digit extraction polynomials.
+/// 
+pub mod digit_extract;
 
 // ///
 // /// Contains an implementation of the BFV scheme.
 // /// 
 // pub mod bfv;
-
-// ///
-// /// The implementation of arithmetic-galois circuits (i.e. circuits built
-// /// from linear combination, multiplication and galois gates).
-// /// 
-// pub mod circuit;
-
-// ///
-// /// Contains algorithms to compute linear transformations and represent
-// /// them as linear combination of Galois automorphisms, as required for
-// /// (second-generation) HE schemes.
-// /// 
-// pub mod lin_transform;
-
-// ///
-// /// Contains algorithms to build arithmetic circuits, with a focus on
-// /// digit extraction polynomials.
-// /// 
-// pub mod digit_extract;
 
 // ///
 // /// Contains an implementation of the BGV scheme.

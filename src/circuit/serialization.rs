@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use feanor_math::group::{DeserializeWithGroup, SerializeWithGroup};
 use feanor_math::ring::*;
 use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
 use serde::de::DeserializeSeed;
@@ -7,7 +8,7 @@ use serde::Serialize;
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 use feanor_serde::seq::*;
 
-use crate::cyclotomic::{CyclotomicGaloisGroup, CyclotomicGaloisGroupEl, DeserializeSeedCyclotomicGaloisGroupEl, SerializableCyclotomicGaloisGroupEl};
+use crate::number_ring::galois::*;
 
 use super::{Coefficient, LinearCombination, PlaintextCircuit, PlaintextCircuitGate};
 
@@ -116,7 +117,7 @@ impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R>
                     rhs: serialize_lin_transform(rhs, self.ring)
                 }),
                 PlaintextCircuitGate::Gal(gs, val) => SerializablePlaintextCircuitGate::Gal(SerializablePlaintextCircuitGalGate {
-                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializableCyclotomicGaloisGroupEl::new(self.galois_group.unwrap(), g.clone())), gs.len()), 
+                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group.unwrap())), gs.len()), 
                     input: serialize_lin_transform(val, self.ring)
                 }),
                 PlaintextCircuitGate::Square(val) => SerializablePlaintextCircuitGate::Square(SerializablePlaintextCircuitSquareGate { 
@@ -195,12 +196,12 @@ struct DeserializeSeedPlaintextCircuitGalGate<'a, R: RingStore + Copy>
     deserializer: DeserializeWithRing<R>
 }
 
-fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitGalGate<'a, R>) -> impl use<'a, 'de, R> + DeserializeSeed<'de, Value = Vec<CyclotomicGaloisGroupEl>>
+fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitGalGate<'a, R>) -> impl use<'a, 'de, R> + DeserializeSeed<'de, Value = Vec<GaloisGroupEl>>
     where R: RingStore + Copy, R::Type: SerializableElementRing
 {
     let galois_group: &'a CyclotomicGaloisGroup = d.galois_group.expect("cannot deserialize a circuit with galois gates if no galois group was specified");
     DeserializeSeedSeq::new(
-        std::iter::repeat(DeserializeSeedCyclotomicGaloisGroupEl::new(galois_group)),
+        std::iter::repeat(DeserializeWithGroup::new(galois_group)),
         Vec::new(),
         |mut current, next| { current.push(next); current }
     )
@@ -208,7 +209,7 @@ fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitG
 
 impl_deserialize_seed_for_dependent_struct!{
     <{'de, 'a, R}> pub struct GalGateData<{'de, R}> using DeserializeSeedPlaintextCircuitGalGate<'a, R> {
-        automorphisms: Vec<CyclotomicGaloisGroupEl>: derive_gal_gate_deserializer,
+        automorphisms: Vec<GaloisGroupEl>: derive_gal_gate_deserializer,
         input: LinearCombinationData<'de, R>: |d: &DeserializeSeedPlaintextCircuitGalGate<R>| DeserializeSeedLinearCombination { deserializer: d.deserializer.clone() }
     } where R: RingStore + Copy, R::Type: SerializableElementRing
 }

@@ -11,7 +11,7 @@ use feanor_math::rings::poly::PolyRing;
 use feanor_math::rings::zn::zn_64;
 use feanor_math::seq::*;
 
-use crate::number_ring::galois::{CyclotomicGaloisGroup, GaloisGroupEl};
+use crate::number_ring::galois::*;
 
 pub mod galois;
 
@@ -120,7 +120,7 @@ impl<R: RingStore> NumberRingQuotientStore for R
 /// represent the same ring, and also all three basis should coincide (in case of the "multiplicative
 /// basis", it should coincide for every prime `p`).
 /// 
-pub trait AbstractNumberRing: Send + Sync + PartialEq + Clone {
+pub trait AbstractNumberRing: PartialEq + Clone {
 
     type NumberRingQuotientBases: NumberRingQuotientBases;
 
@@ -191,7 +191,7 @@ pub trait AbstractNumberRing: Send + Sync + PartialEq + Clone {
 /// elements `𝝵^i` are all "small"), staying in "small basis" whenever possible has
 /// performance benefits, because of the tensor-decomposition.
 /// 
-pub trait NumberRingQuotientBases: Send + Sync + PartialEq {
+pub trait NumberRingQuotientBases: PartialEq {
 
     fn base_ring(&self) -> &zn_64::Zn;
 

@@ -1,7 +1,10 @@
 use std::cell::RefCell;
 
+use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::sqr_mul::generic_pow_shortest_chain_table;
 use feanor_math::computation::no_error;
+use feanor_math::group::AbelianGroupStore;
+use feanor_math::integer::int_cast;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::primitive_int::StaticRing;
@@ -9,75 +12,72 @@ use feanor_math::ring::*;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 
 use crate::circuit::PlaintextCircuit;
+use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
-use crate::cyclotomic::*;
-use crate::NiceZn;
+use crate::{NiceZn, ZZbig, ZZi64};
 
 ///
-/// Generates a circuit that computes a relative trace in a ring with the given Galois group.
+/// Generates a circuit that computes a relative trace between two rings
+/// with the given relative galois group.
 /// 
-/// The most important case is that `relative_galois_group_gen` generates `galois_group`, in which case this is the absolute
-/// trace over the prime field.
-/// 
-/// In more detail, given the Galois group `G` of a ring `R` and the "relative Galois group generator" `σ in G`, the returned
-/// circuit computes the trace in the ring extension `R/S`, where `S` is the subring of `R` whose elements are fixed by `<σ> <= G`.
-/// The value `relative_degree` must be equal to the order of `σ` in `G`.
-/// The given ring `ring` is completely irrelevant for this discussion, it is only used to provide the constants used to build the
-/// circuit (in particular, it is not required to have a well-defined Galois group, and can e.g. be `StaticRing::<i64>::RING`).
-/// 
-/// Formally, the returned circuit computes the map
+/// More concretely, this creates a circuit that computes
 /// ```text
-///   x  ->  sum_(0 <= k < relative_degree) σ^k(x)
+///   x -> sum_σ σ(x)
 /// ```
+/// where `σ` ranges through `relative_galois_group`.
 /// 
-pub fn trace_circuit<R>(ring: &R, galois_group: &CyclotomicGaloisGroup, relative_galois_group_gen: &CyclotomicGaloisGroupEl, relative_degree: usize) -> PlaintextCircuit<R>
-    where R: ?Sized + RingBase
+pub fn trace_circuit<R>(ring: R, relative_galois_group: &Subgroup<CyclotomicGaloisGroup>) -> PlaintextCircuit<R::Type>
+    where R: RingStore + Copy
 {
-    assert!(galois_group.is_identity(&galois_group.pow(relative_galois_group_gen, relative_degree as i64)));
+    fn cyclic_trace_circuit<R>(ring: R, galois_group: &Subgroup<CyclotomicGaloisGroup>, generator: &GaloisGroupEl, l: usize) -> PlaintextCircuit<R::Type>
+        where R: RingStore + Copy
+    {
+        let mut circuit = PlaintextCircuit::identity(1, ring);
+        let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: i64| {
+            take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(PlaintextCircuit::add(ring).compose(
+                PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(generator, &int_cast(l_num, ZZbig, ZZi64)), galois_group, ring), ring), ring
+            ), ring).compose(
+                PlaintextCircuit::select(circuit.output_count(), &(0..circuit.output_count()).chain([l_idx, r_idx].into_iter()).collect::<Vec<_>>(), ring), ring
+            ).compose(
+                circuit, ring
+            ));
+            return circuit.output_count() - 1;
+        });
 
-    let ring = RingRef::new(ring);
-    let mut circuit = PlaintextCircuit::identity(1, ring);
-
-    let extend_circuit = RefCell::new(|l_idx: usize, r_idx: usize, l_num: usize| {
-        take_mut::take(&mut circuit, |circuit| PlaintextCircuit::identity(circuit.output_count(), ring).tensor(PlaintextCircuit::add(ring).compose(
-            PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(galois_group.pow(relative_galois_group_gen, l_num as i64), galois_group, ring), ring), ring
-        ), ring).compose(
-            PlaintextCircuit::select(circuit.output_count(), &(0..circuit.output_count()).chain([l_idx, r_idx].into_iter()).collect::<Vec<_>>(), ring), ring
-        ).compose(
-            circuit, ring
-        ));
-        return circuit.output_count() - 1;
-    });
-
-    let result_idx = generic_pow_shortest_chain_table(
-        (Some(0), 1),
-        &(relative_degree as i64),
-        StaticRing::<i64>::RING,
-        |(idx, num)| {
-            if let Some(idx) = idx {
-                let result = extend_circuit.borrow_mut()(*idx, *idx, *num);
-                Ok((Some(result), num + num))
-            } else {
-                Ok((None, 0))
-            }
-        },
-        |(l_idx, l_num), (r_idx, r_num)| {
-            if let Some(l_idx) = l_idx {
-                if let Some(r_idx) = r_idx {
-                    let result = extend_circuit.borrow_mut()(*l_idx, *r_idx, *l_num);
-                    Ok((Some(result), l_num + r_num))
+        let result_idx = generic_pow_shortest_chain_table(
+            (Some(0), 1),
+            &(l as i64),
+            StaticRing::<i64>::RING,
+            |(idx, num)| {
+                if let Some(idx) = idx {
+                    let result = extend_circuit.borrow_mut()(*idx, *idx, *num);
+                    Ok((Some(result), num + num))
                 } else {
-                    Ok((Some(*l_idx), *l_num))
+                    Ok((None, 0))
                 }
-            } else {
-                Ok((*r_idx, *r_num))
-            }
-        },
-        |x| *x,
-        (None, 0)
-    ).unwrap_or_else(no_error).0.unwrap();
+            },
+            |(l_idx, l_num), (r_idx, r_num)| {
+                if let Some(l_idx) = l_idx {
+                    if let Some(r_idx) = r_idx {
+                        let result = extend_circuit.borrow_mut()(*l_idx, *r_idx, *l_num);
+                        Ok((Some(result), l_num + r_num))
+                    } else {
+                        Ok((Some(*l_idx), *l_num))
+                    }
+                } else {
+                    Ok((*r_idx, *r_num))
+                }
+            },
+            |x| *x,
+            (None, 0)
+        ).unwrap_or_else(no_error).0.unwrap();
 
-    return PlaintextCircuit::select(circuit.output_count(), &[result_idx], ring).compose(circuit, ring);
+        return PlaintextCircuit::select(circuit.output_count(), &[result_idx], ring).compose(circuit, ring);
+    }
+
+    relative_galois_group.get_group().rectangular_form().into_iter()
+        .map(|(g, l)| cyclic_trace_circuit(ring, &relative_galois_group, &g, l))
+        .fold(PlaintextCircuit::identity(1, ring), |current, next| current.compose(next, ring))
 }
 
 ///
@@ -135,7 +135,9 @@ use crate::ntt::dyn_convolution::*;
 #[cfg(test)]
 use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
-use crate::number_ring::quotient::NumberRingQuotientBase;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+#[cfg(test)]
+use crate::number_ring::*;
 #[cfg(test)]
 use std::sync::Arc;
 #[cfg(test)]
@@ -143,7 +145,7 @@ use std::alloc::Global;
 
 #[test]
 fn test_extract_coefficient_map() {
-    let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn Send + Sync + DynConvolutionAlgorithm<ZnBase>>>::new(Arc::new(STANDARD_CONVOLUTION));
+    let convolution = DynConvolutionAlgorithmConvolution::<ZnBase, Arc<dyn DynConvolutionAlgorithm<ZnBase>>>::new(Arc::new(STANDARD_CONVOLUTION));
     let base_ring = Zn::new(17 * 17);
     let modulus = (0..4).map(|_| base_ring.neg_one()).collect::<Vec<_>>();
     let slot_ring = FreeAlgebraImpl::new_with_convolution(base_ring, 4, modulus, "a", Global, convolution);
@@ -165,14 +167,17 @@ fn test_extract_coefficient_map() {
 
 #[test]
 fn test_trace_circuit() {
-    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
-    let trace = trace_circuit(ring.get_ring(), &ring.galois_group(), &ring.galois_group().from_representative(3), 6);
+    let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(3));
+    let full_galois_group = ring.number_ring().galois_group();
+    let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(3)]);
+    let trace = trace_circuit(&ring, &relative_galois_group);
     for x in ring.elements() {
         let actual = trace.evaluate(std::slice::from_ref(&x), ring.identity()).pop().unwrap();
         assert_el_eq!(&ring, ring.inclusion().map(ring.trace(x)), actual);
     }
 
-    let relative_trace = trace_circuit(ring.get_ring(), &ring.galois_group(), &ring.galois_group().from_representative(2), 3);
+    let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(2)]);
+    let relative_trace = trace_circuit(&ring, &relative_galois_group);
     assert_eq!(1, relative_trace.output_count());
     
     let input = ring.canonical_gen();

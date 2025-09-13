@@ -18,7 +18,7 @@ use feanor_serde::impl_deserialize_seed_for_dependent_struct;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
-use crate::{NiceZn, ZZi64, ZZbig};
+use crate::{NiceZn, ZZbig};
 
 use super::isomorphism::{BaseRing, DecoratedBaseRingBase, HypercubeIsomorphism};
 use super::structure::{HypercubeStructure, HypercubeTypeData};
@@ -221,7 +221,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
         let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
         let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
         let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
-        assert!(self.ring.acting_galois_group() == deserialized.hypercube_structure.galois_group(), "ring mismatch");
+        assert!(self.ring.acting_galois_group().get_group() == deserialized.hypercube_structure.galois_group().get_group(), "ring mismatch");
         assert!(ZZbig.eq_el(&self.ring.characteristic(ZZbig).unwrap(), &deserialized.characteristic), "ring mismatch");
         let hypercube_structure = deserialized.hypercube_structure;
         let slot_ring_moduli = deserialized.slot_ring_moduli;

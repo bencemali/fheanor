@@ -27,7 +27,7 @@ use serde::{Deserializer, Serialize, Serializer};
 
 use tracing::instrument;
 
-use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupOps, GaloisGroupEl};
+use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::CyclotomicPolyReducer;
 use crate::{number_ring::*, ZZi64};
 use crate::prepared_mul::PreparedMultiplicationRing;
@@ -132,7 +132,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>
     }
 
     fn m(&self) -> usize {
-        self.acting_galois_group().parent().m() as usize
+        self.acting_galois_group().m() as usize
     }
 }
 
@@ -175,9 +175,9 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIntBase<
         let m = self.m();
         let mut result = Vec::with_capacity_in(m, self.allocator.clone());
         result.resize_with(m, || self.base_ring().zero());
-        let Zm = self.acting_galois_group().parent().underlying_ring();
+        let Zm = self.acting_galois_group().underlying_ring();
         let mod_m = Zm.can_hom(&ZZi64).unwrap();
-        let g_Zm = self.acting_galois_group().parent().as_ring_el(g);
+        let g_Zm = self.acting_galois_group().as_ring_el(g);
         for i in 0..m {
             result[Zm.smallest_positive_lift(mod_m.mul_ref_map(g_Zm, &(i as i64))) as usize] = self.base_ring().clone_el(&x.data[i]);
         }

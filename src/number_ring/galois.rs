@@ -102,7 +102,26 @@ impl CyclotomicGaloisGroupBase {
     }
 }
 
-pub trait CyclotomicGaloisGroupOps: AbelianGroupStore<Type = CyclotomicGaloisGroupBase> {
+pub trait CyclotomicGaloisGroupOps: AbelianGroupStore {
+
+    fn underlying_ring(&self) -> &Zn;
+
+    fn as_ring_el<'a>(&self, value: &'a GaloisGroupEl) -> &'a ZnEl;
+
+    fn from_ring_el(&self, el: ZnEl) -> GaloisGroupEl;
+
+    fn m(&self) -> u64;
+
+    fn element_order(&self, value: &GaloisGroupEl) -> usize;
+
+    fn from_representative(&self, x: i64) -> GaloisGroupEl;
+
+    fn representative(&self, x: &GaloisGroupEl) -> u64;
+
+    fn group_order(&self) -> usize;
+}
+
+impl CyclotomicGaloisGroupOps for CyclotomicGaloisGroup {
 
     fn underlying_ring(&self) -> &Zn {
         self.get_group().underlying_ring()
@@ -137,7 +156,44 @@ pub trait CyclotomicGaloisGroupOps: AbelianGroupStore<Type = CyclotomicGaloisGro
     }
 }
 
-impl<G: AbelianGroupStore<Type = CyclotomicGaloisGroupBase>> CyclotomicGaloisGroupOps for G {}
+impl CyclotomicGaloisGroupOps for Subgroup<CyclotomicGaloisGroup> {
+
+    fn as_ring_el<'a>(&self, value: &'a GaloisGroupEl) -> &'a ZnEl {
+        self.parent().as_ring_el(value)
+    }
+
+    fn element_order(&self, value: &GaloisGroupEl) -> usize {
+        self.parent().element_order(value)
+    }
+
+    fn from_representative(&self, x: i64) -> GaloisGroupEl {
+        let result = self.parent().from_representative(x);
+        assert!(self.contains(&result));
+        return result;
+    }
+
+    fn from_ring_el(&self, el: ZnEl) -> GaloisGroupEl {
+        let result = self.parent().from_ring_el(el);
+        assert!(self.contains(&result));
+        return result;
+    }
+
+    fn m(&self) -> u64 {
+        self.parent().m()
+    }
+
+    fn group_order(&self) -> usize {
+        int_cast(self.subgroup_order(), ZZi64, ZZbig) as usize
+    }
+
+    fn representative(&self, x: &GaloisGroupEl) -> u64 {
+        self.parent().representative(x)
+    }
+
+    fn underlying_ring(&self) -> &Zn {
+        self.parent().underlying_ring()
+    }
+}
 
 impl PartialEq for CyclotomicGaloisGroupBase {
 

@@ -65,7 +65,7 @@ impl<Params> ThinBootstrapParams<Params>
         let digit_extract = DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r);
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
             HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
@@ -99,7 +99,7 @@ impl<Params> ThinBootstrapParams<Params>
         };
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
             HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));

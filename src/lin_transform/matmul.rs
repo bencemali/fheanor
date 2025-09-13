@@ -6,6 +6,7 @@ use std::ops::Range;
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
 use feanor_math::divisibility::DivisibilityRingStore;
+use feanor_math::group::AbelianGroupStore;
 use feanor_math::iters::multi_cartesian_product;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::primitive_int::*;
@@ -21,16 +22,14 @@ use feanor_math::homomorphism::*;
 use tracing::instrument;
 
 use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::cyclotomic::*;
 use crate::lin_transform::PowerTable;
-use crate::number_ring::quotient::*;
+use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::*;
 use super::trace::extract_linear_map;
 use crate::{NiceZn};
-
-pub type DefaultMatmulTransform<NumberRing> = MatmulTransform<NumberRingQuotientBase<NumberRing, Zn>>;
 
 ///
 /// A linear transform of the ring `R_t = Z[X]/(Phi_m(X), t)`, written in the form
@@ -76,7 +75,7 @@ pub type DefaultMatmulTransform<NumberRing> = MatmulTransform<NumberRingQuotient
 /// In most cases, this is a sensible choice, but might discard carefully chosen representations.
 /// 
 pub struct MatmulTransform<R>
-    where R: CyclotomicQuotient,
+    where R: NumberRingQuotient,
         <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
         DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
 {
@@ -93,7 +92,7 @@ pub struct MatmulTransform<R>
 }
 
 impl<R> MatmulTransform<R>
-    where R: CyclotomicQuotient,
+    where R: NumberRingQuotient,
         <<R as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
         DecoratedBaseRingBase<RingValue<R>>: CanIsoFromTo<<<R as RingExtension>::BaseRing as RingStore>::Type>
 {
@@ -144,7 +143,7 @@ impl<R> MatmulTransform<R>
     /// 
     #[instrument(skip_all)]
     pub fn matmul1d<G, S>(H: &HypercubeIsomorphism<S>, dim_index: usize, matrix: G) -> MatmulTransform<R>
-        where G: Sync + Fn(usize, usize, &[usize]) -> El<SlotRingOf<S>>,
+        where G: Fn(usize, usize, &[usize]) -> El<SlotRingOf<S>>,
             S: RingStore<Type = R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
@@ -176,7 +175,7 @@ impl<R> MatmulTransform<R>
             S: RingStore<Type = R>
     {
         let d = H.slot_ring().rank();
-        let Gal = H.galois_group();
+        let Gal = H.galois_group().parent();
         let extract_coeff_factors = (0..d).map(|j| 
             extract_linear_map(H.slot_ring(), |x| H.slot_ring().wrt_canonical_basis(&x).at(j))
         ).collect::<Vec<_>>();
@@ -185,7 +184,7 @@ impl<R> MatmulTransform<R>
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| poly_ring.evaluate(
             &H.slot_ring().poly_repr(&poly_ring, x, &H.slot_ring().base_ring().identity()), 
-            &H.slot_ring().pow(H.slot_ring().canonical_gen(), Gal.representative(&H.hypercube().frobenius(count))), 
+            &H.slot_ring().pow(H.slot_ring().canonical_gen(), Gal.representative(&H.hypercube().frobenius(count)) as usize), 
             &H.slot_ring().inclusion()
         );
         
@@ -229,17 +228,17 @@ impl<R> MatmulTransform<R>
     /// 
     #[instrument(skip_all)]
     pub fn blockmatmul1d<G, S>(H: &HypercubeIsomorphism<S>, dim_index: usize, matrix: G) -> MatmulTransform<R>
-        where G: Sync + Fn((usize, usize), (usize, usize), &[usize]) -> El<R::BaseRing>,
+        where G: Fn((usize, usize), (usize, usize), &[usize]) -> El<R::BaseRing>,
             S: RingStore<Type = R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
         let d = H.slot_ring().rank();
-        let Gal = H.galois_group();
+        let Gal = H.galois_group().parent();
         let extract_coeff_factors = (0..d).map(|j| 
             extract_linear_map(H.slot_ring(), |x| H.slot_ring().wrt_canonical_basis(&x).at(j))
         ).collect::<Vec<_>>();
         
-        let canonical_gen_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), H.ring().m() as usize);
+        let canonical_gen_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), Gal.m() as usize);
         // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
         let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| H.slot_ring().sum(
             H.slot_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| H.slot_ring().inclusion().mul_ref_map(
@@ -278,7 +277,7 @@ impl<R> MatmulTransform<R>
     }
 
     pub fn switch_ring<H, S>(&self, hom: H) -> MatmulTransform<S>
-        where S: CyclotomicQuotient,
+        where S: NumberRingQuotient,
             <S::BaseRing as RingStore>::Type: NiceZn,
             DecoratedBaseRingBase<RingValue<S>>: CanIsoFromTo<<<S as RingExtension>::BaseRing as RingStore>::Type>,
             H: Homomorphism<R, S>
@@ -299,7 +298,8 @@ impl<R> MatmulTransform<R>
         where S: RingStore<Type = R>
     {
         self.check_valid(H.ring(), H.hypercube());
-        let Gal = H.galois_group();
+        let Gal = H.galois_group().parent();
+
         let original_automorphisms = self.data.iter().map(|(g, _)| g.clone());
         let inverse_automorphisms = original_automorphisms.clone().map(|g| 
             g.iter().map(|i| -i).collect::<Vec<_>>().into_boxed_slice()
@@ -335,7 +335,7 @@ impl<R> MatmulTransform<R>
                     *lhs.at_mut(i, j) = matrix_by_slots[i][j].next().unwrap();
                 }
             }
-            assert!(H.galois_group().is_identity(&H.hypercube().map_incl_frobenius(&composed_automorphisms[0])));
+            assert!(Gal.is_identity(&H.hypercube().map_incl_frobenius(&composed_automorphisms[0])));
             *rhs.at_mut(0, 0) = H.slot_ring().one();
             for j in 1..matrix.row_count() {
                 *rhs.at_mut(j, 0) = H.slot_ring().zero();
@@ -369,7 +369,7 @@ impl<R> MatmulTransform<R>
     fn check_valid<S>(&self, _ring: S, H: &HypercubeStructure)
         where S: RingStore<Type = R>
     {
-        let Gal = H.galois_group();
+        let Gal = H.galois_group().parent();
         assert!(self.data.is_sorted_by_key(|(g, _)| Gal.representative(&H.map_incl_frobenius(g))));
         for (i, (g, _)) in self.data.iter().enumerate() {
             assert_eq!(H.dim_count() + 1, g.len());
@@ -693,7 +693,7 @@ impl<R> MatmulTransform<R>
             indices[1..].iter()
                 .enumerate()
                 .map(|(i, s)| shift_or_frobenius(i + params.pure_giant_step_dimensions.start, *s))
-                .fold(shift_or_frobenius(mixed_dim_i, indices[0]), |a, b| H.galois_group().mul(a, &b))
+                .fold(shift_or_frobenius(mixed_dim_i, indices[0]), |a, b| H.galois_group().op(a, b))
         }, |_, x| *x)
             .map(|g_el| if H.galois_group().is_identity(&g_el) { None } else { Some(g_el) })
             .collect::<Vec<_>>();
@@ -702,7 +702,7 @@ impl<R> MatmulTransform<R>
             indices.iter()
                 .enumerate()
                 .map(|(i, s)| shift_or_frobenius(i, *s))
-                .fold(identity.clone(), |a, b| H.galois_group().mul(a, &b))
+                .fold(identity.clone(), |a, b| H.galois_group().op(a, b))
         }, |_, x| *x)
             .collect::<Vec<_>>();
 
@@ -712,7 +712,7 @@ impl<R> MatmulTransform<R>
         let mut lin_transform_data = self.data;
         let compiled_coeffs: Vec<Vec<Coefficient<_>>> = giant_steps_galois_els.iter().map(|gs_el| baby_steps_galois_els.iter().map(|bs_el| {
             let gs_el = gs_el.clone().unwrap_or(H.galois_group().identity());
-            let total_el = H.galois_group().mul(gs_el.clone(), bs_el);
+            let total_el = H.galois_group().op_ref(&gs_el, bs_el);
             let mut coeff = None;
             lin_transform_data.retain(|(g, c)| if H.galois_group().eq_el(&H.map_incl_frobenius(g), &total_el) {
                 debug_assert!(coeff.is_none());
@@ -724,7 +724,7 @@ impl<R> MatmulTransform<R>
             if coeff.is_none() || ring.is_zero(coeff.as_ref().unwrap()) {
                 return Coefficient::Zero;
             } else {
-                return Coefficient::Other(ring.get_ring().apply_galois_action(coeff.as_ref().unwrap(), &H.galois_group().invert(&gs_el)));
+                return Coefficient::Other(ring.get_ring().apply_galois_action(coeff.as_ref().unwrap(), &H.galois_group().inv(&gs_el)));
             }
         }).collect::<Vec<_>>()).collect::<Vec<_>>();
 
@@ -777,13 +777,13 @@ impl<R> MatmulTransform<R>
     }
 }
 
-impl<NumberRing, A> NumberRingQuotientBase<NumberRing, Zn, A> 
-    where NumberRing: HECyclotomicNumberRing,
+impl<NumberRing, A> NumberRingQuotientByIntBase<NumberRing, Zn, A> 
+    where NumberRing: AbstractNumberRing,
         A: Allocator + Clone
 {
     #[instrument(skip_all)]
     pub fn compute_linear_transform(&self, H: &HypercubeStructure, el: &<Self as RingBase>::Element, transform: &MatmulTransform<Self>) -> <Self as RingBase>::Element {
-        assert_eq!(H.m(), self.m());
+        assert!(H.galois_group().get_group() == self.acting_galois_group().get_group());
         <_ as RingBase>::sum(self, transform.data.iter().map(|(s, c)| self.mul_ref_fst(c, self.apply_galois_action(el, &H.map_incl_frobenius(s)))))
     }
 }
@@ -815,8 +815,8 @@ use feanor_math::integer::*;
 #[test]
 fn test_to_circuit_single() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -848,13 +848,13 @@ fn test_to_circuit_single() {
     assert_el_eq!(&ring, &expected, &actual);
 
     let galois_group = H.galois_group();
-    assert_eq!(2, compiled_transform.required_galois_keys(&galois_group).len());
+    assert_eq!(2, compiled_transform.required_galois_keys(galois_group.parent()).len());
 }
 
 #[test]
 fn test_compute_automorphisms_per_dimension() {
-    let ring = NumberRingQuotientBase::new(CompositeCyclotomicNumberRing::new(3, 19), Zn::new(7));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(3 * 19), int_cast(7, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(3, 19), Zn::new(7));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(3 * 19), int_cast(7, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(2, H.hypercube().dim_count());
     assert_eq!(3, H.slot_ring().rank());
@@ -872,8 +872,8 @@ fn test_compute_automorphisms_per_dimension() {
 #[test]
 fn test_compose() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -901,8 +901,8 @@ fn test_compose() {
 #[test]
 fn test_invert() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -922,8 +922,8 @@ fn test_invert() {
 #[test]
 fn test_blockmatmul1d() {
     // F23[X]/(Phi_5) ~ F_(23^4)
-    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(5), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(5), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     let matrix = [
         [1, 0, 1, 0],
@@ -946,8 +946,8 @@ fn test_blockmatmul1d() {
     }
 
     // F23[X]/(Phi_7) ~ F_(23^3)^2
-    let ring = NumberRingQuotientBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(7), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(7), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     let matrix = [
         [1, 0, 0],

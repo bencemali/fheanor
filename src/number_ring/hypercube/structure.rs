@@ -74,7 +74,7 @@ pub enum HypercubeTypeData {
 
 impl PartialEq for HypercubeStructure {
     fn eq(&self, other: &Self) -> bool {
-        self.galois_group == other.galois_group && 
+        self.galois_group.get_group() == other.galois_group.get_group() && 
             self.galois_group.eq_el(self.p(), &other.p()) &&
             self.d == other.d && 
             self.ls == other.ls &&
@@ -87,7 +87,7 @@ impl HypercubeStructure {
 
     pub fn new(galois_group: Subgroup<CyclotomicGaloisGroup>, frobenius: GaloisGroupEl, d: usize, ls: Vec<usize>, gs: Vec<GaloisGroupEl>) -> Self {
         assert_eq!(ls.len(), gs.len());
-        assert_eq!(d, galois_group.parent().element_order(&frobenius));
+        assert_eq!(d, galois_group.element_order(&frobenius));
         assert!(galois_group.dlog(&frobenius).is_some());
         assert!(gs.iter().all(|g| galois_group.dlog(g).is_some()));
 
@@ -98,11 +98,11 @@ impl HypercubeStructure {
                 .fold(galois_group.identity(), |current, next| galois_group.op(current, next)),
             clone_slice(idxs)
         ), |_, x| *x).collect::<Vec<_>>();
-        all_elements.sort_unstable_by_key(|(g, _)| galois_group.parent().representative(g));
+        all_elements.sort_unstable_by_key(|(g, _)| galois_group.representative(g));
         assert!((1..all_elements.len()).all(|i| !galois_group.eq_el(&all_elements[i - 1].0, &all_elements[i].0)), "not a bijection");
         assert_eq!(int_cast(galois_group.subgroup_order(), ZZi64, ZZbig) as usize, all_elements.len());
 
-        let ord_gs = gs.iter().map(|g| galois_group.parent().element_order(g)).collect();
+        let ord_gs = gs.iter().map(|g| galois_group.element_order(g)).collect();
         return Self {
             galois_group: galois_group,
             frobenius: frobenius,
@@ -291,7 +291,7 @@ impl HypercubeStructure {
     /// `a_0 in { 0, ..., d - 1 }` and `a_i` for `i > 0` is within `{ 0, ..., l_i - 1 }`.
     /// 
     pub fn std_preimage(&self, g: &GaloisGroupEl) -> &[usize] {
-        let idx = self.representations.binary_search_by_key(&self.galois_group.parent().representative(g), |(g, _)| self.galois_group.parent().representative(g)).unwrap();
+        let idx = self.representations.binary_search_by_key(&self.galois_group.representative(g), |(g, _)| self.galois_group.representative(g)).unwrap();
         return &self.representations[idx].1;
     }
 
@@ -476,7 +476,7 @@ fn test_serialization() {
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();
         let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
 
-        assert!(hypercube.galois_group() == deserialized_hypercube.galois_group());
+        assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
         assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
         assert_eq!(hypercube.is_tensor_product_compatible(), deserialized_hypercube.is_tensor_product_compatible());
         for i in 0..hypercube.dim_count() {
@@ -490,7 +490,7 @@ fn test_serialization() {
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(false).build();
         let deserialized_hypercube = HypercubeStructure::deserialize(&mut deserializer).unwrap();
 
-        assert!(hypercube.galois_group() == deserialized_hypercube.galois_group());
+        assert!(hypercube.galois_group().get_group() == deserialized_hypercube.galois_group().get_group());
         assert_eq!(hypercube.dim_count(), deserialized_hypercube.dim_count());
         assert_eq!(hypercube.is_tensor_product_compatible(), deserialized_hypercube.is_tensor_product_compatible());
         for i in 0..hypercube.dim_count() {

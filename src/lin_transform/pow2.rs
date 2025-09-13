@@ -2,9 +2,11 @@ use std::alloc::Global;
 
 use feanor_math::algorithms::unity_root::is_prim_root_of_unity;
 use feanor_math::divisibility::DivisibilityRingStore;
+use feanor_math::homomorphism::CanIsoFromTo;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
 use feanor_math::ring::*;
+use feanor_math::group::*;
 use feanor_math::rings::extension::*;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
@@ -13,14 +15,21 @@ use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
-use crate::cyclotomic::*;
 use crate::lin_transform::matmul::*;
 use crate::lin_transform::trace::trace_circuit;
 use crate::lin_transform::PowerTable;
+use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
-use crate::number_ring::quotient::NumberRingQuotientBase;
+use crate::number_ring::hypercube::structure::*;
 use crate::number_ring::*;
+use crate::NiceZn;
 use crate::ZZi64;
+
+fn assert_hypercube_supported(H: &HypercubeStructure) {
+    assert!(H.galois_group().parent().get_group().clone().full_subgroup().get_group() == H.galois_group().get_group());
+    let log2_m = ZZi64.abs_log2_ceil(&(H.galois_group().m() as i64)).unwrap();
+    assert_eq!(H.galois_group().m(), 1 << log2_m);
+}
 
 ///
 /// Works separately on each block of size `l = blocksize` along the given given hypercube dimension.
@@ -52,19 +61,25 @@ use crate::ZZi64;
 ///    `pow2_bitreversed_dwt_butterfly` give nonsensical results. If you pass `row_autos = |_| H.cyclotomic_index_ring().one()` then this uses the same
 ///    roots of unity everywhere, i.e. results in the behavior as outlined above.
 /// 
-fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, l: usize, root_of_unity_4l: El<SlotRingOver<Zn>>, row_autos: G) -> DefaultMatmulTransform<NumberRing>
-    where G: Fn(&[usize]) -> CyclotomicGaloisGroupEl,
-        NumberRing: HECyclotomicNumberRing + Clone
+fn pow2_bitreversed_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, l: usize, root_of_unity_4l: El<SlotRingOf<R>>, row_autos: G) -> MatmulTransform<R::Type>
+    where G: Fn(&[usize]) -> GaloisGroupEl,
+        R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
+    assert_hypercube_supported(H.hypercube());
+
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
     assert_eq!(dim_len, 1 << log2_len);
 
     let g = H.hypercube().map_1d(dim_index, -1);
     let smaller_cyclotomic_index_ring = Zn::new(4 * l as u64);
-    let Gal = H.galois_group();
-    let red = ZnReductionMap::new(Gal.underlying_ring(), &smaller_cyclotomic_index_ring).unwrap();
-    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(&g)), l));
+    let Gal = H.galois_group().parent();
+    let Zm = Gal.underlying_ring();
+    let red = ZnReductionMap::new(Zm, &smaller_cyclotomic_index_ring).unwrap();
+    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(*Gal.as_ring_el(&g)), l));
 
     let l = l;
     assert!(l > 1);
@@ -93,7 +108,7 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
     let diagonal_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.pow(&g, (idx_in_block - l / 2) as i64), &row_autos(&idxs))))
+            TwiddleFactor::NegPowerZeta(Zm.mul(Zm.pow(*Gal.as_ring_el(&g), idx_in_block - l / 2), *Gal.as_ring_el(&row_autos(&idxs))))
         } else {
             TwiddleFactor::PosPowerZeta(Gal.underlying_ring().zero())
         }
@@ -102,7 +117,7 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
     let backward_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block < l / 2 {
-            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.pow(&g, idx_in_block as i64), &row_autos(&idxs))))
+            TwiddleFactor::PosPowerZeta(Zm.mul(Zm.pow(*Gal.as_ring_el(&g), idx_in_block), *Gal.as_ring_el(&row_autos(&idxs))))
         } else {
             TwiddleFactor::Zero
         }
@@ -128,19 +143,25 @@ fn pow2_bitreversed_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing
 ///
 /// Inverse of [`pow2_bitreversed_dwt_butterfly()`]
 /// 
-fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, l: usize, root_of_unity_4l: El<SlotRingOver<Zn>>, row_autos: G) -> DefaultMatmulTransform<NumberRing>
-    where G: Fn(&[usize]) -> CyclotomicGaloisGroupEl,
-        NumberRing: HECyclotomicNumberRing + Clone
+fn pow2_bitreversed_inv_dwt_butterfly<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, l: usize, root_of_unity_4l: El<SlotRingOf<R>>, row_autos: G) -> MatmulTransform<R::Type>
+    where G: Fn(&[usize]) -> GaloisGroupEl,
+        R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
+    assert_hypercube_supported(H.hypercube());
+
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
     assert_eq!(dim_len, 1 << log2_len);
 
     let g = H.hypercube().map_1d(dim_index, -1);
     let smaller_cyclotomic_index_ring = Zn::new(4 * l as u64);
-    let Gal = H.galois_group();
+    let Gal = H.galois_group().parent();
+    let Zm = Gal.underlying_ring();
     let red = ZnReductionMap::new(Gal.underlying_ring(), &smaller_cyclotomic_index_ring).unwrap();
-    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(Gal.to_ring_el(&g)), l));
+    assert_el_eq!(&smaller_cyclotomic_index_ring, &smaller_cyclotomic_index_ring.one(), &smaller_cyclotomic_index_ring.pow(red.map(*Gal.as_ring_el(&g)), l));
 
     let l = l;
     assert!(l > 1);
@@ -162,7 +183,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
     let mut forward_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::PosPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.negate(&Gal.pow(&g, (idx_in_block - l / 2) as i64)), &row_autos(&idxs))))
+            TwiddleFactor::PosPowerZeta(Zm.mul(Zm.negate(Zm.pow(*Gal.as_ring_el(&g), idx_in_block - l / 2)), *Gal.as_ring_el(&row_autos(&idxs))))
         } else {
             TwiddleFactor::Zero
         }
@@ -172,7 +193,7 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
     let mut diagonal_mask = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
         let idx_in_block = idxs[dim_index] % l;
         if idx_in_block >= l / 2 {
-            TwiddleFactor::NegPowerZeta(Gal.to_ring_el(&Gal.mul(Gal.negate(&Gal.pow(&g, (idx_in_block - l / 2) as i64)), &row_autos(&idxs))))
+            TwiddleFactor::NegPowerZeta(Zm.mul(Zm.negate(Zm.pow(*Gal.as_ring_el(&g), idx_in_block - l / 2)), *Gal.as_ring_el(&row_autos(&idxs))))
         } else {
             TwiddleFactor::PosPowerZeta(Gal.underlying_ring().zero())
         }
@@ -223,18 +244,21 @@ fn pow2_bitreversed_inv_dwt_butterfly<G, NumberRing>(H: &DefaultHypercube<Number
 /// for `j` from `0` to `l_i`.
 /// Here `𝝵` is the canonical generator of the slot ring, which is a primitive `m`-th root of unity.
 /// 
-fn pow2_bitreversed_dwt<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, row_autos: G) -> Vec<DefaultMatmulTransform<NumberRing>>
-    where G: Fn(&[usize]) -> CyclotomicGaloisGroupEl,
-        NumberRing: HECyclotomicNumberRing + Clone
+fn pow2_bitreversed_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, row_autos: G) -> Vec<MatmulTransform<R::Type>>
+    where G: Fn(&[usize]) -> GaloisGroupEl,
+        R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
     assert_eq!(dim_len, 1 << log2_len);
-    assert!((H.ring().m() / dim_len) % 4 == 0, "pow2_bitreversed_dwt() only possible if there is a 4l-th primitive root of unity");
+    assert!((H.galois_group().m() as usize / dim_len) % 4 == 0, "pow2_bitreversed_dwt() only possible if there is a 4l-th primitive root of unity");
 
-    let zeta = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.ring().m() as usize / dim_len / 4);
+    let zeta = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.galois_group().m() as usize / dim_len / 4);
 
-    debug_assert!(is_prim_root_of_unity(H.slot_ring(), &H.slot_ring().canonical_gen(), H.ring().m() as usize));
+    debug_assert!(is_prim_root_of_unity(H.slot_ring(), &H.slot_ring().canonical_gen(), H.galois_group().m() as usize));
     debug_assert!(is_prim_root_of_unity(H.slot_ring(), &zeta, 4 * dim_len));
 
     let mut result = Vec::new();
@@ -255,17 +279,20 @@ fn pow2_bitreversed_dwt<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_ind
 /// Inverse to [`pow2_bitreversed_dwt()`]
 /// 
 #[instrument(skip_all)]
-fn pow2_bitreversed_inv_dwt<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim_index: usize, row_autos: G) -> Vec<DefaultMatmulTransform<NumberRing>>
-    where G: Fn(&[usize]) -> CyclotomicGaloisGroupEl,
-        NumberRing: HECyclotomicNumberRing + Clone
+fn pow2_bitreversed_inv_dwt<G, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, row_autos: G) -> Vec<MatmulTransform<R::Type>>
+    where G: Fn(&[usize]) -> GaloisGroupEl,
+        R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
     let dim_len = H.hypercube().dim_length(dim_index);
     let log2_len = ZZi64.abs_log2_ceil(&(dim_len as i64)).unwrap();
     assert_eq!(dim_len, 1 << log2_len);
-    assert!((H.ring().m() / dim_len) % 4 == 0, "pow2_bitreversed_dwt() only possible if there is a 4l-th primitive root of unity");
+    assert!((H.galois_group().m() as usize / dim_len) % 4 == 0, "pow2_bitreversed_dwt() only possible if there is a 4l-th primitive root of unity");
 
-    let zeta = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.ring().m() as usize / dim_len / 4);
-    debug_assert!(is_prim_root_of_unity(H.slot_ring(), &H.slot_ring().canonical_gen(), H.ring().m() as usize));
+    let zeta = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.galois_group().m() as usize / dim_len / 4);
+    debug_assert!(is_prim_root_of_unity(H.slot_ring(), &H.slot_ring().canonical_gen(), H.galois_group().m() as usize));
     debug_assert!(is_prim_root_of_unity(H.slot_ring(), &zeta, 4 * dim_len));
 
     let mut result = Vec::new();
@@ -294,24 +321,30 @@ fn pow2_bitreversed_inv_dwt<G, NumberRing>(H: &DefaultHypercube<NumberRing>, dim
 /// into the coefficient of `X^(bitrev(i, l) * m/(4l))`
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_coeffs_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, RingValue<ZnBase>>>
-    where NumberRing: HECyclotomicNumberRing + Clone
+pub fn slots_to_coeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_thin_impl(H))
 }
 
 #[instrument(skip_all)]
-fn slots_to_coeffs_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
-    where NumberRing: HECyclotomicNumberRing + Clone
+fn slots_to_coeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
-    let m = H.ring().get_ring().m();
+    let m = H.galois_group().m();
     let log2_m = ZZi64.abs_log2_ceil(&(m as i64)).unwrap();
     assert!(m == 1 << log2_m);
 
     if H.hypercube().dim_count() == 2 {
         // this is the `p = 1 mod 4` case
         assert_eq!(2, H.hypercube().dim_length(1));
-        let zeta4 = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.ring().m() as usize / 4);
+        let zeta4 = H.slot_ring().pow(H.slot_ring().canonical_gen(), H.galois_group().m() as usize / 4);
         let mut result = Vec::new();
 
         // we first combine `a_(i_0)` and `a_(i_1)` to `(a_(i_0) + 𝝵^(m/4) a_(i_1), a_(i_0) - 𝝵^(m/4) a_(i_1))`
@@ -342,7 +375,7 @@ fn slots_to_coeffs_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Ve
             H.galois_group().identity()
         } else {
             debug_assert!(idxs[1] == 1);
-            H.galois_group().negate(&H.galois_group().identity())
+            H.galois_group().from_representative(-1)
         }));
         
         return result;
@@ -358,16 +391,19 @@ fn slots_to_coeffs_thin_impl<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Ve
 /// "Coeffs-to-Slots" map, as it does not discard unused factors. However, it is not
 /// too hard to build the "coeffs-to-slots" map from this, see [`coeffs_to_slots_thin()`]. 
 /// 
-fn slots_to_coeffs_thin_inv<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec<DefaultMatmulTransform<NumberRing>>
-    where NumberRing: HECyclotomicNumberRing + Clone
+fn slots_to_coeffs_thin_inv<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
-    let m = H.ring().get_ring().m();
+    let m = H.galois_group().m();
     let log2_m = ZZi64.abs_log2_ceil(&(m as i64)).unwrap();
     assert!(m == 1 << log2_m);
 
     if H.hypercube().dim_count() == 2 {
         assert_eq!(2, H.hypercube().dim_length(1));
-        let zeta4_inv = H.slot_ring().pow(H.slot_ring().canonical_gen(), 3 * H.ring().m() as usize / 4);
+        let zeta4_inv = H.slot_ring().pow(H.slot_ring().canonical_gen(), 3 * H.galois_group().m() as usize / 4);
         let two_inv = H.ring().base_ring().invert(&H.slot_ring().base_ring().int_hom().map(2)).unwrap();
         let mut result = Vec::new();
 
@@ -375,7 +411,7 @@ fn slots_to_coeffs_thin_inv<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec
             H.galois_group().identity()
         } else {
             debug_assert!(idxs[1] == 1);
-            H.galois_group().negate(&H.galois_group().identity())
+            H.galois_group().from_representative(-1)
         }));
 
         result.push(MatmulTransform::linear_combine_shifts(H, [
@@ -422,17 +458,19 @@ fn slots_to_coeffs_thin_inv<NumberRing>(H: &DefaultHypercube<NumberRing>) -> Vec
 /// each slot only contains an element in `Z/pZ`. 
 /// 
 #[instrument(skip_all)]
-pub fn coeffs_to_slots_thin<NumberRing>(H: &DefaultHypercube<NumberRing>) -> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn, Global>>
-    where NumberRing: HECyclotomicNumberRing + Clone
+pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn,
+        DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
-    let log2_m = ZZi64.abs_log2_ceil(&(H.hypercube().m() as i64)).unwrap();
-    assert_eq!(H.hypercube().m(), 1 << log2_m);
-
     let mut result = slots_to_coeffs_thin_inv(H);
     let last = MatmulTransform::mult_scalar_slots(H, &H.slot_ring().inclusion().map(H.slot_ring().base_ring().invert(&H.slot_ring().base_ring().int_hom().map(H.slot_ring().rank() as i32)).unwrap()));
     *result.last_mut().unwrap() = result.last().unwrap().compose(H.ring(), H.hypercube(), &last);
 
-    let trace_circuit = trace_circuit(H.ring().get_ring(), &H.galois_group(), &H.hypercube().frobenius(1), H.slot_ring().rank());
+    let frobenius_subgroup = H.galois_group().parent().get_group().clone().subgroup([H.hypercube().frobenius(1)]);
+    debug_assert_eq!(frobenius_subgroup.group_order(), H.slot_ring().rank());
+    let trace_circuit = trace_circuit(H.ring(), &frobenius_subgroup);
     let result_circuit = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), result);
     return trace_circuit.compose(result_circuit, H.ring());
 }
@@ -446,14 +484,16 @@ use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
 #[cfg(test)]
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 #[cfg(test)]
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
+#[cfg(test)]
 use crate::ZZbig;
 
 #[test]
 fn test_slots_to_coeffs_thin() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     let mut current = H.from_slot_values((1..17).map(|i| H.slot_ring().int_hom().map(i)));
@@ -471,8 +511,8 @@ fn test_slots_to_coeffs_thin() {
 
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut current = H.from_slot_values([1, 2, 3, 4].into_iter().map(|i| H.slot_ring().int_hom().map(i)));
@@ -491,8 +531,8 @@ fn test_slots_to_coeffs_thin() {
 fn test_slots_to_coeffs_thin_inv() {
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     for (transform, actual) in slots_to_coeffs_thin_impl(&H).into_iter().rev().zip(slots_to_coeffs_thin_inv(&H).into_iter()) {
@@ -502,8 +542,8 @@ fn test_slots_to_coeffs_thin_inv() {
     
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     for (transform, actual) in slots_to_coeffs_thin_impl(&H).into_iter().rev().zip(slots_to_coeffs_thin_inv(&H).into_iter()) {
@@ -516,8 +556,8 @@ fn test_slots_to_coeffs_thin_inv() {
 fn test_coeffs_to_slots_thin() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(97));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(97, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(97, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     
     let mut input = [0; 32];
@@ -535,8 +575,8 @@ fn test_coeffs_to_slots_thin() {
 
     // `F23[X]/(X^32 + 1) ~ F_(23^8)^4`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(64), int_cast(23, ZZbig, ZZi64));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
 
     let mut input = [0; 32];

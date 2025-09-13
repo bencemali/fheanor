@@ -33,7 +33,7 @@ use serde::{Deserializer, Serialize, Serializer};
 
 use tracing::instrument;
 
-use crate::number_ring::galois::{CyclotomicGaloisGroup, GaloisGroupEl};
+use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::BarettPolyReducer;
 use crate::number_ring::{largest_prime_leq_congruent_to_one, AbstractNumberRing, NumberRingQuotient, NumberRingQuotientBases};
 use crate::prepared_mul::PreparedMultiplicationRing;
@@ -278,7 +278,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBas
     #[instrument(skip_all)]
     fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
         assert!(self.acting_galois_group().dlog(g).is_some());
-        let gen_conjugate = &self.generator_galois_conjugates.iter().filter(|(h, _)| self.acting_galois_group().parent().eq_el(h, g)).next().unwrap().1;
+        let gen_conjugate = &self.generator_galois_conjugates.iter().filter(|(h, _)| self.acting_galois_group().eq_el(h, g)).next().unwrap().1;
         let gen_conjugate_prepared = self.prepare_multiplicant(&gen_conjugate);
         let result = x.data.iter().rev().fold(self.zero(), |current, next| {
             let mut result = self.mul_prepared(&gen_conjugate, &gen_conjugate_prepared, &current, &self.prepare_multiplicant(&current));
@@ -825,14 +825,14 @@ fn test_quotient_by_ideal() {
     assert_el_eq!(&ring, ring.one(), ring.get_ring().apply_galois_action(&ring.one(), &galois_group.identity()));
 
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
-    let galois_group = number_ring.galois_group().get_group();
+    let galois_group = number_ring.galois_group();
     let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64)).as_field().ok().unwrap();
     let poly_ring = DensePolyRing::new((&base_ring).as_field().ok().unwrap(), "X");
     let [t] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) + 4]);
-    let acting_galois_group = galois_group.clone().subgroup([galois_group.from_representative(5)]);
+    let acting_galois_group = galois_group.get_group().clone().subgroup([galois_group.from_representative(5)]);
     let ring = NumberRingQuotientByIdealBase::new(number_ring, &base_ring, poly_ring, t, acting_galois_group);
     assert_eq!(2, ring.rank());
-    let galois_group = ring.get_ring().acting_galois_group().parent().get_group();
+    let galois_group = ring.get_ring().acting_galois_group();
     assert_el_eq!(ZZbig, int_cast(2, ZZbig, ZZi64), ring.get_ring().acting_galois_group().subgroup_order());
     assert_el_eq!(&ring, ring.negate(ring.canonical_gen()), ring.get_ring().apply_galois_action(&ring.canonical_gen(), &galois_group.from_representative(5)));
 }

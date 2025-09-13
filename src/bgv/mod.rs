@@ -1071,7 +1071,7 @@ pub trait BGVInstantiation {
 }
 
 #[derive(Debug)]
-pub struct Pow2BGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BGV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
     ciphertext_allocator: A,
     negacyclic_ntt: PhantomData<C>
@@ -1084,7 +1084,7 @@ impl Pow2BGV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, alloc: A) -> Self {
@@ -1096,7 +1096,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BGV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -1107,14 +1107,14 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = DoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
@@ -1178,12 +1178,12 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
+pub struct CompositeBGV<A: Allocator + Clone  = DefaultCiphertextAllocator> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A
 }
 
-impl<A: Allocator + Clone + Send + Sync> Display for CompositeBGV<A> {
+impl<A: Allocator + Clone > Display for CompositeBGV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BGV({:?})", self.number_ring)
@@ -1197,7 +1197,7 @@ impl CompositeBGV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync> CompositeBGV<A> {
+impl<A: Allocator + Clone > CompositeBGV<A> {
 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
@@ -1208,7 +1208,7 @@ impl<A: Allocator + Clone + Send + Sync> CompositeBGV<A> {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync> BGVInstantiation for CompositeBGV<A> {
+impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
@@ -1271,7 +1271,7 @@ impl<A: Allocator + Clone + Send + Sync> BGVInstantiation for CompositeBGV<A> {
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeSingleRNSBGV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBGV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -1284,7 +1284,7 @@ impl CompositeSingleRNSBGV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBGV<A, C> {
 
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
         Self {
@@ -1295,7 +1295,7 @@ impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> CompositeSin
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BGVInstantiation for CompositeSingleRNSBGV<A, C> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;

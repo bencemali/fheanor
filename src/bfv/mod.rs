@@ -27,17 +27,12 @@ use tracing::instrument;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, RNSFactorCongruence};
 use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::circuit::evaluator::DefaultCircuitEvaluator;
-use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::cyclotomic::*;
-use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::gadget_product::digits::*;
 use crate::ntt::{FheanorNegacyclicNTT, FheanorConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
-use crate::number_ring::{largest_prime_leq_congruent_to_one, sample_primes, extend_sampled_primes, HECyclotomicNumberRing, HENumberRing};
-use crate::number_ring::quotient::*;
+use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
@@ -299,7 +294,7 @@ pub trait BFVInstantiation {
     {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroup::new(P.m() as u64), int_cast(p, ZZbig, ZZ));
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(P.m() as u64), int_cast(p, ZZbig, ZZ));
 
         let H = HypercubeIsomorphism::new::<false>(&P, hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
@@ -798,7 +793,7 @@ pub trait BFVInstantiation {
 /// (i.e. fastest) solution.
 /// 
 #[derive(Debug)]
-pub struct Pow2BFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BFV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
     ciphertext_allocator: A,
     negacyclic_ntt: PhantomData<C>
@@ -811,7 +806,7 @@ impl Pow2BFV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, allocator: A) -> Self {
@@ -827,14 +822,14 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BFV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> Clone for Pow2BFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BFV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -845,7 +840,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2BFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Pow2BFV<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
@@ -920,12 +915,12 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorNegacyclicNTT<Z
 /// in double-RNS form. If single-RNS form is instead requires, use [`CompositeSingleRNSBFV`].
 /// 
 #[derive(Clone, Debug)]
-pub struct CompositeBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator> {
+pub struct CompositeBFV<A: Allocator + Clone  = DefaultCiphertextAllocator> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A
 }
 
-impl<A: Allocator + Clone + Send + Sync> Display for CompositeBFV<A> {
+impl<A: Allocator + Clone > Display for CompositeBFV<A> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BFV({:?})", self.number_ring)
@@ -939,7 +934,7 @@ impl CompositeBFV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync> CompositeBFV<A> {
+impl<A: Allocator + Clone > CompositeBFV<A> {
 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, allocator: A) -> Self {
@@ -962,7 +957,7 @@ impl<A: Allocator + Clone + Send + Sync> CompositeBFV<A> {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
+impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
@@ -1040,7 +1035,7 @@ impl<A: Allocator + Clone + Send + Sync> BFVInstantiation for CompositeBFV<A> {
 /// performance.
 /// 
 #[derive(Debug)]
-pub struct CompositeSingleRNSBFV<A: Allocator + Clone + Send + Sync = DefaultCiphertextAllocator, C: Send + Sync + FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBFV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>
@@ -1053,7 +1048,7 @@ impl CompositeSingleRNSBFV {
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> CompositeSingleRNSBFV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_alloc(m1: usize, m2: usize, alloc: A) -> Self {
@@ -1069,7 +1064,7 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> Clone for CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> Clone for CompositeSingleRNSBFV<A, C> {
 
     fn clone(&self) -> Self {
         Self {
@@ -1080,14 +1075,14 @@ impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> Display for CompositeSingleRNSBFV<A, C> {
 
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "BFV({:?})", self.number_ring)
     }
 }
 
-impl<A: Allocator + Clone + Send + Sync, C: Send + Sync + FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
+impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for CompositeSingleRNSBFV<A, C> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;

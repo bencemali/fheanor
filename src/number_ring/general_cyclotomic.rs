@@ -23,7 +23,7 @@ use feanor_mempool::AllocArc;
 use feanor_math::seq::*;
 
 use crate::euler_phi_squarefree;
-use crate::number_ring::galois::{CyclotomicGaloisGroup, CyclotomicGaloisGroupBase, CyclotomicGaloisGroupOps, GaloisGroupEl};
+use crate::number_ring::galois::*;
 use crate::number_ring::*;
 
 ///
@@ -288,8 +288,8 @@ impl<F, A> OddSquarefreeCyclotomicDecomposedNumberRing<F, A>
 }
 
 impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRing<F, A> 
-    where F: Send + Sync + FFTAlgorithm<ZnBase> + PartialEq,
-        A: Send + Sync + Allocator + Clone
+    where F: FFTAlgorithm<ZnBase> + PartialEq,
+        A: Allocator + Clone
 {
     fn galois_group(&self) -> &CyclotomicGaloisGroup {
         &self.galois_group
@@ -361,7 +361,7 @@ impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRi
         assert_eq!(self.rank(), src.len());
         assert_eq!(self.rank(), dst.len());
         let ring = self.base_ring();
-        let galois_group = self.galois_group.get_group();
+        let galois_group = &self.galois_group;
         let index_ring = galois_group.underlying_ring();
         let hom = index_ring.can_hom(&StaticRing::<i64>::RING).unwrap();
         
@@ -375,10 +375,10 @@ impl<F, A> NumberRingQuotientBases for OddSquarefreeCyclotomicDecomposedNumberRi
 
 #[cfg(test)]
 use feanor_math::assert_el_eq;
-// #[cfg(test)]
-// use crate::ciphertext_ring::double_rns_ring;
-// #[cfg(test)]
-// use crate::ciphertext_ring::single_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::double_rns_ring;
+#[cfg(test)]
+use crate::ciphertext_ring::single_rns_ring;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int;
 #[cfg(test)]
@@ -386,17 +386,17 @@ use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
 use crate::ring_literal;
 
-// #[test]
-// fn test_odd_cyclotomic_double_rns_ring() {
-//     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-//     double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-// }
+#[test]
+fn test_odd_cyclotomic_double_rns_ring() {
+    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    double_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+}
 
-// #[test]
-// fn test_odd_cyclotomic_single_rns_ring() {
-//     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
-//     single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
-// }
+#[test]
+fn test_odd_cyclotomic_single_rns_ring() {
+    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(5));
+    single_rns_ring::test_with_number_ring(OddSquarefreeCyclotomicNumberRing::new(7));
+}
 
 #[test]
 fn test_odd_cyclotomic_decomposition_ring() {
@@ -408,7 +408,7 @@ fn test_odd_cyclotomic_decomposition_ring() {
 fn test_permute_galois_automorphism() {
     let Fp = zn_64::Zn::new(257);
     let R = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Fp);
-    let gal_el = |x: i64| R.acting_galois_group().parent().from_representative(x);
+    let gal_el = |x: i64| R.acting_galois_group().from_representative(x);
 
     assert_el_eq!(R, ring_literal(&R, &[0, 0, 1, 0, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(2)));
     assert_el_eq!(R, ring_literal(&R, &[0, 0, 0, 1, 0, 0]), R.apply_galois_action(&ring_literal(&R, &[0, 1, 0, 0, 0, 0]), &gal_el(3)));

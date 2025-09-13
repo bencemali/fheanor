@@ -74,7 +74,7 @@ fn hensel_lift_factor<R1, R2, A1, A2, C1, C2>(from_ring: &DensePolyRing<R1, A1, 
     return from_ZpeX.map(lifted.into_iter().next().unwrap());
 }
 
-fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgorithmConvolution<R, Arc<dyn Send + Sync + DynConvolutionAlgorithm<R>>>
+fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgorithmConvolution<R, Arc<dyn DynConvolutionAlgorithm<R>>>
     where R: ?Sized + ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<StaticRingBase<i64>>
 {
     let fft_convolution = FFTConvolution::new();
@@ -88,7 +88,7 @@ fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgo
     }
 }
 
-pub type SlotRingOver<R> = AsLocalPIR<FreeAlgebraImpl<R, Vec<El<R>>, Global, DynConvolutionAlgorithmConvolution<<R as RingStore>::Type, Arc<dyn Send + Sync + DynConvolutionAlgorithm<<R as RingStore>::Type>>>>>;
+pub type SlotRingOver<R> = AsLocalPIR<FreeAlgebraImpl<R, Vec<El<R>>, Global, DynConvolutionAlgorithmConvolution<<R as RingStore>::Type, Arc<dyn DynConvolutionAlgorithm<<R as RingStore>::Type>>>>>;
 
 ///
 /// Type of the slot ring used to represent the decomposition into
@@ -159,7 +159,7 @@ impl<R> HypercubeIsomorphism<R>
     /// 
     #[instrument(skip_all)]
     pub fn create<const LOG: bool>(ring: R, hypercube_structure: HypercubeStructure, ZpeX: DensePolyRing<AsLocalPIR<RingValue<BaseRing<R>>>>, slot_ring_moduli: Vec<El<DensePolyRing<AsLocalPIR<RingValue<BaseRing<R>>>>>>) -> Self {
-        assert!(ring.acting_galois_group() == hypercube_structure.galois_group());
+        assert!(ring.acting_galois_group().get_group() == hypercube_structure.galois_group().get_group());
         let frobenius = hypercube_structure.frobenius(1);
         let d = hypercube_structure.d();
         
@@ -167,7 +167,7 @@ impl<R> HypercubeIsomorphism<R>
         // is always a nontrivial element of `<p> <= (Z/mZ)*`, where the characteristic of the
         // quotient is a power of `p`
         let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
-        assert!(hypercube_structure.galois_group().eq_el(&frobenius, &hypercube_structure.galois_group().parent().from_representative(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig))));
+        assert!(hypercube_structure.galois_group().eq_el(&frobenius, &hypercube_structure.galois_group().from_representative(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig))));
 
         let ring_ref = &ring;
         let slot_rings: Vec<SlotRingOf<R>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing slot rings", |[]| slot_ring_moduli.iter().map(|f| {
@@ -300,7 +300,7 @@ impl<R> HypercubeIsomorphism<R>
         let result = values_it.by_ref().zip(self.hypercube_structure.element_iter()).enumerate().map(|(i, (a, g))| {
             let f = first_slot_ring.poly_repr(&poly_ring, &a, &wrap);
             let local_slot_ring = self.slot_ring_at(i);
-            let image_zeta = local_slot_ring.pow(local_slot_ring.canonical_gen(), self.galois_group().parent().representative(&g) as usize);
+            let image_zeta = local_slot_ring.pow(local_slot_ring.canonical_gen(), self.galois_group().representative(&g) as usize);
             return local_slot_ring.poly_repr(&poly_ring, &poly_ring.evaluate(&f, &image_zeta, local_slot_ring.inclusion().compose(&unwrap)), &wrap);
         }).collect::<Vec<_>>();
         assert!(values_it.next().is_none(), "iterator should only have {} elements", self.slot_count());
@@ -369,7 +369,7 @@ impl<R> HypercubeIsomorphism<R>
     /// 
     #[instrument(skip_all)]
     fn compute_factor_of_generating_poly_mod_p<const LOG: bool>(ring: &R, hypercube_structure: &HypercubeStructure) -> (DensePolyRing<AsField<RingValue<BaseRing<R>>>>, El<DensePolyRing<AsField<RingValue<BaseRing<R>>>>>) {
-        let m = ring.acting_galois_group().parent().m() as usize;
+        let m = ring.acting_galois_group().m() as usize;
         assert!(ring.is_one(&ring.pow(ring.canonical_gen(), m)), "HypercubeIsomorphism currently assumes that the generator of the ring is an m-th root of unity");
 
         let d = hypercube_structure.d();

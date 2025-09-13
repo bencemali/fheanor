@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::cmp::max;
 
+use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::group::AbelianGroupStore;
 use serialization::{DeserializeSeedPlaintextCircuit, SerializablePlaintextCircuit};
 use evaluator::CircuitEvaluator;
 use evaluator::HomEvaluator;
@@ -10,11 +12,9 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::serialization::SerializableElementRing;
 
-use crate::cache::create_cached;
-use crate::cache::CachedDataKey;
-use crate::cache::SerializeDeserializeWith;
-use crate::cache::StoreAs;
-use crate::cyclotomic::*;
+use crate::cache::*;
+use crate::number_ring::galois::*;
+use crate::number_ring::*;
 
 ///
 /// Contains [`serialization::DeserializeSeedPlaintextCircuit`], a [`serde::de::DeserializeSeed`] that
@@ -262,7 +262,7 @@ impl<R: RingBase + Default> PartialEq for LinearCombination<R> {
 enum PlaintextCircuitGate<R: ?Sized + RingBase> {
     Mul(LinearCombination<R>, LinearCombination<R>),
     Square(LinearCombination<R>),
-    Gal(Vec<CyclotomicGaloisGroupEl>, LinearCombination<R>)
+    Gal(Vec<GaloisGroupEl>, LinearCombination<R>)
 }
 
 impl<R: ?Sized + RingBase> PlaintextCircuitGate<R> {
@@ -657,7 +657,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// If the given automorphism is the identity, this will just
     /// give a circuit consisting of a single wire.
     /// 
-    pub fn gal<S: RingStore<Type = R>>(g: CyclotomicGaloisGroupEl, galois_group: &CyclotomicGaloisGroup, ring: S) -> Self {
+    pub fn gal<S: RingStore<Type = R>>(g: GaloisGroupEl, galois_group: &Subgroup<CyclotomicGaloisGroup>, ring: S) -> Self {
         Self::gal_many(std::slice::from_ref(&g), galois_group, ring)
     }
 
@@ -675,7 +675,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// are automatically filtered out, and replaced by a direct wire to the
     /// input.
     /// 
-    pub fn gal_many<S: RingStore<Type = R>>(gs: &[CyclotomicGaloisGroupEl], galois_group: &CyclotomicGaloisGroup, _ring: S) -> Self {
+    pub fn gal_many<S: RingStore<Type = R>>(gs: &[GaloisGroupEl], galois_group: &Subgroup<CyclotomicGaloisGroup>, _ring: S) -> Self {
         let non_identity_gs = gs.iter().filter(|g| !galois_group.is_identity(*g)).cloned().collect::<Vec<_>>();
         if non_identity_gs.len() == 0 {
             return PlaintextCircuit {
@@ -1042,7 +1042,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// you can use [`PlaintextCircuit::evaluate_no_galois()`].
     /// 
     pub fn evaluate<S, H>(&self, inputs: &[S::Element], hom: H) -> Vec<S::Element>
-        where S: ?Sized + RingBase + CyclotomicQuotient,
+        where S: ?Sized + RingBase + NumberRingQuotient,
             H: Homomorphism<R, S>
     {
         return self.evaluate_generic(inputs, HomEvaluatorGal::new(hom));
@@ -1080,7 +1080,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// we require a Galois key when evaluating the circuit on encrypted
     /// inputs.
     /// 
-    pub fn required_galois_keys(&self, galois_group: &CyclotomicGaloisGroup) -> Vec<CyclotomicGaloisGroupEl> {
+    pub fn required_galois_keys(&self, galois_group: &CyclotomicGaloisGroup) -> Vec<GaloisGroupEl> {
         let mut result = self.gates.iter().flat_map(|gate| match gate {
             PlaintextCircuitGate::Gal(gs, _) => gs.iter().cloned(),
             PlaintextCircuitGate::Mul(_, _) => [].iter().cloned(),
@@ -1153,11 +1153,11 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a CyclotomicGaloisGroup)> for Plainte
 
 pub fn create_circuit_cached<R, F, const LOG: bool>(ring: R, keys: &[CachedDataKey], cache_dir: Option<&str>, create: F) -> PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
-        R::Type: CyclotomicQuotient + SerializableElementRing,
+        R::Type: NumberRingQuotient + SerializableElementRing,
         <<R::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing,
         F: FnOnce() -> PlaintextCircuit<R::Type>
 {
-    create_cached::<_, _, _, LOG>(&(ring, ring.galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard })
+    create_cached::<_, _, _, LOG>(&(ring, ring.acting_galois_group()), create, keys, cache_dir, if cache_dir.is_none() { StoreAs::None } else { StoreAs::AlwaysPostcard })
 }
 
 #[cfg(test)]
@@ -1169,9 +1169,9 @@ use feanor_math::rings::zn::zn_64::Zn;
 #[cfg(test)]
 use feanor_math::rings::extension::FreeAlgebraStore;
 #[cfg(test)]
-use crate::number_ring::quotient::NumberRingQuotientBase;
-#[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+#[cfg(test)]
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 #[cfg(test)]
 use serde::Serialize;
 #[cfg(test)]
@@ -1225,12 +1225,12 @@ fn test_circuit_tensor_compose() {
 #[test]
 fn test_circuit_tensor_compose_with_galois() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let ring = NumberRingQuotientBase::new(number_ring, Zn::new(17));
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(17));
 
     let x = PlaintextCircuit::identity(1, &ring);
     let y = PlaintextCircuit::identity(1, &ring);
     let xy = PlaintextCircuit::mul(&ring).compose(x.tensor(y, &ring), &ring);
-    let conj_xy = PlaintextCircuit::gal(ring.galois_group().from_representative(-1), &ring.galois_group(), &ring).compose(xy.clone(&ring), &ring);
+    let conj_xy = PlaintextCircuit::gal(ring.acting_galois_group().from_representative(-1), &ring.acting_galois_group(), &ring).compose(xy.clone(&ring), &ring);
     let partial_trace_xy = PlaintextCircuit::add(&ring).compose(xy.tensor(conj_xy, &ring), &ring).compose(PlaintextCircuit::identity(2, &ring).output_twice(&ring), &ring);
 
     for x_e in 0..8 {
@@ -1307,7 +1307,7 @@ fn test_serialization() {
 
 #[test]
 fn test_identity_galois() {
-    let Gal = CyclotomicGaloisGroup::new(5);
+    let Gal = CyclotomicGaloisGroupBase::new(5).into().full_subgroup();
     let ring = StaticRing::<i64>::RING;
     let circuit = PlaintextCircuit::gal(Gal.identity(), &Gal, ring);
     assert!(circuit == PlaintextCircuit::identity(1, ring));

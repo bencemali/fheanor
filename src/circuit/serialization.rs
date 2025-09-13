@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::group::{DeserializeWithGroup, SerializeWithGroup};
 use feanor_math::ring::*;
 use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
@@ -67,13 +68,13 @@ struct SerializablePlaintextCircuitData<G: Serialize, O: Serialize> {
 pub struct SerializablePlaintextCircuit<'a, R: RingStore> {
     circuit: &'a PlaintextCircuit<R::Type>,
     ring: R,
-    galois_group: Option<&'a CyclotomicGaloisGroup>
+    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>
 }
 
 impl<'a, R: RingStore + Copy> SerializablePlaintextCircuit<'a, R>
     where R::Type: SerializableElementRing
 {
-    pub fn new(ring: R, galois_group: &'a CyclotomicGaloisGroup, circuit: &'a PlaintextCircuit<R::Type>) -> Self {
+    pub fn new(ring: R, galois_group: &'a Subgroup<CyclotomicGaloisGroup>, circuit: &'a PlaintextCircuit<R::Type>) -> Self {
         Self { circuit: circuit, ring: ring, galois_group: Some(galois_group) }
     }
 
@@ -117,7 +118,7 @@ impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R>
                     rhs: serialize_lin_transform(rhs, self.ring)
                 }),
                 PlaintextCircuitGate::Gal(gs, val) => SerializablePlaintextCircuitGate::Gal(SerializablePlaintextCircuitGalGate {
-                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group.unwrap())), gs.len()), 
+                    automorphisms: SerializableSeq::new_with_len(gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group.unwrap().parent())), gs.len()), 
                     input: serialize_lin_transform(val, self.ring)
                 }),
                 PlaintextCircuitGate::Square(val) => SerializablePlaintextCircuitGate::Square(SerializablePlaintextCircuitSquareGate { 
@@ -192,18 +193,18 @@ impl_deserialize_seed_for_dependent_struct!{
 struct DeserializeSeedPlaintextCircuitGalGate<'a, R: RingStore + Copy>
     where R::Type: SerializableElementRing
 {
-    galois_group: Option<&'a CyclotomicGaloisGroup>,
+    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
     deserializer: DeserializeWithRing<R>
 }
 
 fn derive_gal_gate_deserializer<'de, 'a, R>(d: &DeserializeSeedPlaintextCircuitGalGate<'a, R>) -> impl use<'a, 'de, R> + DeserializeSeed<'de, Value = Vec<GaloisGroupEl>>
     where R: RingStore + Copy, R::Type: SerializableElementRing
 {
-    let galois_group: &'a CyclotomicGaloisGroup = d.galois_group.expect("cannot deserialize a circuit with galois gates if no galois group was specified");
+    let galois_group: &'a Subgroup<CyclotomicGaloisGroup> = d.galois_group.expect("cannot deserialize a circuit with galois gates if no galois group was specified");
     DeserializeSeedSeq::new(
-        std::iter::repeat(DeserializeWithGroup::new(galois_group)),
+        std::iter::repeat(DeserializeWithGroup::new(galois_group.parent())),
         Vec::new(),
-        |mut current, next| { current.push(next); current }
+        |mut current, next| { assert!(galois_group.contains(&next)); current.push(next); current }
     )
 }
 
@@ -218,7 +219,7 @@ impl_deserialize_seed_for_dependent_struct!{
 struct DeserializeSeedPlaintextCircuitGate<'a, R: RingStore + Copy>
     where R::Type: SerializableElementRing
 {
-    galois_group: Option<&'a CyclotomicGaloisGroup>,
+    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
     deserializer: DeserializeWithRing<R>
 }
 
@@ -233,7 +234,7 @@ impl_deserialize_seed_for_dependent_enum!{
 struct DeserializeSeedPlaintextCircuitData<'a, R: RingStore + Copy>
     where R::Type: SerializableElementRing
 {
-    galois_group: Option<&'a CyclotomicGaloisGroup>,
+    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>,
     deserializer: DeserializeWithRing<R>
 }
 
@@ -257,13 +258,13 @@ pub struct DeserializeSeedPlaintextCircuit<'a, R: RingStore + Copy>
     where R::Type: SerializableElementRing
 {
     ring: R,
-    galois_group: Option<&'a CyclotomicGaloisGroup>
+    galois_group: Option<&'a Subgroup<CyclotomicGaloisGroup>>
 }
 
 impl<'a, R: RingStore + Copy> DeserializeSeedPlaintextCircuit<'a, R>
     where R::Type: SerializableElementRing
 {
-    pub fn new(ring: R, galois_group: &'a CyclotomicGaloisGroup) -> Self {
+    pub fn new(ring: R, galois_group: &'a Subgroup<CyclotomicGaloisGroup>) -> Self {
         Self { ring: ring, galois_group: Some(galois_group) }
     }
 

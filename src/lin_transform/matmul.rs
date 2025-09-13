@@ -816,7 +816,7 @@ use feanor_math::integer::*;
 fn test_to_circuit_single() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -847,14 +847,13 @@ fn test_to_circuit_single() {
     let actual = compiled_transform.evaluate(&[input], ring.identity()).pop().unwrap();
     assert_el_eq!(&ring, &expected, &actual);
 
-    let galois_group = H.galois_group();
-    assert_eq!(2, compiled_transform.required_galois_keys(galois_group.parent()).len());
+    assert_eq!(2, compiled_transform.required_galois_keys(H.galois_group()).len());
 }
 
 #[test]
 fn test_compute_automorphisms_per_dimension() {
     let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(3, 19), Zn::new(7));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(3 * 19), int_cast(7, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(7, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     assert_eq!(2, H.hypercube().dim_count());
     assert_eq!(3, H.slot_ring().rank());
@@ -873,7 +872,7 @@ fn test_compute_automorphisms_per_dimension() {
 fn test_compose() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -902,7 +901,7 @@ fn test_compose() {
 fn test_invert() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(64), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -923,7 +922,7 @@ fn test_invert() {
 fn test_blockmatmul1d() {
     // F23[X]/(Phi_5) ~ F_(23^4)
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(5), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     let matrix = [
         [1, 0, 1, 0],
@@ -947,7 +946,7 @@ fn test_blockmatmul1d() {
 
     // F23[X]/(Phi_7) ~ F_(23^3)^2
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(7), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
     let matrix = [
         [1, 0, 0],

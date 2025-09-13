@@ -1080,7 +1080,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     /// we require a Galois key when evaluating the circuit on encrypted
     /// inputs.
     /// 
-    pub fn required_galois_keys(&self, galois_group: &CyclotomicGaloisGroup) -> Vec<GaloisGroupEl> {
+    pub fn required_galois_keys(&self, galois_group: &Subgroup<CyclotomicGaloisGroup>) -> Vec<GaloisGroupEl> {
         let mut result = self.gates.iter().flat_map(|gate| match gate {
             PlaintextCircuitGate::Gal(gs, _) => gs.iter().cloned(),
             PlaintextCircuitGate::Mul(_, _) => [].iter().cloned(),
@@ -1088,6 +1088,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
         }).collect::<Vec<_>>();
         result.sort_unstable_by_key(|g| galois_group.representative(g));
         result.dedup_by_key(|g| galois_group.representative(g));
+        assert!(result.iter().all(|g| galois_group.contains(g)));
         return result;
     }
     
@@ -1133,7 +1134,7 @@ impl<R: ?Sized + RingBase> PlaintextCircuit<R> {
     }
 }
 
-impl<'a, R> SerializeDeserializeWith<(R, &'a CyclotomicGaloisGroup)> for PlaintextCircuit<R::Type>
+impl<'a, R> SerializeDeserializeWith<(R, &'a Subgroup<CyclotomicGaloisGroup>)> for PlaintextCircuit<R::Type>
     where R: RingStore + Copy,
         R::Type: SerializableElementRing
 {
@@ -1142,11 +1143,11 @@ impl<'a, R> SerializeDeserializeWith<(R, &'a CyclotomicGaloisGroup)> for Plainte
     type DeserializeWithData<'b> = DeserializeSeedPlaintextCircuit<'b, R>
         where Self: 'b, R: 'b, 'a: 'b;
 
-    fn deserialize_with<'b>(data: &'b (R, &'a CyclotomicGaloisGroup)) -> Self::DeserializeWithData<'b> {
+    fn deserialize_with<'b>(data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::DeserializeWithData<'b> {
         DeserializeSeedPlaintextCircuit::new(data.0, data.1)
     }
 
-    fn serialize_with<'b>(&'b self, data: &'b (R, &'a CyclotomicGaloisGroup)) -> Self::SerializeWithData<'b> {
+    fn serialize_with<'b>(&'b self, data: &'b (R, &'a Subgroup<CyclotomicGaloisGroup>)) -> Self::SerializeWithData<'b> {
         SerializablePlaintextCircuit::new(data.0, data.1, self)
     }
 }

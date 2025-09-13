@@ -8,7 +8,6 @@ use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::unity_root::{get_prim_root_of_unity, get_prim_root_of_unity_pow2};
 use feanor_math::algorithms::fft::*;
-use feanor_math::group::AbelianGroupStore;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;

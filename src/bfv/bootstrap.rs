@@ -8,6 +8,11 @@ use feanor_math::integer::{int_cast, IntegerRingStore};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::ZnRingStore;
 
+use crate::bgv::modswitch::compute_optimal_special_modulus;
+use crate::circuit::create_circuit_cached;
+use crate::digit_extract::DigitExtract;
+use crate::lin_transform::composite;
+use crate::lin_transform::pow2;
 
 use super::*;
 
@@ -49,19 +54,20 @@ pub struct ThinBootstrapParams<Params: BFVInstantiation> {
 }
 
 impl<Params> ThinBootstrapParams<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
+    where Params: BFVInstantiation, 
         Params::PlaintextRing: SerializableElementRing,
-        NumberRing<Params>: Clone
+        NumberRing<Params>: Clone,
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
     pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().m() as i64)).unwrap();
-        assert_eq!(self.scheme_params.number_ring().m(), 1 << log2_m);
+        let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().galois_group().m() as i64)).unwrap();
+        assert_eq!(self.scheme_params.number_ring().galois_group().m(), 1 << log2_m);
 
         let (p, r) = is_prime_power(&ZZbig, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().galois_group().m());
             println!("Using e = r + v = {} + {}", r, v);
         }
 
@@ -71,12 +77,12 @@ impl<Params> ThinBootstrapParams<Params>
         let digit_extract = DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r);
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
             HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let m = plaintext_ring.m();
+        let m = plaintext_ring.number_ring().galois_group().m();
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
 
@@ -84,13 +90,13 @@ impl<Params> ThinBootstrapParams<Params>
     }
 
     pub fn build_odd<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
-        assert!(self.scheme_params.number_ring().m() % 2 != 0);
+        assert!(self.scheme_params.number_ring().galois_group().m() % 2 != 0);
 
         let (p, r) = is_prime_power(&ZZbig, &self.t).unwrap();
         let v = self.v;
         let e = r + v;
         if LOG {
-            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().m());
+            println!("Setting up bootstrapping for plaintext modulus p^r = {}^{} = {} within the cyclotomic ring Q[X]/(Phi_{})", ZZbig.format(&p), r, ZZbig.format(&self.t), self.scheme_params.number_ring().galois_group().m());
             println!("Using e = r + v = {} + {}", r, v);
         }
 
@@ -105,12 +111,12 @@ impl<Params> ThinBootstrapParams<Params>
         };
 
         let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(plaintext_ring.m() as u64), ZZbig.clone_el(&p));
+            let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
             HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
-        let m = plaintext_ring.m();
+        let m = plaintext_ring.number_ring().galois_group().m();
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || composite::slots_to_powcoeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || composite::powcoeffs_to_slots_thin(&H));
 
@@ -147,7 +153,8 @@ pub struct SparseKeyEncapsulationData<Params: BFVInstantiation> {
 }
 
 impl<Params> SparseKeyEncapsulationData<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
+    where Params: BFVInstantiation, 
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
     pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_switch_to_sparse: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
         let switch_to_sparse_key = Params::gen_switch_key(
@@ -182,10 +189,10 @@ pub struct ThinBootstrapData<Params: BFVInstantiation> {
     digit_extract: DigitExtract,
     /// The circuit used to compute the (thin) Slots-to-Coeffs linear transform
     /// of BFV bootstrapping
-    slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
+    slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>,
     /// The circuit used to compute the (thin) Coeffs-to-Slots linear transform
     /// of BFV bootstrapping
-    coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>,
+    coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>,
     /// The plaintext rings `R/p^kR` for every `r <= k <= e`, which all are used
     /// as intermediate plaintext rings during bootstrapping
     plaintext_ring_hierarchy: Vec<PlaintextRing<Params>>,
@@ -199,13 +206,14 @@ pub struct ThinBootstrapData<Params: BFVInstantiation> {
 }
 
 impl<Params> ThinBootstrapData<Params>
-    where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
+    where Params: BFVInstantiation, 
+        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
 {
     pub fn create(
         params: &ThinBootstrapParams<Params>, 
         digit_extract: DigitExtract, 
-        slots_to_coeffs_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, 
-        coeffs_to_slots_thin: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>
+        slots_to_coeffs_thin: PlaintextCircuit<Params::PlaintextRing>, 
+        coeffs_to_slots_thin: PlaintextCircuit<Params::PlaintextRing>
     ) -> Self {
         let (p, r) = is_prime_power(&ZZbig, &params.t).unwrap();
         let v = params.v;
@@ -262,7 +270,7 @@ impl<Params> ThinBootstrapData<Params>
         }
     }
 
-    pub fn with_lin_transform(self, new_slots_to_coeffs: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>, new_coeffs_to_slots: PlaintextCircuit<NumberRingQuotientBase<NumberRing<Params>, Zn>>) -> Self {
+    pub fn with_lin_transform(self, new_slots_to_coeffs: PlaintextCircuit<Params::PlaintextRing>, new_coeffs_to_slots: PlaintextCircuit<Params::PlaintextRing>) -> Self {
         Self {
             coeffs_to_slots_thin: new_coeffs_to_slots,
             digit_extract: self.digit_extract,
@@ -273,12 +281,12 @@ impl<Params> ThinBootstrapData<Params>
         }
     }
 
-    pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<CyclotomicGaloisGroupEl> {
+    pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<GaloisGroupEl> {
         let mut result = Vec::new();
-        result.extend(self.slots_to_coeffs_thin.required_galois_keys(&P.galois_group()).into_iter());
-        result.extend(self.coeffs_to_slots_thin.required_galois_keys(&P.galois_group()).into_iter());
-        result.sort_by_key(|g| P.galois_group().representative(g));
-        result.dedup_by(|g, s| P.galois_group().eq_el(g, s));
+        result.extend(self.slots_to_coeffs_thin.required_galois_keys(&P.acting_galois_group()).into_iter());
+        result.extend(self.coeffs_to_slots_thin.required_galois_keys(&P.acting_galois_group()).into_iter());
+        result.sort_by_key(|g| P.acting_galois_group().representative(g));
+        result.dedup_by(|g, s| P.acting_galois_group().eq_el(g, s));
         return result;
     }
 
@@ -310,7 +318,7 @@ impl<Params> ThinBootstrapData<Params>
         P_base: &PlaintextRing<Params>,
         ct: Ciphertext<Params>,
         rk: &RelinKey<Params>,
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)],
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
         sk_encaps_data: Option<&SparseKeyEncapsulationData<Params>>,
         debug_sk: Option<&SecretKey<Params>>
     ) -> Ciphertext<Params> {
@@ -346,7 +354,7 @@ impl<Params> ThinBootstrapData<Params>
             }
 
             let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
-                let galois_group = P_base.galois_group();
+                let galois_group = P_base.acting_galois_group();
                 let modswitched_gks = self.slots_to_coeffs_thin.required_galois_keys(&galois_group).iter().map(|g| {
                     if let Some((_, gk)) = gks.iter().filter(|(provided_g, _)| galois_group.eq_el(g, provided_g)).next() {
                         (g.clone(), (
@@ -354,7 +362,7 @@ impl<Params> ThinBootstrapData<Params>
                             gk.1.clone(C.get_ring()).modulus_switch(C_input.get_ring(), &input_dropped_rns_factors, C.get_ring()), 
                         ))
                     } else {
-                        panic!("missing galois key for {}", galois_group.underlying_ring().format(&galois_group.to_ring_el(g)))
+                        panic!("missing galois key for {}", galois_group.underlying_ring().format(galois_group.as_ring_el(g)))
                     }
                 }).collect::<Vec<_>>();
                 let result = self.slots_to_coeffs_thin.evaluate_bfv::<Params>(P_base, &C_input, None, std::slice::from_ref(&ct_input), None, &modswitched_gks, key_switches);

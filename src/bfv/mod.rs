@@ -21,17 +21,22 @@ use feanor_math::integer::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::seq::*;
+use feanor_math::group::*;
 use feanor_math::rings::finite::FiniteRingStore;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, RNSFactorCongruence};
 use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::gadget_product::digits::*;
+use crate::circuit::evaluator::DefaultCircuitEvaluator;
+use crate::circuit::{Coefficient, PlaintextCircuit};
+use crate::gadget_product::{digits::*, RNSGadgetProductLhsOperand, RNSGadgetProductRhsOperand};
 use crate::ntt::{FheanorNegacyclicNTT, FheanorConvolution};
 use crate::ciphertext_ring::double_rns_managed::*;
+use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
+use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
@@ -50,14 +55,14 @@ use rand_distr::StandardNormal;
 /// 
 pub mod bootstrap;
 
-pub type NumberRing<Params: BFVInstantiation> = <<Params as BFVInstantiation>::CiphertextRing as BGFVCiphertextRing>::NumberRing;
+pub type NumberRing<Params: BFVInstantiation> = <<Params as BFVInstantiation>::CiphertextRing as NumberRingQuotient>::NumberRing;
 pub type PlaintextRing<Params: BFVInstantiation> = RingValue<<Params as BFVInstantiation>::PlaintextRing>;
 pub type SecretKey<Params: BFVInstantiation> = El<CiphertextRing<Params>>;
 pub type KeySwitchKey<Params: BFVInstantiation> = (GadgetProductOperand<Params>, GadgetProductOperand<Params>);
 pub type RelinKey<Params: BFVInstantiation> = KeySwitchKey<Params>;
 pub type CiphertextRing<Params: BFVInstantiation> = RingValue<Params::CiphertextRing>;
 pub type Ciphertext<Params: BFVInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
-pub type GadgetProductOperand<Params: BFVInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
+pub type GadgetProductOperand<Params: BFVInstantiation> = RNSGadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
 /// When choosing primes for an RNS base, where the only constraint is that
@@ -129,12 +134,12 @@ pub enum SecretKeyDistribution {
 /// 
 pub trait BFVInstantiation {
 
-    type NumberRing: HECyclotomicNumberRing;
+    type NumberRing: AbstractNumberRing;
 
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicQuotient + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + FiniteRing;
 
     ///
     /// Type of the plaintext base ring `Z/tZ`.
@@ -144,7 +149,7 @@ pub trait BFVInstantiation {
     ///
     /// Type of the plaintext ring `R/tR`.
     /// 
-    type PlaintextRing: CyclotomicQuotient<BaseRing = RingValue<Self::PlaintextZnRing>>;
+    type PlaintextRing: NumberRingQuotient<BaseRing = RingValue<Self::PlaintextZnRing>, NumberRing = Self::NumberRing>;
 
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -294,7 +299,7 @@ pub trait BFVInstantiation {
     {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(P.m() as u64), int_cast(p, ZZbig, ZZ));
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ));
 
         let H = HypercubeIsomorphism::new::<false>(&P, hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
@@ -492,7 +497,7 @@ pub trait BFVInstantiation {
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
 
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
     }
@@ -524,7 +529,7 @@ pub trait BFVInstantiation {
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
 
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
         
@@ -546,8 +551,8 @@ pub trait BFVInstantiation {
     /// 
     #[instrument(skip_all)]
     fn gen_switch_key<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
-        let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
-        let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res0 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res1 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk, noise_sigma);
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
@@ -579,7 +584,7 @@ pub trait BFVInstantiation {
     fn key_switch(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         let (c0, c1) = ct;
         let (s0, s1) = switch_key;
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, switch_key.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, switch_key.0.gadget_vector_digits());
         return (
             C.add_ref_snd(c0, &op.gadget_product(s0, C.get_ring())),
             op.gadget_product(s1, C.get_ring())
@@ -658,7 +663,7 @@ pub trait BFVInstantiation {
     /// The noise is chosen according to the rounded Gaussian distribution with standard deviation `noise_sigma`.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &CyclotomicGaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
+    fn gen_gk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &GaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
         Self::gen_switch_key(C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits, noise_sigma)
     }
     
@@ -675,7 +680,7 @@ pub trait BFVInstantiation {
     /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &CyclotomicGaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
+    fn hom_galois(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &GaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         Self::key_switch(C, (
             C.get_ring().apply_galois_action(&ct.0, g),
             C.get_ring().apply_galois_action(&ct.1, g)
@@ -699,15 +704,15 @@ pub trait BFVInstantiation {
     /// modulus before calling `hom_galois()`.
     /// 
     #[instrument(skip_all)]
-    fn hom_galois_many<'b, V>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[CyclotomicGaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
+    fn hom_galois_many<'b, V>(C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[GaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
         where V: VectorFn<&'b KeySwitchKey<Self>>,
             Self: 'b
     {
         let digits = gks.at(0).0.gadget_vector_digits();
-        let has_same_digits = |gk: &GadgetProductRhsOperand<_>| gk.gadget_vector_digits().len() == digits.len() && gk.gadget_vector_digits().iter().zip(digits.iter()).all(|(l, r)| l == r);
+        let has_same_digits = |gk: &RNSGadgetProductRhsOperand<_>| gk.gadget_vector_digits().len() == digits.len() && gk.gadget_vector_digits().iter().zip(digits.iter()).all(|(l, r)| l == r);
         assert!(gks.iter().all(|gk| has_same_digits(&gk.0) && has_same_digits(&gk.1)));
         let (c0, c1) = ct;
-        let c1_op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, digits);
+        let c1_op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, digits);
         let c1_op_gs = c1_op.apply_galois_action_many(C.get_ring(), gs);
         let c0_gs = C.get_ring().apply_galois_action_many(&c0, gs).into_iter();
         assert_eq!(gks.len(), c1_op_gs.len());
@@ -811,7 +816,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, allocator: A) -> Self {
         return Self {
-            number_ring: Pow2CyclotomicNumberRing::new(m),
+            number_ring: Pow2CyclotomicNumberRing::new(m as u64),
             ciphertext_allocator: allocator,
             negacyclic_ntt: PhantomData::<C>
         }
@@ -844,7 +849,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
-    type PlaintextRing = NumberRingQuotientBase<Pow2CyclotomicNumberRing<C>, Zn>;
+    type PlaintextRing = NumberRingQuotientByIntBase<Pow2CyclotomicNumberRing<C>, Zn>;
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
@@ -854,7 +859,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BFVInstantiation for Po
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientByIntBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
     #[instrument(skip_all)]
@@ -949,11 +954,11 @@ impl<A: Allocator + Clone > CompositeBFV<A> {
     }
 
     pub fn m1(&self) -> usize {
-        self.number_ring.m1()
+        self.number_ring.m1() as usize
     }
 
     pub fn m2(&self) -> usize {
-        self.number_ring.m2()
+        self.number_ring.m2() as usize
     }
 }
 
@@ -961,7 +966,7 @@ impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
-    type PlaintextRing = NumberRingQuotientBase<CompositeCyclotomicNumberRing, Zn>;
+    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
@@ -971,7 +976,7 @@ impl<A: Allocator + Clone > BFVInstantiation for CompositeBFV<A> {
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientByIntBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
     
     #[instrument(skip_all)]
@@ -1086,7 +1091,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
 
     type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = SingleRNSRingBase<CompositeCyclotomicNumberRing, A, C>;
-    type PlaintextRing = NumberRingQuotientBase<CompositeCyclotomicNumberRing, Zn>;
+    type PlaintextRing = NumberRingQuotientByIntBase<CompositeCyclotomicNumberRing, Zn>;
     type PlaintextZnRing = ZnBase;
 
     #[instrument(skip_all)]
@@ -1096,7 +1101,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
 
     #[instrument(skip_all)]
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self> {
-        NumberRingQuotientBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
+        NumberRingQuotientByIntBase::new(self.number_ring().clone(), Zn::new(int_cast(t, ZZi64, ZZbig) as u64))
     }
 
     #[instrument(skip_all)]
@@ -1140,7 +1145,7 @@ impl<A: Allocator + Clone , C: FheanorConvolution<Zn>> BFVInstantiation for Comp
 /// 
 pub fn force_double_rns_repr<Params, NumberRing, A>(C: &CiphertextRing<Params>, x: El<CiphertextRing<Params>>) -> El<CiphertextRing<Params>>
     where Params: BFVInstantiation<CiphertextRing = ManagedDoubleRNSRingBase<NumberRing, A>>,
-        NumberRing: HECyclotomicNumberRing,
+        NumberRing: AbstractNumberRing,
         A: Allocator + Clone
 {
     C.get_ring().into_doublerns(x).map(|x| C.get_ring().from_double_rns_repr(x)).unwrap_or(C.zero())
@@ -1179,7 +1184,7 @@ fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_b
     to_extended
 }
 
-impl<NumberRing: HENumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRing, Zn>> {
+impl<NumberRing: AbstractNumberRing> PlaintextCircuit<NumberRingQuotientByIntBase<NumberRing, Zn>> {
 
     #[instrument(skip_all)]
     pub fn evaluate_bfv<Params>(&self, 
@@ -1188,14 +1193,14 @@ impl<NumberRing: HENumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRin
         C_mul: Option<&CiphertextRing<Params>>,
         inputs: &[Ciphertext<Params>], 
         rk: Option<&RelinKey<Params>>, 
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)], 
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)], 
         key_switches: &mut usize
-    ) -> Vec<Ciphertext<Params>> 
-        where Params: BFVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing, Zn>>
+    ) -> Vec<Ciphertext<Params>>
+        where Params: BFVInstantiation
     {
         assert!(!self.has_multiplication_gates() || C_mul.is_some());
         assert_eq!(C_mul.is_some(), rk.is_some());
-        let galois_group = C.galois_group();
+        let galois_group = C.acting_galois_group();
         let key_switches = RefCell::new(key_switches);
         return self.evaluate_generic(
             inputs,
@@ -1219,7 +1224,7 @@ impl<NumberRing: HENumberRing> PlaintextCircuit<NumberRingQuotientBase<NumberRin
                 Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
                     &gk.1
                 } else {
-                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.to_ring_el(expected_g)))
+                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.as_ring_el(expected_g)))
                 }))
             })
         );
@@ -1235,7 +1240,7 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
         C_mul: Option<&CiphertextRing<Params>>,
         inputs: &[Ciphertext<Params>], 
         rk: Option<&RelinKey<Params>>, 
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)], 
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)], 
         key_switches: &mut usize
     ) -> Vec<Ciphertext<Params>> 
         where Params: BFVInstantiation
@@ -1243,7 +1248,7 @@ impl PlaintextCircuit<StaticRingBase<i64>> {
         assert!(!self.has_multiplication_gates() || C_mul.is_some());
         assert_eq!(C_mul.is_some(), rk.is_some());
         const ZZ: StaticRing<i64> = StaticRing::<i64>::RING;
-        let galois_group = C.galois_group();
+        let galois_group = C.acting_galois_group();
         let key_switches = RefCell::new(key_switches);
         return self.evaluate_generic(
             inputs,
@@ -1304,11 +1309,11 @@ fn test_pow2_bfv_hom_galois() {
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
     let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &P.acting_galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
     let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BFV::hom_galois(&C, ctxt, &P.galois_group().from_representative(3), &gk);
+    let result_ctxt = Pow2BFV::hom_galois(&C, ctxt, &P.acting_galois_group().from_representative(3), &gk);
     let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
 
     assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);
@@ -1361,11 +1366,11 @@ fn test_composite_bfv_hom_galois() {
     let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
     let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
     let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &P.galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &P.acting_galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
     
     let input = P.canonical_gen();
     let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = CompositeSingleRNSBFV::hom_galois(&C, ctxt, &P.galois_group().from_representative(3), &gk);
+    let result_ctxt = CompositeSingleRNSBFV::hom_galois(&C, ctxt, &P.acting_galois_group().from_representative(3), &gk);
     let result = CompositeSingleRNSBFV::dec(&P, &C, result_ctxt, &sk);
 
     assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);

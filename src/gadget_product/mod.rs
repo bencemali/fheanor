@@ -259,7 +259,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// assert!((0..8).all(|i| int_cast(ring.base_ring().smallest_lift(error_coefficients.at(i)), StaticRing::<i64>::RING, BigIntRing::RING).abs() <= max_allowed_error));
     /// ```
     /// 
-    pub fn gadget_product(&self, rhs: &GadgetProductRhsOperand<R>, ring: &R) -> R::Element {
+    pub fn gadget_product(&self, rhs: &RNSGadgetProductRhsOperand<R>, ring: &R) -> R::Element {
         assert_eq!(self.element_decomposition.len(), rhs.scaled_element.len(), "Gadget product operands created w.r.t. different digit sets");
         return ring.inner_product_prepared(
             self.element_decomposition.iter().zip(rhs.scaled_element.iter())
@@ -351,7 +351,7 @@ fn gadget_decompose_doublerns<NumberRing, A, V>(ring: &DoubleRNSRingBase<NumberR
 /// 
 /// For more details, see [`GadgetProductLhsOperand::gadget_product()`].
 /// 
-pub struct GadgetProductRhsOperand<R: PreparedMultiplicationRing> {
+pub struct RNSGadgetProductRhsOperand<R: PreparedMultiplicationRing> {
     /// `i`-th entry stores a (noisy) encryption/encoding/whatever of the represented element,
     /// scaled by the `i`-th entry of the gadget vector. `None` represents zero. We store the
     /// element once as `PreparedMultiplicant` for fast computation of gadget products, and once
@@ -364,7 +364,7 @@ pub struct GadgetProductRhsOperand<R: PreparedMultiplicationRing> {
     digits: Box<RNSGadgetVectorDigitIndices>
 }
 
-impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
+impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
 
     pub fn clone(&self, ring: &R) -> Self {
         Self {
@@ -461,7 +461,7 @@ impl<R: PreparedMultiplicationRing> GadgetProductRhsOperand<R> {
     }
 }
 
-impl<R: BGFVCiphertextRing> GadgetProductRhsOperand<R> {
+impl<R: BGFVCiphertextRing> RNSGadgetProductRhsOperand<R> {
 
     pub fn modulus_switch(&self, to: &R, dropped_rns_factors: &RNSFactorIndexList, from: &R) -> Self {
         assert_eq!(to.base_ring().get_ring().len() + dropped_rns_factors.len(), from.base_ring().get_ring().len());
@@ -505,7 +505,7 @@ fn test_gadget_decomposition() {
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
     let hom_i32 = ring.base_ring().can_hom(&StaticRing::<i32>::RING).unwrap();
 
-    let mut rhs = GadgetProductRhsOperand::new(ring.get_ring(), 2);
+    let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 2);
     rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
     rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
 
@@ -521,7 +521,7 @@ fn test_modulus_switch() {
     let rns_base = ring.base_ring();
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
-    let mut rhs = GadgetProductRhsOperand::new(ring.get_ring(), 2);
+    let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 2);
     rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1, 1, 0])));
     rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1])));
 
@@ -535,7 +535,7 @@ fn test_modulus_switch() {
     let rns_base = ring.base_ring();
     let from_congruence = |data: &[i32]| rns_base.from_congruence(data.iter().enumerate().map(|(i, c)| rns_base.at(i).int_hom().map(*c)));
 
-    let mut rhs = GadgetProductRhsOperand::new(ring.get_ring(), 3);
+    let mut rhs = RNSGadgetProductRhsOperand::new(ring.get_ring(), 3);
     rhs.set_rns_factor(ring.get_ring(), 0, ring.inclusion().map(from_congruence(&[1000, 1000, 0, 0, 0])));
     rhs.set_rns_factor(ring.get_ring(), 1, ring.inclusion().map(from_congruence(&[0, 0, 1000, 1000, 0])));
     rhs.set_rns_factor(ring.get_ring(), 2, ring.inclusion().map(from_congruence(&[0, 0, 0, 0, 1000])));

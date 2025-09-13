@@ -232,15 +232,15 @@ pub mod lin_transform;
 /// 
 pub mod digit_extract;
 
-// ///
-// /// Contains an implementation of the BFV scheme.
-// /// 
-// pub mod bfv;
+///
+/// Contains an implementation of the BFV scheme.
+/// 
+pub mod bfv;
 
-// ///
-// /// Contains an implementation of the BGV scheme.
-// /// 
-// pub mod bgv;
+///
+/// Contains an implementation of the BGV scheme.
+/// 
+pub mod bgv;
 
 // ///
 // /// Contains an implementation of the CLPX/GBFV scheme.

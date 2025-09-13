@@ -7,6 +7,7 @@ use feanor_math::homomorphism::CanHomFrom;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::BigIntRingBase;
 use feanor_math::primitive_int::*;
+use feanor_math::group::*;
 use feanor_math::ring::*;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
 
@@ -14,8 +15,9 @@ use crate::bgv::noise_estimator::*;
 use crate::boo::Boo;
 use crate::circuit::evaluator::DefaultCircuitEvaluator;
 use crate::circuit::*;
-use crate::cyclotomic::CyclotomicGaloisGroupEl;
+use crate::number_ring::galois::*;
 use crate::gadget_product::digits::*;
+use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::ZZi64;
 
 use super::noise_estimator::AlwaysZeroNoiseEstimator;
@@ -154,7 +156,7 @@ pub trait BGVModswitchStrategy<Params: BGVInstantiation> {
         C_master: &CiphertextRing<Params>,
         inputs: &[ModulusAwareCiphertext<Params, Self>],
         rk: Option<&RelinKey<Params>>,
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)],
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
         key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
     ) -> Vec<ModulusAwareCiphertext<Params, Self>>
@@ -331,7 +333,7 @@ pub trait AsBGVPlaintext<Params: BGVInstantiation>: RingBase + CanHomFrom<BigInt
         &self,
         P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element>;
 }
 
@@ -522,7 +524,7 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for StaticRingBase<i64> {
         &self,
         _P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         gs.iter().map(|_| self.clone_el(x)).collect()
     }
@@ -634,14 +636,14 @@ impl<Params: BGVInstantiation> AsBGVPlaintext<Params> for BigIntRingBase {
         &self,
         _P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         gs.iter().map(|_| self.clone_el(x)).collect()
     }
 }
 
-impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientBase<NumberRing<Params>, Zn>
-    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientBase<NumberRing<Params>, Zn>>
+impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientByIntBase<NumberRing<Params>, Zn>
+    where Params: BGVInstantiation<PlaintextRing = NumberRingQuotientByIntBase<NumberRing<Params>, Zn>>
 {
     fn hom_add_to(
         &self, 
@@ -695,7 +697,7 @@ impl<Params> AsBGVPlaintext<Params> for NumberRingQuotientBase<NumberRing<Params
         &self,
         _P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         self.apply_galois_action_many(x, gs)
     }
@@ -814,7 +816,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         &self,
         _P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         self.apply_galois_action_many(x, gs)
     }
@@ -933,7 +935,7 @@ impl<Params: BGVInstantiation, A: Allocator + Clone> AsBGVPlaintext<Params> for 
         &self,
         _P: &PlaintextRing<Params>, 
         x: &Self::Element,
-        gs: &[CyclotomicGaloisGroupEl]
+        gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         self.apply_galois_action_many(x, gs)
     }
@@ -1483,8 +1485,8 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
         C_master: &CiphertextRing<Params>,
         x: PlainOrCiphertext<'a, Params, Self, R::Type>,
         ring: R,
-        gs: &[CyclotomicGaloisGroupEl],
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)],
+        gs: &[GaloisGroupEl],
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
         key_switches: &RefCell<&mut usize>,
         _debug_sk: Option<&SecretKey<Params>>
     ) -> Vec<PlainOrCiphertext<'a, Params, Self, R::Type>>
@@ -1497,10 +1499,10 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> De
                 assert!(x.dropped_rns_factor_indices.len() < C_master.base_ring().len());
                 **key_switches.borrow_mut() += gs.len();
                 
-                let get_gk = |g| if let Some(res) = gks.iter().filter(|(provided_g, _)| C_master.galois_group().eq_el(g, provided_g)).next() {
+                let get_gk = |g| if let Some(res) = gks.iter().filter(|(provided_g, _)| C_master.acting_galois_group().eq_el(g, provided_g)).next() {
                     res
                 } else {
-                    panic!("Galois key for {} not found", C_master.galois_group().representative(g))
+                    panic!("Galois key for {} not found", C_master.acting_galois_group().representative(g))
                 };
 
                 let gk_digits = get_gk(&gs[0]).1.gadget_vector_digits();
@@ -1567,7 +1569,7 @@ impl<Params: BGVInstantiation, N: BGVNoiseEstimator<Params>, const LOG: bool> BG
         C_master: &CiphertextRing<Params>,
         inputs: &[ModulusAwareCiphertext<Params, Self>],
         rk: Option<&RelinKey<Params>>,
-        gks: &[(CyclotomicGaloisGroupEl, KeySwitchKey<Params>)],
+        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)],
         key_switches: &mut usize,
         mut debug_sk: Option<&SecretKey<Params>>
     ) -> Vec<ModulusAwareCiphertext<Params, Self>>

@@ -121,7 +121,10 @@ impl HypercubeStructure {
     /// Note that the Halevi-Shoup hypercube is unique except for the ordering of prime
     /// factors of `m`. This function uses a deterministic but unspecified ordering.
     /// 
-    pub fn halevi_shoup_hypercube(galois_group: CyclotomicGaloisGroup, p: El<BigIntRing>) -> Self {
+    pub fn halevi_shoup_hypercube(galois_group: &Subgroup<CyclotomicGaloisGroup>, p: El<BigIntRing>) -> Self {
+
+        assert!(galois_group.get_group() == galois_group.parent().get_group().clone().full_subgroup().get_group());
+        let galois_group = galois_group.parent().clone();
 
         ///
         /// Stores information about a factor in the representation `(Z/mZ)* = (Z/m_1Z)* x ... (Z/m_rZ)*`
@@ -440,23 +443,23 @@ pub fn unit_group_dlog(ring: &Zn, base: ZnEl, value: ZnEl) -> Option<i64> {
 
 #[test]
 fn test_halevi_shoup_hypercube() {
-    let galois_group = CyclotomicGaloisGroupBase::new(11 * 31);
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(2, ZZbig, ZZi64));
+    let galois_group = CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup();
+    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(2, ZZbig, ZZi64));
     assert_eq!(10, hypercube_structure.d());
     assert_eq!(2, hypercube_structure.dim_count());
 
     assert_eq!(1, hypercube_structure.dim_length(0));
     assert_eq!(30, hypercube_structure.dim_length(1));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(32);
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(7, ZZbig, ZZi64));
+    let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
+    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
     assert_eq!(4, hypercube_structure.d());
     assert_eq!(1, hypercube_structure.dim_count());
 
     assert_eq!(4, hypercube_structure.dim_length(0));
 
-    let galois_group = CyclotomicGaloisGroupBase::new(32);
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(galois_group, int_cast(17, ZZbig, ZZi64));
+    let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
+    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(17, ZZbig, ZZi64));
     assert_eq!(2, hypercube_structure.d());
     assert_eq!(2, hypercube_structure.dim_count());
 
@@ -467,9 +470,9 @@ fn test_halevi_shoup_hypercube() {
 #[test]
 fn test_serialization() {
     for hypercube in [
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(11 * 31), int_cast(2, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(32), int_cast(7, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(CyclotomicGaloisGroupBase::new(32), int_cast(17, ZZbig, ZZi64))
+        HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup(), int_cast(2, ZZbig, ZZi64)),
+        HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(7, ZZbig, ZZi64)),
+        HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(17, ZZbig, ZZi64))
     ] {
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
         let tokens = hypercube.serialize(&serializer).unwrap();

@@ -242,7 +242,7 @@ pub mod bfv;
 /// 
 pub mod bgv;
 
-// ///
-// /// Contains an implementation of the CLPX/GBFV scheme.
-// /// 
-// pub mod clpx;
+///
+/// Contains an implementation of the CLPX/GBFV scheme.
+/// 
+pub mod clpx;

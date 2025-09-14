@@ -200,7 +200,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// 
     /// // build the right-hand side operand
     /// let rhs = ring.random_element(|| rng.rand_u64());
-    /// let mut rhs_op = GadgetProductRhsOperand::new(ring.get_ring(), digits);
+    /// let mut rhs_op = RNSGadgetProductRhsOperand::new(ring.get_ring(), digits);
     /// for i in 0..3 {
     ///     // set the i-th component to `gadget_vector(i) * rhs`, for now without noise
     ///     let component_at_i = ring.inclusion().mul_ref_map(&rhs, &rhs_op.gadget_vector(ring.get_ring()).at(i));
@@ -209,7 +209,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// 
     /// // compute the gadget product
     /// let lhs = ring.random_element(|| rng.rand_u64());
-    /// let lhs_op = GadgetProductLhsOperand::from_element(ring.get_ring(), &lhs, digits);
+    /// let lhs_op = RNSGadgetProductLhsOperand::from_element(ring.get_ring(), &lhs, digits);
     /// let actual = lhs_op.gadget_product(&rhs_op, ring.get_ring());
     /// assert_el_eq!(&ring, &ring.mul_ref(&lhs, &rhs), actual);
     /// ```
@@ -237,7 +237,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// # let digits = 3;
     /// // build the ring just as before
     /// let rhs = ring.random_element(|| rng.rand_u64());
-    /// let mut rhs_op = GadgetProductRhsOperand::new(ring.get_ring(), digits);
+    /// let mut rhs_op = RNSGadgetProductRhsOperand::new(ring.get_ring(), digits);
     /// // this time include some error when building `rhs_op`
     /// let mut create_small_error = || ring.get_ring().from_canonical_basis((0..ring.rank()).map(|i| ring.base_ring().int_hom().map((rng.rand_u64() % 3) as i32 - 1)));
     /// for i in 0..3 {
@@ -248,7 +248,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// 
     /// // compute the gadget product
     /// let lhs = ring.random_element(|| rng.rand_u64());
-    /// let lhs_op = GadgetProductLhsOperand::from_element(ring.get_ring(), &lhs, digits);
+    /// let lhs_op = RNSGadgetProductLhsOperand::from_element(ring.get_ring(), &lhs, digits);
     /// let actual = lhs_op.gadget_product(&rhs_op, ring.get_ring());
     /// 
     /// // the final result should be close to `lhs * rhs`, except for some noise

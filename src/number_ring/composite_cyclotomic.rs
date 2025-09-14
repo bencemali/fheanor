@@ -2,9 +2,8 @@ use std::alloc::{Allocator, Global};
 use std::fmt::{Debug, Formatter};
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
-use feanor_math::algorithms::eea::{signed_eea, signed_gcd};
+use feanor_math::algorithms::eea::{signed_eea, signed_gcd, signed_lcm};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
-use feanor_math::algorithms::eea::signed_lcm;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
@@ -15,8 +14,8 @@ use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::subvector::SubvectorView;
-use tracing::instrument;
 use feanor_math::seq::*;
+use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::general_cyclotomic::*;

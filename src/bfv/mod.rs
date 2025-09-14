@@ -16,7 +16,6 @@ use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
-use feanor_math::primitive_int::StaticRing;
 use feanor_math::integer::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::extension::FreeAlgebraStore;
@@ -49,6 +48,9 @@ use crate::*;
 
 use rand::{Rng, CryptoRng};
 use rand_distr::StandardNormal;
+
+
+pub mod eval;
 
 ///
 /// Contains the implementation of bootstrapping for BFV.
@@ -422,8 +424,23 @@ pub trait BFVInstantiation {
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_mul_plain_i64(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: i64, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        (C.int_hom().mul_map(ct.0, m as i32), C.int_hom().mul_map(ct.1, m as i32))
+    fn hom_mul_plain_int(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<BigIntRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
+        (hom.mul_ref_snd_map(ct.0, m), hom.mul_ref_snd_map(ct.1, m))
+    }
+
+    ///
+    /// Computes an encrypted fused-multiply-add, i.e. an encryption of `dst + lhs * rhs`, where
+    /// `lhs` is an integer and given as plaintext, and `dst`, `rhs` are given in encrypted form.
+    /// 
+    /// This function does not perform any semantic checks. In particular, it is up to the
+    /// caller to ensure that the ciphertext is defined over the given ring, and is a valid
+    /// BFV encryption w.r.t. the given plaintext modulus.
+    /// 
+    #[instrument(skip_all)]
+    fn hom_fma_plain_int(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, dst: Ciphertext<Self>, lhs: &El<BigIntRing>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
+        let hom = C.inclusion().compose(C.base_ring().can_hom(&ZZbig).unwrap());
+        (hom.fma_map(&rhs.0, lhs, dst.0), hom.fma_map(&rhs.1, lhs, dst.1))
     }
     
     ///
@@ -1184,95 +1201,17 @@ fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_b
     to_extended
 }
 
-impl<NumberRing: AbstractNumberRing> PlaintextCircuit<NumberRingQuotientByIntBase<NumberRing, Zn>> {
-
-    #[instrument(skip_all)]
-    pub fn evaluate_bfv<Params>(&self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        C_mul: Option<&CiphertextRing<Params>>,
-        inputs: &[Ciphertext<Params>], 
-        rk: Option<&RelinKey<Params>>, 
-        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)], 
-        key_switches: &mut usize
-    ) -> Vec<Ciphertext<Params>>
-        where Params: BFVInstantiation
-    {
-        assert!(!self.has_multiplication_gates() || C_mul.is_some());
-        assert_eq!(C_mul.is_some(), rk.is_some());
-        let galois_group = C.acting_galois_group();
-        let key_switches = RefCell::new(key_switches);
-        return self.evaluate_generic(
-            inputs,
-            DefaultCircuitEvaluator::new(
-                |x| match x {
-                    Coefficient::Zero => Params::transparent_zero(C),
-                    x => Params::hom_add_plain(P, C, &x.clone(P).to_ring_el(P), Params::transparent_zero(C))
-                },
-                |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain(P, C, &x.clone(P).to_ring_el(P), Params::clone_ct(C, ct))),
-            ).with_mul(|lhs, rhs| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
-            }).with_square(|x| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
-            }).with_gal(|x, gs| if gs.len() == 1 {
-                **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
-            } else {
-                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
-                    &gk.1
-                } else {
-                    panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.as_ring_el(expected_g)))
-                }))
-            })
-        );
-    }
-}
-
-impl PlaintextCircuit<StaticRingBase<i64>> {
-
-    #[instrument(skip_all)]
-    pub fn evaluate_bfv<Params>(&self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        C_mul: Option<&CiphertextRing<Params>>,
-        inputs: &[Ciphertext<Params>], 
-        rk: Option<&RelinKey<Params>>, 
-        gks: &[(GaloisGroupEl, KeySwitchKey<Params>)], 
-        key_switches: &mut usize
-    ) -> Vec<Ciphertext<Params>> 
-        where Params: BFVInstantiation
-    {
-        assert!(!self.has_multiplication_gates() || C_mul.is_some());
-        assert_eq!(C_mul.is_some(), rk.is_some());
-        const ZZ: StaticRing<i64> = StaticRing::<i64>::RING;
-        let galois_group = C.acting_galois_group();
-        let key_switches = RefCell::new(key_switches);
-        return self.evaluate_generic(
-            inputs,
-            DefaultCircuitEvaluator::new(
-                |x| match x {
-                    Coefficient::Zero => Params::transparent_zero(C),
-                    x => Params::hom_add_plain(P, C, &P.int_hom().map(x.clone(ZZ).to_ring_el(ZZ) as i32), Params::transparent_zero(C))
-                },
-                |dst, x, ct| Params::hom_add(C, dst, &Params::hom_mul_plain_i64(P, C, x.to_ring_el(ZZ), Params::clone_ct(C, ct))),
-            ).with_mul(|lhs, rhs| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_mul(P, C, C_mul.unwrap(), lhs, rhs, rk.unwrap())
-            }).with_square(|x| {
-                **key_switches.borrow_mut() += 1;
-                Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
-            }).with_gal(|x, gs| if gs.len() == 1 {
-                **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
-            } else {
-                **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| &gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next().unwrap().1))
-            })
-        );
-    }
+#[cfg(test)]
+pub fn test_setup_bfv<Params: BFVInstantiation>(params: Params) -> (PlaintextRing<Params>, CiphertextRing<Params>, CiphertextRing<Params>, SecretKey<Params>, RelinKey<Params>, El<PlaintextRing<Params>>, Ciphertext<Params>) {
+    let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
+    assert!(P.number_ring().galois_group().m() >= 100);
+    assert!(P.number_ring().galois_group().m() < 1000);
+    let (C, C_mul) = params.create_ciphertext_rings(790..800);
+    let sk = Params::gen_sk(&C, rand::rng(), SecretKeyDistribution::UniformTernary);
+    let rk = Params::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let m = P.int_hom().map(2);
+    let ct = Params::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
+    return (P, C, C_mul, sk, rk, m, ct);
 }
 
 #[cfg(test)]
@@ -1285,133 +1224,64 @@ use std::fmt::Debug;
 use crate::log_time;
 
 #[test]
-fn test_pow2_bfv_enc_dec() {
-    let mut rng = rand::rng();
-    
-    let instantiation = Pow2BFV::new(1 << 8);
-    
-    let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let (C, _Cmul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let output = Pow2BFV::dec(&P, &C, Pow2BFV::clone_ct(&C, &ctxt), &sk);
-    assert_el_eq!(&P, input, output);
+fn test_pow2_enc_dec() {
+    let (P, C, _C_mul, sk, _rk, m, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
+    assert_el_eq!(&P, m, Pow2BFV::dec(&P, &C, ct, &sk));
 }
 
 #[test]
-fn test_pow2_bfv_hom_galois() {
-    let mut rng = rand::rng();
-    
-    let instantiation = Pow2BFV::new(1 << 8);
+fn test_pow2_hom_galois() {
+    let (P, C, _C_mul, sk, rk, _, _) = test_setup_bfv(Pow2BFV::new(1 << 8));
+    let gk = Pow2BFV::gen_gk(&C, rand::rng(), &sk, &P.acting_galois_group().from_representative(3), rk.0.gadget_vector_digits(), 3.2);
 
-    let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
-    let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &P.acting_galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-    
-    let input = P.canonical_gen();
-    let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BFV::hom_galois(&C, ctxt, &P.acting_galois_group().from_representative(3), &gk);
-    let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
-
-    assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);
+    let m = P.canonical_gen();
+    let ct = Pow2BFV::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
+    let res = Pow2BFV::hom_galois(&C, ct, &P.acting_galois_group().from_representative(3), &gk);
+    assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), Pow2BFV::dec(&P, &C, res, &sk));
 }
 
 #[test]
-fn test_pow2_bfv_mul() {
-    let mut rng = rand::rng();
-    
+fn test_composite_hom_galois() {
+    let (P, C, _C_mul, sk, rk, _, _) = test_setup_bfv(CompositeSingleRNSBFV::new(17, 31));
+    let gk = CompositeSingleRNSBFV::gen_gk(&C, rand::rng(), &sk, &P.acting_galois_group().from_representative(3), rk.0.gadget_vector_digits(), 3.2);
+
+    let m = P.canonical_gen();
+    let ct = CompositeSingleRNSBFV::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
+    let res = CompositeSingleRNSBFV::hom_galois(&C, ct, &P.acting_galois_group().from_representative(3), &gk);
+    assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
+}
+
+#[test]
+fn test_pow2_mul() {
+    let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
+    let res = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), ct, &rk);
+    assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BFV::dec(&P, &C, res, &sk));
+}
+
+#[test]
+fn test_composite_mul() {
+    let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(CompositeBFV::new(17, 31));
+    let res = CompositeBFV::hom_mul(&P, &C, &C_mul, CompositeBFV::clone_ct(&C, &ct), ct, &rk);
+    assert_el_eq!(&P, &P.int_hom().map(4), &CompositeBFV::dec(&P, &C, res, &sk));
+
+    let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(CompositeSingleRNSBFV::new(17, 31));
+    let res = CompositeSingleRNSBFV::hom_mul(&P, &C, &C_mul, CompositeSingleRNSBFV::clone_ct(&C, &ct), ct, &rk);
+    assert_el_eq!(&P, &P.int_hom().map(4), &CompositeSingleRNSBFV::dec(&P, &C, res, &sk));
+}
+
+#[test]
+fn test_pow2_large_t() {    
     let instantiation = Pow2BFV::new(1 << 11);
-
-    let P = instantiation.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
-    let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-
-    let input = P.int_hom().map(2);
-    let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ctxt), Pow2BFV::clone_ct(&C, &ctxt), &rk);
-    let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
-
-    assert_el_eq!(&P, &P.int_hom().map(4), &result);
-}
-
-#[test]
-fn test_composite_bfv_mul() {
-    let mut rng = rand::rng();
-    
-    let instantiation = CompositeBFV::new(17, 97);
-
-    let P = instantiation.create_plaintext_ring(int_cast(8, ZZbig, ZZi64));
-    let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = CompositeBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = CompositeBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-
-    let input = P.int_hom().map(2);
-    let ctxt = CompositeBFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = CompositeBFV::hom_mul(&P, &C, &C_mul, CompositeBFV::clone_ct(&C, &ctxt), CompositeBFV::clone_ct(&C, &ctxt), &rk);
-    let result = CompositeBFV::dec(&P, &C, result_ctxt, &sk);
-
-    assert_el_eq!(&P, &P.int_hom().map(4), &result);
-}
-
-#[test]
-fn test_composite_bfv_hom_galois() {
-    let mut rng = rand::rng();
-    
-    let instantiation = CompositeSingleRNSBFV::new(7, 11);
-
-    let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
-    let (C, _C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let gk = CompositeSingleRNSBFV::gen_gk(&C, &mut rng, &sk, &P.acting_galois_group().from_representative(3), &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-    
-    let input = P.canonical_gen();
-    let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = CompositeSingleRNSBFV::hom_galois(&C, ctxt, &P.acting_galois_group().from_representative(3), &gk);
-    let result = CompositeSingleRNSBFV::dec(&P, &C, result_ctxt, &sk);
-
-    assert_el_eq!(&P, &P.pow(P.canonical_gen(), 3), &result);
-}
-
-#[test]
-fn test_single_rns_composite_bfv_mul() {
-    let mut rng = rand::rng();
-    
-    let instantiation = CompositeSingleRNSBFV::new(7, 11);
-    
-    let P = instantiation.create_plaintext_ring(int_cast(3, ZZbig, ZZi64));
-    let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);  
-    let sk = CompositeSingleRNSBFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = CompositeSingleRNSBFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
-
-    let input = P.int_hom().map(2);
-    let ctxt = CompositeSingleRNSBFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = CompositeSingleRNSBFV::hom_mul(&P, &C, &C_mul, CompositeSingleRNSBFV::clone_ct(&C, &ctxt), CompositeSingleRNSBFV::clone_ct(&C, &ctxt), &rk);
-    let result = CompositeSingleRNSBFV::dec(&P, &C, result_ctxt, &sk);
-
-    assert_el_eq!(&P, &P.int_hom().map(4), &result);
-}
-
-#[test]
-fn test_pow2_bfv_large_t() {
-    let mut rng = rand::rng();
-    
-    let instantiation = Pow2BFV::new(1 << 11);
-
     let P = instantiation.create_plaintext_ring(ZZbig.power_of_two(50));
     let (C, C_mul) = instantiation.create_ciphertext_rings(500..520);
-    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
+    let sk = Pow2BFV::gen_sk(&C, rand::rng(), SecretKeyDistribution::UniformTernary);
+    let rk = Pow2BFV::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
-    let input = P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(ZZbig.add(ZZbig.power_of_two(49), ZZbig.one()));
-    let ctxt = Pow2BFV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
-    let result_ctxt = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ctxt), Pow2BFV::clone_ct(&C, &ctxt), &rk);
-    let result = Pow2BFV::dec(&P, &C, result_ctxt, &sk);
+    let m = P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map(ZZbig.add(ZZbig.power_of_two(49), ZZbig.one()));
+    let ct = Pow2BFV::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
+    let res = Pow2BFV::hom_mul(&P, &C, &C_mul, Pow2BFV::clone_ct(&C, &ct), Pow2BFV::clone_ct(&C, &ct), &rk);
 
-    assert_el_eq!(&P, &P.one(), &result);
+    assert_el_eq!(&P, &P.one(), Pow2BFV::dec(&P, &C, res, &sk));
 }
 
 #[test]

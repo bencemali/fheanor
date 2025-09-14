@@ -270,7 +270,6 @@ impl<R, C> CyclotomicPolyReducer<R, C>
             if reducer.degree < data.len() {
                 reducer.remainder(&mut data[..current_len]);
                 current_len = reducer.degree;
-                println!("{:?}", data.iter().map(|x| self.base_ring().format(x)).collect::<Vec<_>>());
             }
         }
         data[current_len] = self.final_reducer.ring.zero();

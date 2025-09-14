@@ -22,10 +22,10 @@ use tracing::instrument;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
+use crate::gadget_product::RNSGadgetProductLhsOperand;
+use crate::gadget_product::RNSGadgetProductRhsOperand;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
-use crate::cyclotomic::*;
-use crate::gadget_product::{GadgetProductLhsOperand, GadgetProductRhsOperand};
 use crate::ciphertext_ring::double_rns_managed::*;
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::composite_cyclotomic::*;
@@ -45,13 +45,13 @@ use rand_distr::StandardNormal;
 /// 
 pub mod encoding;
 
-pub type NumberRing<Params: CLPXInstantiation> = <Params::CiphertextRing as BGFVCiphertextRing>::NumberRing;
+pub type NumberRing<Params: CLPXInstantiation> = <Params::CiphertextRing as NumberRingQuotient>::NumberRing;
 pub type SecretKey<Params: CLPXInstantiation> = El<CiphertextRing<Params>>;
 pub type KeySwitchKey<'a, Params: CLPXInstantiation> = (GadgetProductOperand<'a, Params>, GadgetProductOperand<'a, Params>);
 pub type RelinKey<'a, Params: CLPXInstantiation> = KeySwitchKey<'a, Params>;
 pub type CiphertextRing<Params: CLPXInstantiation> = RingValue<Params::CiphertextRing>;
 pub type Ciphertext<Params: CLPXInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
-pub type GadgetProductOperand<'a, Params: CLPXInstantiation> = GadgetProductRhsOperand<Params::CiphertextRing>;
+pub type GadgetProductOperand<'a, Params: CLPXInstantiation> = RNSGadgetProductRhsOperand<Params::CiphertextRing>;
 
 ///
 /// When choosing primes for an RNS base, where the only constraint is that
@@ -87,12 +87,10 @@ const SAMPLE_PRIMES_SIZE: usize = 57;
 /// 
 pub trait CLPXInstantiation {
 
-    type NumberRing: HECyclotomicNumberRing;
-
     ///
     /// Type of the ciphertext ring `R/qR`.
     /// 
-    type CiphertextRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + CyclotomicQuotient + FiniteRing;
+    type CiphertextRing: BGFVCiphertextRing + FiniteRing;
     
     ///
     /// The number ring `R` we work in, i.e. the ciphertext ring is `R/qR` and
@@ -336,8 +334,8 @@ pub trait CLPXInstantiation {
     fn gen_switch_key<'a, R: Rng + CryptoRng>(C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
         where Self: 'a
     {
-        let mut res0 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
-        let mut res1 = GadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res0 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
+        let mut res1 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for (i, digit) in digits.iter().enumerate() {
             let (c0, c1) = Self::enc_sym_zero(C, &mut rng, new_sk);
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
@@ -385,7 +383,7 @@ pub trait CLPXInstantiation {
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
 
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
 
@@ -420,7 +418,7 @@ pub trait CLPXInstantiation {
         let res1 = scale_down(&lifted1);
         let res2 = scale_down(&lifted2);
 
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
         return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
     }
@@ -435,7 +433,7 @@ pub trait CLPXInstantiation {
     {
         let (c0, c1) = ct;
         let (s0, s1) = switch_key;
-        let op = GadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, switch_key.0.gadget_vector_digits());
+        let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &c1, switch_key.0.gadget_vector_digits());
         return (
             C.add_ref_snd(c0, &op.gadget_product(s0, C.get_ring())),
             op.gadget_product(s1, C.get_ring())
@@ -489,7 +487,6 @@ pub type Pow2CLPX<A = DefaultCiphertextAllocator, C = DefaultNegacyclicNTT> = Po
 
 impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> CLPXInstantiation for Pow2CLPX<A, C> {
 
-    type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = ManagedDoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
 
     fn number_ring(&self) -> &NumberRing<Self> {
@@ -525,7 +522,6 @@ pub type CompositeCLPX<A = DefaultCiphertextAllocator> = CompositeBFV<A>;
 
 impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
 
-    type NumberRing = CompositeCyclotomicNumberRing;
     type CiphertextRing = ManagedDoubleRNSRingBase<CompositeCyclotomicNumberRing, A>;
     
     fn number_ring(&self) -> &CompositeCyclotomicNumberRing {

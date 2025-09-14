@@ -152,6 +152,15 @@ pub trait AbstractNumberRing: PartialEq + Clone {
     /// 
     fn can_to_inf_norm_expansion_factor(&self) -> f64;
 
+    ///
+    /// Returns an upper bound on the value
+    /// ```text
+    ///   sup_(x, y in R \ {0}) | xy |_inf / (| x |_inf | y |_inf)
+    /// ```
+    /// 
+    fn product_expansion_factor(&self) -> f64 {
+        self.inf_to_can_norm_expansion_factor().powi(2) * self.can_to_inf_norm_expansion_factor()
+    }
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
         where P: RingStore,

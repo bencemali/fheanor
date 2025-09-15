@@ -167,7 +167,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 
         let gen_mipo_mod_p = FpX.lifted_hom(&ZZX, &ZZ_to_Fp).map_ref(&gen_mipo);
         let ideal_generator_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&ideal_generator);
-        let gcd = FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p);
+        let gcd = FpX.normalize(FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p));
         assert!(FpX.degree(&gcd).unwrap() > 0);
 
         let (lifted_gcd, _) = hensel_lift_quadratic(

@@ -3,7 +3,8 @@ use std::alloc::Allocator;
 use std::alloc::Global;
 use std::ops::Range;
 
-use encoding::CLPXBaseEncoding;
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
+use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
@@ -11,7 +12,6 @@ use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::*;
 use feanor_math::rings::zn::zn_64::*;
-use feanor_math::primitive_int::StaticRing;
 use feanor_math::integer::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::extension::FreeAlgebraStore;
@@ -22,8 +22,8 @@ use tracing::instrument;
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
 use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
-use crate::gadget_product::RNSGadgetProductLhsOperand;
-use crate::gadget_product::RNSGadgetProductRhsOperand;
+use crate::gadget_product::*;
+use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::ciphertext_ring::double_rns_managed::*;
@@ -50,6 +50,7 @@ pub type SecretKey<Params: CLPXInstantiation> = El<CiphertextRing<Params>>;
 pub type KeySwitchKey<'a, Params: CLPXInstantiation> = (GadgetProductOperand<'a, Params>, GadgetProductOperand<'a, Params>);
 pub type RelinKey<'a, Params: CLPXInstantiation> = KeySwitchKey<'a, Params>;
 pub type CiphertextRing<Params: CLPXInstantiation> = RingValue<Params::CiphertextRing>;
+pub type PlaintextRing<Params: CLPXInstantiation> = CLPXPlaintextRing<NumberRing<Params>, zn_big::Zn<BigIntRing>>;
 pub type Ciphertext<Params: CLPXInstantiation> = (El<CiphertextRing<Params>>, El<CiphertextRing<Params>>);
 pub type GadgetProductOperand<'a, Params: CLPXInstantiation> = RNSGadgetProductRhsOperand<Params::CiphertextRing>;
 
@@ -112,19 +113,14 @@ pub trait CLPXInstantiation {
     /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
     /// plaintext ring does for BGV or BFV.
     /// 
-    /// Here `t(X)` is a polynomial, interpreted as an element of the `m1`-th cyclotomic
-    /// number ring `Z[X]/(Phi_m1(X))` (`m1` must divide `m`). Furthermore `p` should be
-    /// a prime dividing `Res(t(X), Phi_m1(X))` exactly once. The returned encoding then
-    /// represents CLPX with plaintext modulus `(p, t(X^m2))` with `m2 = m/m1`, which means
-    /// plaintexts can be represented as polynomials modulo `Fp` of degree `< phi(m2)`.
+    /// Here `t(X)` is a polynomial, representing an element of the number ring.
+    /// The given `acting_galois_group` should be the subgroup of the Galois group
+    /// of the number ring that fixes `t`
     /// 
     #[instrument(skip_all)]
-    fn create_encoding<const LOG: bool>(&self, m1: usize, ZZi64X: DensePolyRing<StaticRing<i64>>, t: El<DensePolyRing<StaticRing<i64>>>, p: El<BigIntRing>) -> CLPXEncoding {
-        let number_ring = self.number_ring();
-        assert!(number_ring.m() % m1 == 0);
-        let m2 = number_ring.m() / m1;
-        let base_encoding = CLPXBaseEncoding::new::<LOG>(m1, ZZi64X, t, p);
-        return CLPXEncoding::new::<LOG>(m2, base_encoding);
+    fn create_plaintext_ring<const LOG: bool>(&self, poly_ring: DensePolyRing<BigIntRing>, t: El<DensePolyRing<BigIntRing>>, characteristic: El<BigIntRing>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> PlaintextRing<Self> {
+        let base_ring = zn_big::Zn::new(ZZbig, characteristic);
+        CLPXPlaintextRingBase::create::<LOG>(self.number_ring().clone(), base_ring, poly_ring, t, acting_galois_group, Global, STANDARD_CONVOLUTION)
     }
     
     ///
@@ -186,7 +182,7 @@ pub trait CLPXInstantiation {
     /// Encrypts the given value, using the randomness of the given rng.
     /// 
     #[instrument(skip_all)]
-    fn enc_sym<R: Rng + CryptoRng>(P: &CLPXEncoding, C: &CiphertextRing<Self>, rng: R, m: &El<IsomorphicRing>, sk: &SecretKey<Self>) -> Ciphertext<Self> {
+    fn enc_sym<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, m: &El<PlaintextRing<Self>>, sk: &SecretKey<Self>) -> Ciphertext<Self> {
         Self::hom_add_plain(P, C, m, Self::enc_sym_zero(C, rng, sk))
     }
 
@@ -198,10 +194,10 @@ pub trait CLPXInstantiation {
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn dec(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, sk: &SecretKey<Self>) -> El<IsomorphicRing> {
+    fn dec(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, sk: &SecretKey<Self>) -> El<PlaintextRing<Self>> {
         let (c0, c1) = ct;
         let noisy_m = C.add(c0, C.mul_ref_snd(c1, sk));
-        return P.decode(C, &noisy_m);
+        return P.get_ring().decode(C, &noisy_m);
     }
 
     ///
@@ -209,10 +205,10 @@ pub trait CLPXInstantiation {
     /// Designed for debugging purposes.
     /// 
     #[instrument(skip_all)]
-    fn dec_println(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) {
+    fn dec_println(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) {
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
-        P.plaintext_ring().println(&m);
+        P.println(&m);
         println!();
     }
 
@@ -260,8 +256,8 @@ pub trait CLPXInstantiation {
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_add_plain(P: &CLPXEncoding, C: &CiphertextRing<Self>, m: &El<IsomorphicRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let m = P.encode(C, m);
+    fn hom_add_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let m = P.get_ring().encode(C, m);
         return (C.add(ct.0, m), ct.1);
     }
     
@@ -273,12 +269,12 @@ pub trait CLPXInstantiation {
     /// BFV encryption w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_mul_plain(P: &CLPXEncoding, C: &CiphertextRing<Self>, m: &El<IsomorphicRing>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
-        let m = P.small_preimage(m);
-        assert!(P.ZZX().degree(&m).unwrap_or(0) < C.rank());
+    fn hom_mul_plain(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, m: &El<PlaintextRing<Self>>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
+        let m = P.get_ring().small_lift(m);
+        assert!(P.get_ring().ZZX().degree(&m).unwrap_or(0) < C.rank());
         let mod_Q =  C.base_ring().can_hom(&ZZbig).unwrap();
         let m_in_C = C.from_canonical_basis(
-            (0..C.rank()).map(|i| ZZbig.clone_el(P.ZZX().coefficient_at(&m, i)))
+            (0..C.rank()).map(|i| ZZbig.clone_el(P.get_ring().ZZX().coefficient_at(&m, i)))
                 .map(|c| mod_Q.map(c))
         );
         return (C.mul_ref_snd(ct.0, &m_in_C), C.mul(ct.1, m_in_C));
@@ -292,14 +288,14 @@ pub trait CLPXInstantiation {
     /// operations, and if it reaches zero, decryption may yield incorrect results.
     /// 
     #[instrument(skip_all)]
-    fn noise_budget(P: &CLPXEncoding, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) -> usize {
+    fn noise_budget(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>) -> usize {
         let (c0, c1) = Self::clone_ct(C, ct);
         let noisy_m = C.add(c0, C.mul_ref_snd(c1, sk));
-        let best_repr = P.encode(C, &P.decode(C, &noisy_m));
+        let best_repr = P.get_ring().encode(C, &P.get_ring().decode(C, &noisy_m));
         let noise = C.sub(noisy_m, best_repr);
         let noise_coeffs = C.wrt_canonical_basis(&noise);
         let log2_size_of_noise: usize = (0..C.rank()).map(|i| C.base_ring().integer_ring().abs_log2_ceil(&C.base_ring().smallest_lift(noise_coeffs.at(i))).unwrap_or(0)).max().unwrap();
-        let log2_can_norm_t_estimate = P.ZZX().terms(P.t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.number_ring().inf_to_can_norm_expansion_factor().log2().ceil() as usize;
+        let log2_can_norm_t_estimate = P.get_ring().ZZX().terms(P.get_ring().t()).map(|(c, _)| ZZbig.abs_log2_ceil(c).unwrap()).max().unwrap() + C.number_ring().inf_to_can_norm_expansion_factor().log2().ceil() as usize;
         return ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap().saturating_sub(log2_size_of_noise + log2_can_norm_t_estimate);
     }
 
@@ -359,7 +355,7 @@ pub trait CLPXInstantiation {
     /// BFV encryptions w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_mul<'a>(P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
         let (c00, c01) = lhs;
@@ -397,7 +393,7 @@ pub trait CLPXInstantiation {
     /// BFV encryptions w.r.t. the given plaintext modulus.
     /// 
     #[instrument(skip_all)]
-    fn hom_square<'a>(P: &CLPXEncoding, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
+    fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_mul: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
         let (c0, c1) = val;
@@ -440,12 +436,12 @@ pub trait CLPXInstantiation {
         );
     }
 
-    fn create_t_in_C_mul(P: &CLPXEncoding, C_mul: &CiphertextRing<Self>) -> El<CiphertextRing<Self>> {
+    fn create_t_in_C_mul(P: &PlaintextRing<Self>, C_mul: &CiphertextRing<Self>) -> El<CiphertextRing<Self>> {
         let ZZ_to_Zq = C_mul.base_ring().can_hom(&ZZi64).unwrap();
-        C_mul.from_canonical_basis((0..C_mul.rank()).map(|i| if ZZbig.is_zero(P.ZZX().coefficient_at(P.t(), i)) {
+        C_mul.from_canonical_basis((0..C_mul.rank()).map(|i| if ZZbig.is_zero(P.get_ring().ZZX().coefficient_at(P.get_ring().t(), i)) {
             0
         } else {
-            int_cast(ZZbig.clone_el(P.ZZX().coefficient_at(P.t(), i)), ZZi64, ZZbig)
+            int_cast(ZZbig.clone_el(P.get_ring().ZZX().coefficient_at(P.get_ring().t(), i)), ZZi64, ZZbig)
         }).map(|c| ZZ_to_Zq.map(c)))
     }
     
@@ -557,86 +553,82 @@ impl<A: Allocator + Clone > CLPXInstantiation for CompositeCLPX<A> {
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use crate::log_time;
+#[cfg(test)]
+use feanor_math::group::AbelianGroupStore;
 
 #[test]
 fn test_composite_clpx_mul() {
-    let mut rng = rand::rng();
-    let ZZi64X = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X - 2]);
+    let ZZX = DensePolyRing::new(ZZbig, "X");
     let params = CompositeCLPX::new(17, 5);
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5) - 2]);
     let p = ZZbig.int_hom().map(131071);
-
-    let P = params.create_encoding::<false>(params.number_ring().m1(), ZZi64X.clone(), t, p);
+    let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([params.number_ring().galois_group().from_representative(52)]);
+    let P = params.create_plaintext_ring::<true>(ZZX.clone(), t, p, acting_galois_group);
     let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
-    let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
-    let m = P.plaintext_ring().int_hom().map(2);
-    let ct = CompositeCLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let sk = CompositeCLPX::gen_sk(&C, rand::rng(), None);
+    let m = P.int_hom().map(2);
+    let ct = CompositeCLPX::enc_sym(&P, &C, rand::rng(), &m, &sk);
+    assert_el_eq!(&P, &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
 
-    assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
-
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = CompositeCLPX::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
-    
-    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(4), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
+    assert_el_eq!(&P, P.int_hom().map(4), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
 
-    let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
     let params = CompositeCLPX::new(17, 5);
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(10) + X.pow_ref(5) - 2]);
     let p = ZZbig.int_hom().map(43691);
-    let mut rng = rand::rng();
-
-    let P = params.create_encoding::<false>(params.number_ring().m1(), ZZi64X, t, p);
+    let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([params.number_ring().galois_group().from_representative(18)]);
+    let P = params.create_plaintext_ring::<false>(ZZX.clone(), t, p, acting_galois_group);
     let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
-    let sk = CompositeCLPX::gen_sk(&C, &mut rng, None);
-    let m = P.plaintext_ring().int_hom().map(210);
-    let ct = CompositeCLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let sk = CompositeCLPX::gen_sk(&C, rand::rng(), None);
+    let m = P.int_hom().map(210);
+    let ct = CompositeCLPX::enc_sym(&P, &C, rand::rng(), &m, &sk);
+    assert_el_eq!(&P, &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
 
-    assert_el_eq!(P.plaintext_ring(), &m, &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &ct), &sk));
-
-    let rk = CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = CompositeCLPX::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let sqr_ct = CompositeCLPX::hom_square(&P, &C, &C_mul, ct, &rk);
-    
-    assert_el_eq!(P.plaintext_ring(), P.plaintext_ring().int_hom().map(409), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
+    assert_el_eq!(&P, P.int_hom().map(409), &CompositeCLPX::dec(&P, &C, CompositeCLPX::clone_ct(&C, &sqr_ct), &sk));
 }
 
 
 #[test]
 fn test_pow2_clpx_mul() {
-    let mut rng = rand::rng();
-    let ZZi64X = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
+    let ZZX = DensePolyRing::new(ZZbig, "X");
     let params = Pow2CLPX::new(1 << 8);
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
     let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
-
-    let P = params.create_encoding::<false>(params.number_ring().m(), ZZi64X.clone(), t, p);
+    let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([]);
+    let P = params.create_plaintext_ring::<false>(ZZX.clone(), t, p, acting_galois_group);
     let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
-    let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
-    let m1 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(35)));
-    let ct1 = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m1, &sk);
-    let m2 = P.plaintext_ring().inclusion().map(P.plaintext_ring().base_ring().coerce(&ZZbig, ZZbig.power_of_two(36)));
-    let ct2 = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m2, &sk);
+    let sk = Pow2CLPX::gen_sk(&C, rand::rng(), None);
+    let m1 = P.inclusion().map(P.base_ring().coerce(&ZZbig, ZZbig.power_of_two(35)));
+    let ct1 = Pow2CLPX::enc_sym(&P, &C, rand::rng(), &m1, &sk);
+    let m2 = P.inclusion().map(P.base_ring().coerce(&ZZbig, ZZbig.power_of_two(36)));
+    let ct2 = Pow2CLPX::enc_sym(&P, &C, rand::rng(), &m2, &sk);
 
-    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = Pow2CLPX::gen_rk(&C, rand::rng(), &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
     let ct_res = Pow2CLPX::hom_mul(&P, &C, &C_mul, ct1, ct2, &rk);
     let res = Pow2CLPX::dec(&P, &C, Pow2CLPX::clone_ct(&C, &ct_res), &sk);
-    assert_el_eq!(ZZbig, ZZbig.power_of_two(71), &P.plaintext_ring().base_ring().smallest_positive_lift(P.plaintext_ring().wrt_canonical_basis(&res).at(0)));
+    assert_el_eq!(ZZbig, ZZbig.power_of_two(71), &P.base_ring().smallest_positive_lift(P.wrt_canonical_basis(&res).at(0)));
 }
 
 #[test]
 #[ignore]
 fn measure_time_composite_clpx() {
     let mut rng = rand::rng();
-    let ZZi64X = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZi64X.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
+    let ZZX = DensePolyRing::new(ZZbig, "X");
     let params = CompositeCLPX::new(127, 337);
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2 * 127) + X.pow_ref(127) - 2]);
     let p = ZZbig.coerce(&StaticRing::<i128>::RING, 56713727820156410577229101238628035243);
+    let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([params.number_ring().galois_group().from_representative(25276)]);
     
     let P = log_time::<_, _, true, _>("CreateEncoding", |[]|
-        params.create_encoding::<false>(params.number_ring().m1(), ZZi64X, t, p)
+        params.create_plaintext_ring::<false>(ZZX, t, p, acting_galois_group)
     );
-    let int_to_P = P.plaintext_ring().inclusion().compose(P.plaintext_ring().base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
+    let int_to_P = P.inclusion().compose(P.base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
     let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|
         params.create_ciphertext_rings(790..800, 10)
     );
@@ -653,17 +645,17 @@ fn measure_time_composite_clpx() {
     let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
         CompositeCLPX::hom_add_plain(&P, &C, &m, CompositeCLPX::clone_ct(&C, &ct))
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
 
     let res = log_time::<_, _, true, _>("HomAdd", |[]| 
         CompositeCLPX::hom_add(&C, CompositeCLPX::clone_ct(&C, &ct), &ct)
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &int_to_P.map(1 << 64), &CompositeCLPX::dec(&P, &C, res, &sk));
 
     let res = log_time::<_, _, true, _>("HomMulPlain", |[]| 
         CompositeCLPX::hom_mul_plain(&P, &C, &m, CompositeCLPX::clone_ct(&C, &ct))
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
         CompositeCLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
@@ -671,5 +663,5 @@ fn measure_time_composite_clpx() {
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
         CompositeCLPX::hom_mul(&P, &C, &C_mul, CompositeCLPX::clone_ct(&C, &ct), CompositeCLPX::clone_ct(&C, &ct), &rk)
     );
-    assert_el_eq!(P.plaintext_ring(), &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
+    assert_el_eq!(&P, &int_to_P.map(1 << 126), &CompositeCLPX::dec(&P, &C, res, &sk));
 }

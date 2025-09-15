@@ -1,22 +1,19 @@
-use std::alloc::{Allocator, Global};
+use std::alloc::*;
 use std::sync::Arc;
 
 use feanor_math::algorithms::convolution::fft::{FFTConvolution, FFTConvolutionZn};
 use feanor_math::algorithms::convolution::rns::{RNSConvolution, RNSConvolutionZn};
-use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, STANDARD_CONVOLUTION};
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::unity_root::get_prim_root_of_unity;
-use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
-use feanor_math::reduce_lift::poly_factor_gcd::PolyGCDLocallyIntermediateReductionMap;
-use feanor_math::computation::{DontObserve, no_error};
-use feanor_math::field::Field;
+use feanor_math::computation::no_error;
 use feanor_math::rings::field::AsField;
 use feanor_math::rings::poly::sparse_poly::SparsePolyRing;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::divisibility::*;
 use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
-use feanor_math::primitive_int::{StaticRing, StaticRingBase};
+use feanor_math::primitive_int::*;
 use feanor_math::rings::extension::extension_impl::*;
 use feanor_math::rings::extension::galois_field::GaloisField;
 use feanor_math::rings::extension::*;
@@ -24,7 +21,6 @@ use feanor_math::rings::local::{AsLocalPIR, AsLocalPIRBase};
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::group::*;
-use feanor_math::rings::zn::zn_64::*;
 use feanor_math::delegate::{WrapHom, UnwrapHom};
 use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
@@ -35,44 +31,13 @@ use tracing::instrument;
 use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
+use crate::number_ring::hensel::hensel_lift_factor;
 use crate::*;
 use crate::ntt::dyn_convolution::*;
 use crate::number_ring::hypercube::interpolate::FastPolyInterpolation;
 use crate::number_ring::hypercube::structure::*;
 
 pub use crate::number_ring::hypercube::serialization::{DeserializeSeedHypercubeIsomorphismWithoutRing, SerializableHypercubeIsomorphismWithoutRing};
-
-#[instrument(skip_all)]
-fn hensel_lift_factor<R1, R2, A1, A2, C1, C2>(from_ring: &DensePolyRing<R1, A1, C1>, to_ring: &DensePolyRing<R2, A2, C2>, f: &El<DensePolyRing<R1, A1, C1>>, g: El<DensePolyRing<R2, A2, C2>>) -> El<DensePolyRing<R1, A1, C1>>
-    where R1: RingStore,
-        R1::Type: ZnRing,
-        R2: RingStore,
-        R2::Type: ZnRing + Field,
-        A1: Allocator + Clone,
-        A2: Allocator + Clone,
-        C1: ConvolutionAlgorithm<R1::Type>,
-        C2: ConvolutionAlgorithm<R2::Type>,
-{
-    let ZZ = StaticRing::<i64>::RING;
-    let p = int_cast(to_ring.base_ring().integer_ring().clone_el(to_ring.base_ring().modulus()), ZZ, to_ring.base_ring().integer_ring());
-    let (from_p, e) = is_prime_power(ZZ, &int_cast(from_ring.base_ring().integer_ring().clone_el(from_ring.base_ring().modulus()), ZZ, from_ring.base_ring().integer_ring())).unwrap();
-    assert_eq!(p, from_p);
-
-    let Zpe = zn_big::Zn::new(BigIntRing::RING, BigIntRing::RING.pow(int_cast(p, BigIntRing::RING, ZZ), e));
-    let Zp = zn_big::Zn::new(BigIntRing::RING, int_cast(p, BigIntRing::RING, ZZ));
-    let Fp = Zn::new(p as u64).as_field().ok().unwrap();
-    let red_map = PolyGCDLocallyIntermediateReductionMap::new(ZZ.get_ring(), &p, &Zpe, e, &Zp, 1, 0);
-    let ZpeX = DensePolyRing::new(&Zpe, "X");
-    let FpX = DensePolyRing::new(&Fp, "X");
-    let to_ZpeX = ZpeX.lifted_hom(from_ring, ZnReductionMap::new(from_ring.base_ring(), ZpeX.base_ring()).unwrap());
-    let from_ZpeX = from_ring.lifted_hom(&ZpeX, ZnReductionMap::new(ZpeX.base_ring(), from_ring.base_ring()).unwrap());
-    let to_FpX = FpX.lifted_hom(to_ring, ZnReductionMap::new(to_ring.base_ring(), FpX.base_ring()).unwrap());
-
-    let f_mod_p = FpX.lifted_hom(&ZpeX, Fp.can_hom(&Zp).unwrap().compose(&red_map)).compose(&to_ZpeX).map_ref(f);
-    let f_over_g = FpX.checked_div(&f_mod_p, &to_FpX.map_ref(&g)).unwrap();
-    let lifted = hensel_lift_factorization(&red_map, &ZpeX, &FpX, &to_ZpeX.map_ref(f), &[to_FpX.map(g), f_over_g][..], DontObserve);
-    return from_ZpeX.map(lifted.into_iter().next().unwrap());
-}
 
 fn create_convolution<R>(d: usize, log2_input_size: usize) -> DynConvolutionAlgorithmConvolution<R, Arc<dyn DynConvolutionAlgorithm<R>>>
     where R: ?Sized + ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<StaticRingBase<i64>>
@@ -490,28 +455,28 @@ use feanor_math::assert_el_eq;
 use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
 
 #[cfg(test)]
-fn test_ring1() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring1() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
 
     let galois_group = CyclotomicGaloisGroupBase::new(32);
     let p = galois_group.from_representative(7);
     let gs = vec![galois_group.from_representative(5)];
     let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 4, vec![4], gs);
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(7));
+    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(7));
     return (ring, hypercube_structure);
 }
 
 #[cfg(test)]
-fn test_ring2() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring2() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
     let galois_group = CyclotomicGaloisGroupBase::new(32);
     let gs = vec![galois_group.from_representative(5), galois_group.from_representative(-1)];
     let p = galois_group.from_representative(17);
     let hypercube_structure = HypercubeStructure::new(galois_group.into().full_subgroup(), p, 2, vec![4, 2], gs);
-    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), Zn::new(17));
+    let ring = NumberRingQuotientByIntBase::new(Pow2CyclotomicNumberRing::new(32), zn_64::Zn::new(17));
     return (ring, hypercube_structure);
 }
 
 #[cfg(test)]
-fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, Zn>, HypercubeStructure) {
+fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
     let galois_group = CyclotomicGaloisGroupBase::new(11 * 13);
     let p = galois_group.from_representative(3);
     let gs = vec![galois_group.from_representative(79), galois_group.from_representative(67)];
@@ -522,7 +487,7 @@ fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, Zn>, 
         vec![2, 4],
         gs
     );
-    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(11, 13), Zn::new(3));
+    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(11, 13), zn_64::Zn::new(3));
     return (ring, hypercube_structure);
 }
 
@@ -733,7 +698,7 @@ fn test_serialization() {
     fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
         where R: RingStore + Clone,
             R::Type: NumberRingQuotient,
-            BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<ZnBase>,
+            BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>,
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
         let hypercube = HypercubeIsomorphism::new::<false>(&ring, hypercube_structure, None);

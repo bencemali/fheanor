@@ -815,10 +815,9 @@ pub trait BFVInstantiation {
 /// (i.e. fastest) solution.
 /// 
 #[derive(Debug)]
-pub struct Pow2BFV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
-    number_ring: Pow2CyclotomicNumberRing<C>,
-    ciphertext_allocator: A,
-    negacyclic_ntt: PhantomData<C>
+pub struct Pow2BFV<A: Allocator + Clone  = DefaultCiphertextAllocator, N: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+    number_ring: Pow2CyclotomicNumberRing<N>,
+    ciphertext_allocator: A
 }
 
 impl Pow2BFV {
@@ -828,14 +827,13 @@ impl Pow2BFV {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Pow2BFV<A, C> {
+impl<A: Allocator + Clone , N: FheanorNegacyclicNTT<Zn>> Pow2BFV<A, N> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, allocator: A) -> Self {
         return Self {
-            number_ring: Pow2CyclotomicNumberRing::new(m as u64),
-            ciphertext_allocator: allocator,
-            negacyclic_ntt: PhantomData::<C>
+            number_ring: Pow2CyclotomicNumberRing::new_with_ntt(m as u64),
+            ciphertext_allocator: allocator
         }
     }
     
@@ -856,8 +854,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Clone for Pow2BFV<A, C>
     fn clone(&self) -> Self {
         Self {
             number_ring: self.number_ring.clone(),
-            ciphertext_allocator: self.ciphertext_allocator.clone(),
-            negacyclic_ntt: PhantomData
+            ciphertext_allocator: self.ciphertext_allocator.clone()
         }
     }
 }

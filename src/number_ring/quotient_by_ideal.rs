@@ -3,22 +3,23 @@ use std::marker::PhantomData;
 
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
 use feanor_math::algorithms::discrete_log::Subgroup;
-use feanor_math::divisibility::DivisibilityRing;
-use feanor_math::field::Field;
+use feanor_math::algorithms::int_factor::is_prime_power;
+use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_quadratic;
+use feanor_math::computation::DontObserve;
+use feanor_math::divisibility::*;
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::homomorphism::{CanHomFrom, CanIsoFromTo, Homomorphism};
 use feanor_math::algorithms::linsolve::LinSolveRing;
-use feanor_math::integer::{int_cast, BigIntRing, BigIntRingBase, IntegerRing, IntegerRingStore};
+use feanor_math::integer::*;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::matrix::OwnedMatrix;
-use feanor_math::pid::PrincipalIdealRing;
+use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
 use feanor_math::rings::extension::{create_multiplication_matrix, FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::group::*;
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
-use feanor_math::rings::poly::PolyRing;
 use feanor_math::rings::zn::*;
 use feanor_math::assert_el_eq;
 use feanor_math::ring::*;
@@ -38,7 +39,7 @@ use crate::number_ring::poly_remainder::BarettPolyReducer;
 use crate::number_ring::{largest_prime_leq_congruent_to_one, AbstractNumberRing, NumberRingQuotient, NumberRingQuotientBases};
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::serde::de::DeserializeSeed;
-use crate::{ZZbig, ZZi64};
+use crate::*;
 
 ///
 /// Implementation of `R/I` for any ideal `I` of `R`.
@@ -52,7 +53,7 @@ use crate::{ZZbig, ZZi64};
 pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -71,7 +72,7 @@ pub type NumberRingQuotientByIdeal<NumberRing, ZnTy, A = Global, C = KaratsubaAl
 pub struct NumberRingQuotientEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -82,7 +83,7 @@ pub struct NumberRingQuotientEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgor
 pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase> + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -93,89 +94,107 @@ pub struct NumberRingQuotientPreparedMultiplicant<NumberRing, ZnTy, A = Global, 
 impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>
+        ZnTy::Type: NiceZn
 {
     ///
-    /// Creates the ring `R/I`, where `R` is the given number ring and `I = (p, f(ϑ))`,
-    /// where `p` is the characteristic of the given polynomial ring (a prime) and `f(X)`
-    /// is the given polynomial.
+    /// Creates the ring `R/I`, where `R` is the given number ring and `I = (p^e, t(ϑ))`,
+    /// where `p^e` is the characteristic of the given polynomial ring (must be a prime power)
+    /// and `t(X)` is the given monic polynomial.
     ///  
-    pub fn new<P>(number_ring: NumberRing, base_ring: ZnTy, poly_ring: P, ideal_generator: El<P>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> RingValue<Self>
-        where P: RingStore,
-            P::Type: PolyRing + PrincipalIdealRing,
-            <<P::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing + Field
-    {
-        Self::create(number_ring, base_ring, poly_ring, ideal_generator, acting_galois_group, Global, STANDARD_CONVOLUTION)
+    pub fn new(number_ring: NumberRing, poly_ring: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> RingValue<Self> {
+        Self::create(number_ring, poly_ring, ideal_generator, acting_galois_group, Global, STANDARD_CONVOLUTION)
     }
 }
 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
     ///
-    /// Creates the ring `R/I`, where `R` is the given number ring and `I = (p, f(ϑ))`,
-    /// where `p` is the characteristic of the given polynomial ring (a prime) and `f(X)`
-    /// is the given polynomial.
+    /// Creates the ring `R/I`, where `R` is the given number ring and `I = (p^e, t(ϑ))`,
+    /// where `p^e` is the characteristic of the given polynomial ring (must be a prime power)
+    /// and `t(X)` is the given monic polynomial.
+    /// 
+    /// # Why must `t` be monic?
+    /// 
+    /// First of all, it allows us to use straightforward Hensel lifting for the computations,
+    /// thus greatly simplifying the implementation. However, it is also necessary in theory,
+    /// since otherwise the ring would not be free anymore. 
+    /// 
+    /// Consider e.g. `(Z/p^2Z)[X]/(X^2, pX)`. This ring is not a free `Z/p^2Z`-module - observe
+    /// that it has `p^3` entries, which is not a power of `p^2`.
     ///  
     /// # Algorithm
     /// 
-    /// Our assumption that the given ideal is `I = (p, f(ϑ))` makes things relatively simple.
-    /// First, observe that then we have an isomorphism
+    /// Consider the case `e = 1`, the more general case is handled via Hensel lifting (this
+    /// requires that `t` is monic). Our assumption that the given ideal is `I = (p, t(ϑ))`
+    /// makes things relatively simple. First, observe that then we have an isomorphism
     /// ```text
-    ///   Fp[X]/(gcd_p(f, MiPo(ϑ))) -> R/I,  X -> ϑ
+    ///   Fp[X]/(gcd_p(t, MiPo(ϑ))) -> R/I,  X -> ϑ
     /// ```
     /// We prove this now. We have `MiPo(ϑ) = f1 ... fr` modulo `p`. Thus, we find
     /// ```text
     ///   I = prod_i (p, fi(ϑ))^ki
     /// ```
     /// Since `p in I`, we see that every `ki in {0, 1}`, and since `p in (p^2, fi(ϑ)fj(ϑ))`,
-    /// it follows that `I = (p, f(ϑ)) = (p, f'(ϑ))` for `f(X)' = prod_i fi(X)^ki`. Clearly,
-    /// this implies an isomorphism `Fp[X]/(f'(X)) -> R/I`, so it is left to show that
-    /// `f' = gcd_p(f, MiPo(ϑ))`. From `(p, f(ϑ)) = (p, f'(ϑ))`, we see that
+    /// it follows that `I = (p, t(ϑ)) = (p, t'(ϑ))` for `t(X)' = prod_i fi(X)^ki`. Clearly,
+    /// this implies an isomorphism `Fp[X]/(t'(X)) -> R/I`, so it is left to show that
+    /// `t' = gcd_p(t, MiPo(ϑ))`. From `(p, t(ϑ)) = (p, t'(ϑ))`, we see that
     /// ```text
-    ///   f = p a + b f' + c MiPo(ϑ)    and    f' = p a' + b' f + c' MiPo(ϑ)
+    ///   t = p a + b t' + c MiPo(ϑ)    and    t' = p a' + b' t + c' MiPo(ϑ)
     /// ```
-    /// Thus `gcd_p(f, MiPo(ϑ)) | f'` and `f' | f` (since `f' | MiPo(ϑ)`) modulo `p`. The claim
+    /// Thus `gcd_p(t, MiPo(ϑ)) | t'` and `t' | t` (since `t' | MiPo(ϑ)`) modulo `p`. The claim
     /// follows.
     /// 
-    /// # Problem with non-prime characteristics
-    /// 
-    /// Even the prime-power case `I = (p^e, f(ϑ))` is a problem: We would like an isomorphism
-    /// `R/I ~ (Z/p^eZ)[X]/(f'(X))`, but in general that doesn't exist. To see that, note that
-    /// ` (Z/p^eZ)[X]/(f'(X))` is always generated by a single element over `Z/p^eZ`, while
-    /// `R/I` might be isomorphic to, say, `Z/pZ x Z/p^2Z`, which does not allow a single generator
-    /// over `Z/p^2Z`.
-    /// 
     #[instrument(skip_all)]
-    pub fn create<P>(number_ring: NumberRing, base_ring: ZnTy, poly_ring: P, ideal_generator: El<P>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>, allocator: A, convolution: C) -> RingValue<Self>
-        where P: RingStore,
-            P::Type: PolyRing + PrincipalIdealRing,
-            <<P::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing + Field
-    {
-        let p = int_cast(poly_ring.base_ring().integer_ring().clone_el(poly_ring.base_ring().modulus()), ZZbig, poly_ring.base_ring().integer_ring());
-        assert_el_eq!(ZZbig, &p, int_cast(base_ring.integer_ring().clone_el(base_ring.modulus()), ZZbig, base_ring.integer_ring()));
+    pub fn create(number_ring: NumberRing, ZpeX: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>, allocator: A, convolution: C) -> RingValue<Self> {
+        let Zpe = ZpeX.base_ring();
+        assert!(Zpe.is_one(ZpeX.lc(&ideal_generator).unwrap()));
+        let (p, e) = is_prime_power(Zpe.integer_ring(), Zpe.modulus()).unwrap();
 
-        let ZZX = DensePolyRing::new(ZZbig, "X");
+        let ZZ = IntegersWithLocalZnQuotient::<ZnTy::Type>::new(Zpe.integer_ring(), p);
+        let reduction_context = ZZ.reduction_context(e);
+
+        let ZZX = DensePolyRing::new(RingRef::new(&ZZ), "X");
         let gen_mipo = number_ring.generating_poly(&ZZX);
-        let ZZX_to_poly_ring = poly_ring.lifted_hom(&ZZX, poly_ring.base_ring().can_hom(poly_ring.base_ring().integer_ring()).unwrap().compose(poly_ring.base_ring().integer_ring().can_hom(&ZZbig).unwrap()));
-        let modulus = poly_ring.ideal_gen(&ideal_generator, &ZZX_to_poly_ring.map(gen_mipo));
-        let rank = poly_ring.degree(&modulus).unwrap();
+        let Zpe_to_Fp = reduction_context.base_ring_to_field_iso(0).compose(reduction_context.intermediate_ring_to_field_reduction(0));
+        let ZZ_to_Fp = reduction_context.base_ring_to_field_iso(0).compose(reduction_context.main_ring_to_field_reduction(0));
+        assert!(Zpe_to_Fp.domain().get_ring() == ZpeX.base_ring().get_ring());
+        let FpX = DensePolyRing::new(*Zpe_to_Fp.codomain(), "X");
 
-        let FpX = DensePolyRing::new(base_ring, "X");
-        let Fp = FpX.base_ring();
-        let hom = ZnReductionMap::new(poly_ring.base_ring(), &Fp).unwrap();
-        let modulus_FpX = FpX.lifted_hom(&poly_ring, &hom).map(modulus);
+        let gen_mipo_mod_p = FpX.lifted_hom(&ZZX, &ZZ_to_Fp).map_ref(&gen_mipo);
+        let ideal_generator_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&ideal_generator);
+        let gcd = FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p);
+        assert!(FpX.degree(&gcd).unwrap() > 0);
+
+        let (lifted_gcd, _) = hensel_lift_quadratic(
+            &reduction_context.intermediate_ring_to_field_reduction(0),
+            &ZpeX,
+            &FpX,
+            &ZpeX.lifted_hom(&ZZX, reduction_context.main_ring_to_intermediate_ring_reduction(0)).map(gen_mipo),
+            (&gcd, &FpX.checked_div(&gen_mipo_mod_p, &gcd).unwrap()),
+            DontObserve
+        );
+        let (lifted_gcd_check, _) = hensel_lift_quadratic(
+            &reduction_context.intermediate_ring_to_field_reduction(0),
+            &ZpeX,
+            &FpX,
+            &ideal_generator,
+            (&gcd, &FpX.checked_div(&ideal_generator_mod_p, &gcd).unwrap()),
+            DontObserve
+        );
+        assert_el_eq!(&ZpeX, &lifted_gcd, &lifted_gcd_check);
+        let rank = ZpeX.degree(&lifted_gcd).unwrap();
 
         let mut result = Self {
             acting_galois_group: acting_galois_group,
             allocator: allocator,
             generator_galois_conjugates: Vec::new(),
-            reducer: BarettPolyReducer::new(FpX, &modulus_FpX, 2 * rank - 2, convolution),
-            number_ring: number_ring
+            number_ring: number_ring,
+            reducer: BarettPolyReducer::new(ZpeX, &lifted_gcd, 2 * rank - 2, convolution)
         };
         result.init_galois_conjugates();
         result.check_galois_group();
@@ -231,7 +250,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -243,7 +262,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore + Clone,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type> + Clone
 {
@@ -261,7 +280,7 @@ impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIdealBase<NumberRing,
 impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -292,7 +311,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBas
 impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -346,7 +365,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
 impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -358,7 +377,7 @@ impl<NumberRing, ZnTy, A, C> PartialEq for NumberRingQuotientByIdealBase<NumberR
 impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -489,7 +508,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRi
 impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -509,7 +528,7 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIdealBase<Num
 impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -550,7 +569,7 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<Numbe
 pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -560,7 +579,7 @@ pub struct WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
 impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {}
@@ -568,7 +587,7 @@ impl<'a, NumberRing, ZnTy, A, C> Copy for WRTCanonicalBasisElementCreator<'a, Nu
 impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -580,7 +599,7 @@ impl<'a, NumberRing, ZnTy, A, C> Clone for WRTCanonicalBasisElementCreator<'a, N
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -594,7 +613,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnOnce<(&'b [El<ZnTy>],)> for WRTCanonicalB
 impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -606,7 +625,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> FnMut<(&'b [El<ZnTy>],)> for WRTCanonicalBa
 impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasisElementCreator<'a, NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -618,7 +637,7 @@ impl<'a, 'b, NumberRing, ZnTy, A, C> Fn<(&'b [El<ZnTy>],)> for WRTCanonicalBasis
 impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -630,7 +649,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRingSpecializable for NumberRingQuotientByIde
 impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -665,7 +684,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIdealBase<Number
 impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -687,7 +706,7 @@ impl<NumberRing, ZnTy, A, C> DivisibilityRing for NumberRingQuotientByIdealBase<
 impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: SerializableElementRing + ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -718,7 +737,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIde
 impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy: RingStore,
-        ZnTy::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy::Type: NiceZn,
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
@@ -744,11 +763,11 @@ impl<NumberRing, ZnTy, A, C> CanHomFrom<BigIntRingBase> for NumberRingQuotientBy
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy1: RingStore,
-        ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy1::Type: NiceZn,
         A1: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
         ZnTy2: RingStore,
-        ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy2::Type: NiceZn,
         A2: Allocator + Clone,
         C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
         ZnTy1::Type: CanHomFrom<ZnTy2::Type>
@@ -777,11 +796,11 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientById
 impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1>
     where NumberRing: AbstractNumberRing + Clone,
         ZnTy1: RingStore,
-        ZnTy1::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy1::Type: NiceZn,
         A1: Allocator + Clone,
         C1: ConvolutionAlgorithm<ZnTy1::Type> + Clone,
         ZnTy2: RingStore,
-        ZnTy2::Type: ZnRing + CanHomFrom<BigIntRingBase>,
+        ZnTy2::Type: NiceZn,
         A2: Allocator + Clone,
         C2: ConvolutionAlgorithm<ZnTy2::Type> + Clone,
         ZnTy1::Type: CanIsoFromTo<ZnTy2::Type>
@@ -814,10 +833,10 @@ use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 fn test_quotient_by_ideal() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
     let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64)).as_field().ok().unwrap();
-    let poly_ring = DensePolyRing::new((&base_ring).as_field().ok().unwrap(), "X");
+    let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
     let [t] = poly_ring.with_wrapped_indeterminate(|X| [X - 2]);
     let acting_galois_group = number_ring.galois_group().clone().into().subgroup([]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, &base_ring, poly_ring, t, acting_galois_group,);
+    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group,);
     assert_eq!(1, ring.rank());
     let galois_group = ring.get_ring().acting_galois_group().parent();
     assert_eq!(17, ring.elements().count());
@@ -827,10 +846,10 @@ fn test_quotient_by_ideal() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(8);
     let galois_group = number_ring.galois_group();
     let base_ring = zn_big::Zn::new(ZZbig, int_cast(17, ZZbig, ZZi64)).as_field().ok().unwrap();
-    let poly_ring = DensePolyRing::new((&base_ring).as_field().ok().unwrap(), "X");
+    let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
     let [t] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) + 4]);
     let acting_galois_group = galois_group.get_group().clone().subgroup([galois_group.from_representative(5)]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, &base_ring, poly_ring, t, acting_galois_group);
+    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
     assert_eq!(2, ring.rank());
     let galois_group = ring.get_ring().acting_galois_group();
     assert_el_eq!(ZZbig, int_cast(2, ZZbig, ZZi64), ring.get_ring().acting_galois_group().subgroup_order());

@@ -29,9 +29,17 @@ pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     ntt: PhantomData<N>
 }
 
-impl<N> Pow2CyclotomicNumberRing<N> {
+impl Pow2CyclotomicNumberRing {
 
     pub fn new(m: u64) -> Self {
+        Self::new_with_ntt(m)
+    }
+}
+
+impl<N> Pow2CyclotomicNumberRing<N>
+    where N: FheanorNegacyclicNTT<zn_64::Zn>
+{
+    pub fn new_with_ntt(m: u64) -> Self {
         assert!(m > 2);
         let log2_m = StaticRing::<i64>::RING.abs_log2_floor(&(m as i64)).unwrap();
         assert_eq!(m, 1 << log2_m);
@@ -55,10 +63,11 @@ impl<N> Debug for Pow2CyclotomicNumberRing<N>
     }
 }
 
-impl<N> Clone for Pow2CyclotomicNumberRing<N> {
-    
+impl<N> Clone for Pow2CyclotomicNumberRing<N>
+    where N: FheanorNegacyclicNTT<zn_64::Zn>
+{    
     fn clone(&self) -> Self {
-        Self::new(1 << self.log2_m)
+        Self::new_with_ntt(1 << self.log2_m)
     }
 }
 

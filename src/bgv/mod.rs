@@ -1085,12 +1085,12 @@ impl Pow2BGV {
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
+impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> Pow2BGV<A, C> {
 
     #[instrument(skip_all)]
     pub fn new_with_ntt(m: usize, alloc: A) -> Self {
         return Self {
-            number_ring: Pow2CyclotomicNumberRing::new(m as u64),
+            number_ring: Pow2CyclotomicNumberRing::new_with_ntt(m as u64),
             ciphertext_allocator: alloc,
             negacyclic_ntt: PhantomData::<C>
         }

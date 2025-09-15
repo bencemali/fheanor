@@ -1,39 +1,32 @@
 use std::alloc::Allocator;
+use std::alloc::Global;
 
 use feanor_math::algorithms::convolution::ConvolutionAlgorithm;
+use feanor_math::algorithms::convolution::KaratsubaAlgorithm;
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::eea::*;
-use feanor_math::algorithms::int_factor::factor;
 use feanor_math::algorithms::resultant::ComputeResultantRing;
 use feanor_math::delegate::DelegateRing;
+use feanor_math::delegate::DelegateRingImplFiniteRing;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::field::FieldStore;
+use feanor_math::rings::extension::*;
 use feanor_math::homomorphism::Homomorphism;
+use feanor_math::rings::zn::*;
 use feanor_math::ordered::OrderedRingStore;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::ring::*;
-use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
-use feanor_math::rings::extension::extension_impl::FreeAlgebraImpl;
-use feanor_math::rings::extension::FreeAlgebraStore;
-use feanor_math::rings::field::*;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::poly::dense_poly::*;
-use feanor_math::rings::poly::sparse_poly::*;
-use feanor_math::primitive_int::*;
 use feanor_math::rings::rational::RationalField;
-use feanor_math::rings::zn::*;
 use feanor_math::integer::*;
-use feanor_math::seq::sparse::SparseMapVector;
-use feanor_math::seq::VectorFn;
-use feanor_math::seq::VectorView;
-use feanor_math::seq::VectorViewMut;
+use tracing::instrument;
 
-use crate::ciphertext_ring::BGFVCiphertextRing;
-use crate::number_ring::galois::CyclotomicGaloisGroup;
+use crate::number_ring::galois::*;
 use crate::number_ring::quotient_by_ideal::*;
-use crate::number_ring::AbstractNumberRing;
+use crate::number_ring::*;
 use crate::NiceZn;
-use crate::{euler_phi, log_time, ZZbig, ZZi64};
+use crate::{log_time, ZZbig, ZZi64};
 
 pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
@@ -42,13 +35,16 @@ pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
+    ZZX: DensePolyRing<BigIntRing>,
     base: NumberRingQuotientByIdeal<NumberRing, ZnTy, A, C>,
-    t: El<NumberRingQuotientByIdeal<NumberRing, ZnTy, A, C>>,
+    t: El<DensePolyRing<BigIntRing>>,
     /// The (algebraic) norm `N(t)` of `t`, which is equivalent to `Res(t(X), Phi_m(X))`
     normt: El<BigIntRing>,
     /// the value `N(t) t^-1`, which is an element of `Z[𝝵]`
-    normt_t_inv: Vec<El<BigIntRing>>,
+    normt_t_inv: El<DensePolyRing<BigIntRing>>,
 }
+
+pub type CLPXPlaintextRing<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>>;
 
 impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     where NumberRing: AbstractNumberRing,
@@ -57,7 +53,8 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    pub fn new<const LOG: bool>(number_ring: NumberRing, base_ring: ZnTy, poly_ring: DensePolyRing<BigIntRing>, t: El<DensePolyRing<BigIntRing>>, prime: El<BigIntRing>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> Self {
+    #[instrument(skip_all)]
+    pub fn create<const LOG: bool>(number_ring: NumberRing, base_ring: ZnTy, poly_ring: DensePolyRing<BigIntRing>, t: El<DensePolyRing<BigIntRing>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>, allocator: A, convolution: C) -> RingValue<Self> {
         let QQX = DensePolyRing::new(RationalField::new(ZZbig), "X");
         let QQ = QQX.base_ring();
 
@@ -67,13 +64,13 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         let norm = log_time::<_, _, LOG, _>("Compute Resultant", |[]| 
             ZZbig.abs(<_ as ComputeResultantRing>::resultant(&poly_ring, poly_ring.clone_el(&gen_poly), poly_ring.clone_el(&t)))
         );
-        let rest = ZZbig.checked_div(&norm, &ZZbig.pow(ZZbig.clone_el(&prime), acting_galois_group.group_order())).unwrap();
-        assert!(!ZZbig.divides(&rest, &prime));
+        let rest = ZZbig.checked_div(&norm, &ZZbig.pow(base_ring.characteristic(ZZbig).unwrap(), int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig) as usize)).unwrap();
+        assert!(ZZbig.is_one(&signed_gcd(rest, base_ring.characteristic(ZZbig).unwrap(), ZZbig)));
 
         // compute the inverse of `t(X)` modulo `Phi_m(X)`, which is required for encoding
         let ZZX_to_QQX = QQX.lifted_hom(&poly_ring, QQ.inclusion());
         let (mut s, _, d) = log_time::<_, _, LOG, _>("Compute Inverse", |[]| 
-            eea(ZZX_to_QQX.map_ref(&t), ZZX_to_QQX.map_ref(&gen_poly), &QQX)
+            QQX.extended_ideal_gen(&ZZX_to_QQX.map_ref(&t), &ZZX_to_QQX.map_ref(&gen_poly))
         );
         assert_eq!(0, QQX.degree(&d).unwrap());
         QQX.inclusion().mul_assign_map(&mut s, QQ.div(&QQ.inclusion().map_ref(&norm), QQX.coefficient_at(&d, 0)));
@@ -82,6 +79,53 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
             i
         )));
 
+        let base_ringX = DensePolyRing::new(base_ring, "X");
+        let hom = base_ringX.base_ring().can_hom(&ZZbig).unwrap();
+        let ideal_generator = base_ringX.lifted_hom(&poly_ring, &hom).map_ref(&t);
+        let base = NumberRingQuotientByIdealBase::create(number_ring, base_ringX, ideal_generator, acting_galois_group, allocator, convolution);
+        return RingValue::from(Self {
+            base: base,
+            normt: norm,
+            normt_t_inv: normt_t_inv,
+            t: t,
+            ZZX: poly_ring
+        });
+    }
+
+    pub fn t(&self) -> &El<DensePolyRing<BigIntRing>> {
+        &self.t
+    }
+
+    pub fn ZZX(&self) -> &DensePolyRing<BigIntRing> {
+        &self.ZZX
+    }
+
+    #[instrument(skip_all)]
+    pub fn reduce_mod_t(&self, el: El<DensePolyRing<BigIntRing>>) -> <Self as RingBase>::Element {
+        unimplemented!()
+    }
+
+    #[instrument(skip_all)]
+    pub fn small_lift(&self, el: &<Self as RingBase>::Element) -> El<DensePolyRing<BigIntRing>> {
+        unimplemented!()
+    }
+
+    #[instrument(skip_all)]
+    pub fn encode<S>(&self, target: S, el: &<Self as RingBase>::Element) -> El<S>
+        where S: RingStore, 
+            S::Type: FreeAlgebra,
+            <<S::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing
+    {
+        unimplemented!()
+    }
+
+    #[instrument(skip_all)]
+    pub fn decode<S>(&self, from: S, el: &El<S>) -> <Self as RingBase>::Element
+        where S: RingStore, 
+            S::Type: FreeAlgebra,
+            <<S::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing
+    {
+        unimplemented!()
     }
 }
 
@@ -125,211 +169,184 @@ impl<NumberRing, ZnTy, A, C> DelegateRingImplFiniteRing for CLPXPlaintextRingBas
         C: ConvolutionAlgorithm<ZnTy::Type>
 {}
 
+impl<NumberRing, ZnTy, A, C> NumberRingQuotient for CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
+    where NumberRing: AbstractNumberRing,
+        ZnTy: RingStore,
+        ZnTy::Type: NiceZn,
+        A: Allocator + Clone,
+        C: ConvolutionAlgorithm<ZnTy::Type>
+{
+    type NumberRing = NumberRing;
+
+    fn acting_galois_group(&self) -> &Subgroup<CyclotomicGaloisGroup> {
+        self.base.acting_galois_group()
+    }
+
+    fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
+        self.base.apply_galois_action(x, g)
+    }
+
+    fn number_ring(&self) -> &Self::NumberRing {
+        self.base.number_ring()
+    }
+
+    fn apply_galois_action_many(&self, x: &Self::Element, gs: &[GaloisGroupEl]) -> Vec<Self::Element> {
+        self.base.apply_galois_action_many(x, gs)
+    }
+}
+
+#[cfg(test)]
+use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
+#[cfg(test)]
+use feanor_math::group::AbelianGroupStore;
+#[cfg(test)]
+use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
 #[cfg(test)]
-use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
+use crate::number_ring::general_cyclotomic::OddSquarefreeCyclotomicNumberRing;
 #[cfg(test)]
-use crate::ciphertext_ring::double_rns_managed::*;
+use crate::number_ring::galois::CyclotomicGaloisGroupOps;
+#[cfg(test)]
+use std::array::from_fn;
+#[cfg(test)]
+use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 
 #[cfg(test)]
 fn test_rns_base() -> zn_rns::Zn<zn_64::Zn, BigIntRing> {
-    zn_rns::Zn::create_from_primes(vec![167116801, 200540161, 284098561, 317521921, 384368641, 451215361, 501350401, 651755521, 752025601, 802160641], ZZbig)
+    zn_rns::Zn::create_from_primes(vec![4915200001, 4920115201, 4925030401, 4944691201, 5018419201, 5028249601, 5042995201, 5052825601, 5092147201, 5141299201], ZZbig)
 }
 
-#[test]
-fn test_clpx_base_encoding_new() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
+#[cfg(test)]
+fn test_ring1() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<El<CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>>>) {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
-    let m = 32;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), t, ZZbig.int_hom().map(65537));
-    let Fp = encoding.Fp();
-    assert_el_eq!(Fp, Fp.int_hom().map(2), &encoding.zeta_im);
+    let number_ring = Pow2CyclotomicNumberRing::new(32);
+    let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([]);
+    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(65537), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let elements = (0..31).map(|i| result.int_hom().map(1 << i)).collect();
+    return (result, elements);
+}
 
+#[cfg(test)]
+fn test_ring2() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<El<CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>>>) {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let m = 64;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), ZZX.clone_el(&t), ZZbig.int_hom().map(6700417));
-    let Fp = encoding.Fp();
-    assert_el_eq!(Fp, Fp.zero(), ZZX.evaluate(&t, &encoding.zeta_im, Fp.can_hom(&ZZi64).unwrap()));
+    let number_ring = Pow2CyclotomicNumberRing::new(64);
+    let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([]);
+    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(65537), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let elements = (0..31).map(|i| result.int_hom().map(1 << i)).collect();
+    return (result, elements);
+}
+
+#[cfg(test)]
+fn test_ring3() -> (CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>, Vec<El<CLPXPlaintextRing<Pow2CyclotomicNumberRing, zn_64::Zn>>>) {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
+    let number_ring = Pow2CyclotomicNumberRing::new(64);
+    let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([number_ring.galois_group().from_representative(33)]);
+    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(257), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let elements = (0..31).map(|i| result.int_hom().map(1 << i))
+        .chain((0..31).map(|i| result.mul(result.canonical_gen(), result.int_hom().map(1 << i)))).collect();
+    return (result, elements);
+}
+
+#[cfg(test)]
+fn test_ring4() -> (CLPXPlaintextRing<OddSquarefreeCyclotomicNumberRing, zn_64::Zn>, Vec<El<CLPXPlaintextRing<OddSquarefreeCyclotomicNumberRing, zn_64::Zn>>>) {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5) - 2]);
+    let number_ring = OddSquarefreeCyclotomicNumberRing::new(75);
+    let acting_galois_group = number_ring.galois_group().get_group().clone().subgroup([number_ring.galois_group().from_representative(16)]);
+    let result = CLPXPlaintextRingBase::create::<true>(number_ring, zn_64::Zn::new(151), ZZX, t, acting_galois_group, Global, STANDARD_CONVOLUTION);
+    let elements = (0..15).flat_map(|i| from_fn::<_, 4, _>(|j| result.mul(result.pow(result.canonical_gen(), j), result.int_hom().map(1 << i))).into_iter()).collect();
+    return (result, elements);
 }
 
 #[test]
-fn test_clpx_base_encoding_map() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
-    let m = 32;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), t, ZZbig.int_hom().map(65537));
-    let Fp = encoding.Fp();
-    let ZZX = encoding.ZZX();
-    let elements = (0..16).map(|i| Fp.int_hom().map(1 << i)).collect::<Vec<_>>();
-    for a in &elements {
-        for b in &elements {
-            assert_el_eq!(Fp, Fp.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(Fp.clone_el(a)), encoding.small_preimage(Fp.clone_el(b)))));
-        }
-    }
-    for a in &elements {
-        assert!(ZZX.terms(&encoding.small_preimage(Fp.clone_el(a))).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
-    }
+fn test_clpx_plaintext_ring_create() {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
+    let (ring, _) = test_ring1();
+    assert_eq!(1, ring.rank());
+    assert_el_eq!(&ring, ring.int_hom().map(2), ring.canonical_gen());
 
-    let ZZX = DensePolyRing::new(ZZi64, "X");
+    let (ring, _) = test_ring2();
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let m = 64;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), ZZX.clone_el(&t), ZZbig.int_hom().map(6700417));
-    let Fp = encoding.Fp();
-    let ZZX = encoding.ZZX();
-    let elements = (0..30).map(|i| Fp.int_hom().map(1 << i)).collect::<Vec<_>>();
+    assert_eq!(1, ring.rank());
+    assert_el_eq!(&ring, ring.zero(), ZZX.evaluate(&t, &ring.canonical_gen(), ring.inclusion().compose(ring.base_ring().can_hom(&ZZbig).unwrap())));
+
+    let (ring, _) = test_ring3();
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
+    assert_eq!(4, ring.rank());
+    assert_el_eq!(&ring, ring.zero(), ZZX.evaluate(&t, &ring.canonical_gen(), ring.inclusion().compose(ring.base_ring().can_hom(&ZZbig).unwrap())));
+
+    let (ring, _) = test_ring4();
+    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(5) - 2]);
+    assert_eq!(4, ring.rank());
+    assert_el_eq!(&ring, ring.zero(), ZZX.evaluate(&t, &ring.canonical_gen(), ring.inclusion().compose(ring.base_ring().can_hom(&ZZbig).unwrap())));
+}
+
+#[test]
+fn test_clpx_plaintext_ring_small_lift() {
+    let ZZX = DensePolyRing::new(ZZbig, "X");
+
+    let (ring, elements) = test_ring1();
     for a in &elements {
-        for b in &elements {
-            assert_el_eq!(Fp, Fp.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(Fp.clone_el(a)), encoding.small_preimage(Fp.clone_el(b)))));
-        }
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
     }
     for a in &elements {
-        assert!(ZZX.terms(&encoding.small_preimage(Fp.clone_el(a))).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
+        assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
+    }
+
+    let (ring, elements) = test_ring2();
+    for a in &elements {
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
+    }
+    for a in &elements {
+        assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
+    }
+
+    let (ring, elements) = test_ring3();
+    for a in &elements {
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
+    }
+    for a in &elements {
+        assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
+    }
+
+    let (ring, elements) = test_ring4();
+    for a in &elements {
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
+    }
+    for a in &elements {
+        assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
     }
 }
 
 #[test]
-fn test_clpx_encoding_map() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
-    let m1 = 17;
-    let m2 = 15;
-    let base_encoding = CLPXBaseEncoding::new::<false>(m1, ZZX.clone(), t, ZZbig.int_hom().map(131071));
-    let encoding = CLPXEncoding::new::<false>(m2, base_encoding);
-    let P = encoding.plaintext_ring();
-    let ZZX = encoding.ZZX();
-    let rank = encoding.plaintext_ring().rank();
-    let elements = [
-        P.zero(),
-        P.one(),
-        P.int_hom().map(363),
-        P.canonical_gen(),
-        P.int_hom().mul_map(P.canonical_gen(), 363),
-        P.add(P.canonical_gen(), P.one()),
-        P.pow(P.canonical_gen(), rank - 1),
-        P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 363),
-    ];
-    for a in &elements {
-        for b in &elements {
-            assert_el_eq!(P, P.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(a), encoding.small_preimage(b))));
-        }
-    }
-    for a in &elements {
-        assert!(ZZX.terms(&encoding.small_preimage(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 3));
-    }
-
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let m1 = 17;
-    let m2 = 15;
-    let base_encoding = CLPXBaseEncoding::new::<false>(m1, ZZX.clone(), t, ZZbig.int_hom().map(43691));
-    let encoding = CLPXEncoding::new::<false>(m2, base_encoding);
-    let P = encoding.plaintext_ring();
-    let ZZX = encoding.ZZX();
-    let rank = encoding.plaintext_ring().rank();
-    let elements = [
-        P.zero(),
-        P.one(),
-        P.int_hom().map(363),
-        P.canonical_gen(),
-        P.int_hom().mul_map(P.canonical_gen(), 363),
-        P.add(P.canonical_gen(), P.one()),
-        P.pow(P.canonical_gen(), rank - 1),
-        P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 363),
-    ];
-    for a in &elements {
-        for b in &elements {
-            assert_el_eq!(P, P.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(a), encoding.small_preimage(b))));
-        }
-    }
-    for a in &elements {
-        assert!(ZZX.terms(&encoding.small_preimage(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 3));
-    }
-}
-
-#[test]
-fn test_clpx_encoding_not_coprime_map() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
-    let m1 = 10;
-    let m2 = 15;
-    let base_encoding = CLPXBaseEncoding::new::<false>(m1, ZZX.clone(), t, ZZbig.int_hom().map(11));
-    let encoding = CLPXEncoding::new::<false>(m2, base_encoding);
-    let P = encoding.plaintext_ring();
-    let ZZX = encoding.ZZX();
-    let rank = encoding.plaintext_ring().rank();
-    assert_eq!(10, rank);
-    let elements = [
-        P.zero(),
-        P.one(),
-        P.int_hom().map(5),
-        P.canonical_gen(),
-        P.int_hom().mul_map(P.canonical_gen(), 5),
-        P.add(P.canonical_gen(), P.one()),
-        P.pow(P.canonical_gen(), rank - 1),
-        P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 5),
-    ];
-    assert_el_eq!(P, P.one(), P.pow(encoding.map(&ZZX.indeterminate()), 150));
-    assert_el_eq!(P, P.inclusion().map_ref(&encoding.base_encoding().zeta_im), P.pow(encoding.map(&ZZX.indeterminate()), 15));
-    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 50)));
-    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 75)));
-    assert!(!P.is_one(&P.pow(encoding.map(&ZZX.indeterminate()), 30)));
-    for a in &elements {
-        for b in &elements {
-            assert_el_eq!(P, P.mul_ref(a, b), encoding.map(&ZZX.mul(encoding.small_preimage(a), encoding.small_preimage(b))));
-        }
-    }
-    for a in &elements {
-        assert!(ZZX.terms(&encoding.small_preimage(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 3));
-    }
-}
-
-#[test]
-fn test_clpx_base_encoding_encode_decode() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X - 2]);
-    let m = 32;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), t, ZZbig.int_hom().map(65537));
-    let Fp = encoding.Fp();
-    let elements = (0..16).map(|i| Fp.int_hom().map(1 << i)).collect::<Vec<_>>();
+fn test_clpx_plaintext_ring_encode_decode() {
     let ZQ = test_rns_base();
+
+    let (ring, elements) = test_ring1();
+    let RQ = DoubleRNSRingBase::new(ring.number_ring().clone(), ZQ.clone());
     for a in &elements {
-        assert_el_eq!(&Fp, a, encoding.decode_impl(&ZQ, encoding.encode_impl(&ZQ, Fp.clone_el(a))));
+        assert_el_eq!(&ring, a, ring.get_ring().decode(&RQ, &ring.get_ring().encode(&RQ, a)));
     }
 
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let m = 17;
-    let encoding = CLPXBaseEncoding::new::<true>(m, ZZX.clone(), ZZX.clone_el(&t), ZZbig.int_hom().map(43691));
-    let Fp = encoding.Fp();
-    let elements = (0..20).map(|i| Fp.int_hom().map(1 << i)).collect::<Vec<_>>();
-    let ZQ = test_rns_base();
+    let (ring, elements) = test_ring2();
+    let RQ = DoubleRNSRingBase::new(ring.number_ring().clone(), ZQ.clone());
     for a in &elements {
-        assert_el_eq!(&Fp, a, encoding.decode_impl(&ZQ, encoding.encode_impl(&ZQ, Fp.clone_el(a))));
+        assert_el_eq!(&ring, a, ring.get_ring().decode(&RQ, &ring.get_ring().encode(&RQ, a)));
     }
-}
 
-#[test]
-fn test_clpx_encoding_encode_decode() {
-    let ZZX = DensePolyRing::new(ZZi64, "X");
-    let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(2) + X - 2]);
-    let m1 = 17;
-    let m2 = 15;
-    let base_encoding = CLPXBaseEncoding::new::<false>(m1, ZZX.clone(), t, ZZbig.int_hom().map(43691));
-    let encoding = CLPXEncoding::new::<false>(m2, base_encoding);
-    let P = encoding.plaintext_ring();
-    let rank = encoding.plaintext_ring().rank();
-    let elements = [
-        P.zero(),
-        P.one(),
-        P.int_hom().map(363),
-        P.canonical_gen(),
-        P.int_hom().mul_map(P.canonical_gen(), 363),
-        P.add(P.canonical_gen(), P.one()),
-        P.pow(P.canonical_gen(), rank - 1),
-        P.int_hom().mul_map(P.pow(P.canonical_gen(), rank - 1), 363),
-    ];
-    let C = ManagedDoubleRNSRingBase::new(CompositeCyclotomicNumberRing::new(17, 15), test_rns_base());
+    let (ring, elements) = test_ring3();
+    let RQ = DoubleRNSRingBase::new(ring.number_ring().clone(), ZQ.clone());
     for a in &elements {
-        assert_el_eq!(P, a, encoding.decode(&C, &encoding.encode(&C, a)));
+        assert_el_eq!(&ring, a, ring.get_ring().decode(&RQ, &ring.get_ring().encode(&RQ, a)));
+    }
+
+    let (ring, elements) = test_ring4();
+    let RQ = DoubleRNSRingBase::new(ring.number_ring().clone(), ZQ.clone());
+    for a in &elements {
+        assert_el_eq!(&ring, a, ring.get_ring().decode(&RQ, &ring.get_ring().encode(&RQ, a)));
     }
 }

@@ -35,6 +35,7 @@ use crate::NiceZn;
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::ntt::{FheanorConvolution, FheanorNegacyclicNTT};
 use crate::number_ring::hypercube::isomorphism::*;
+use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::*;
@@ -351,9 +352,13 @@ pub trait BGVInstantiation {
     fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, cache_dir: Option<&str>)
         where DecoratedBaseRingBase<PlaintextRing<Self>>: CanIsoFromTo<BaseRing<PlaintextRing<Self>>>
     {
-        let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
-        let (p, _e) = is_prime_power(ZZbig, &t).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), p);
+        let ZZ = P.base_ring().integer_ring();
+        let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
+        let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {
+            HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        } else {
+            HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        };
         let H = HypercubeIsomorphism::new::<true>(&P, &hypercube, cache_dir);
         let m = Self::dec(P, C, Self::clone_ct(P, C, ct), sk);
         println!("ciphertext (noise budget: {} / {}):", Self::noise_budget(P, C, ct, sk), ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap());

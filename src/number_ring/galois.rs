@@ -119,6 +119,8 @@ pub trait CyclotomicGaloisGroupOps: AbelianGroupStore {
     fn representative(&self, x: &GaloisGroupEl) -> u64;
 
     fn group_order(&self) -> usize;
+
+    fn is_full_cyclotomic_galois_group(&self) -> bool;
 }
 
 impl CyclotomicGaloisGroupOps for CyclotomicGaloisGroup {
@@ -153,6 +155,10 @@ impl CyclotomicGaloisGroupOps for CyclotomicGaloisGroup {
 
     fn group_order(&self) -> usize {
         self.get_group().group_order()
+    }
+    
+    fn is_full_cyclotomic_galois_group(&self) -> bool {
+        true
     }
 }
 
@@ -192,6 +198,10 @@ impl CyclotomicGaloisGroupOps for Subgroup<CyclotomicGaloisGroup> {
 
     fn underlying_ring(&self) -> &Zn {
         self.parent().underlying_ring()
+    }
+
+    fn is_full_cyclotomic_galois_group(&self) -> bool {
+        ZZbig.eq_el(&self.subgroup_order(), &int_cast(self.parent().group_order() as i64, ZZbig, ZZi64))
     }
 }
 

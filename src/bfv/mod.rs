@@ -37,6 +37,7 @@ use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::quotient_by_int::NumberRingQuotientByIntBase;
 use crate::number_ring::*;
+use crate::number_ring::galois::CyclotomicGaloisGroupOps;
 use crate::number_ring::pow2_cyclotomic::*;
 use crate::number_ring::composite_cyclotomic::*;
 use crate::ciphertext_ring::single_rns_ring::SingleRNSRingBase;
@@ -301,8 +302,11 @@ pub trait BFVInstantiation {
     {
         let ZZ = P.base_ring().integer_ring();
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
-        let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ));
-
+        let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {
+            HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        } else {
+            HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        };
         let H = HypercubeIsomorphism::new::<false>(&P, &hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));

@@ -1,9 +1,8 @@
-use std::cmp::max;
-
 use feanor_math::algorithms::discrete_log::*;
 use feanor_math::algorithms::eea::{signed_gcd, signed_lcm};
+use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::group::*;
-use feanor_math::integer::{int_cast, BigIntRing};
+use feanor_math::integer::{int_cast, BigIntRing, IntegerRingStore};
 use feanor_math::iters::clone_slice;
 use feanor_math::algorithms::int_factor::factor;
 use feanor_math::iters::multi_cartesian_product;
@@ -88,8 +87,8 @@ impl HypercubeStructure {
     pub fn new(galois_group: Subgroup<CyclotomicGaloisGroup>, frobenius: GaloisGroupEl, d: usize, ls: Vec<usize>, gs: Vec<GaloisGroupEl>) -> Self {
         assert_eq!(ls.len(), gs.len());
         assert_eq!(d, galois_group.element_order(&frobenius));
-        assert!(galois_group.dlog(&frobenius).is_some());
-        assert!(gs.iter().all(|g| galois_group.dlog(g).is_some()));
+        assert!(galois_group.contains(&frobenius));
+        assert!(gs.iter().all(|g| galois_group.contains(g)));
 
         // check whether the given values indeed define a bijection modulo `<p>`
         let mut all_elements = multi_cartesian_product([(0..d)].into_iter().chain(ls.iter().map(|l_i| 0..*l_i)), |idxs| (
@@ -116,6 +115,88 @@ impl HypercubeStructure {
     }
 
     ///
+    /// Computes a hypercube structure for a subgroup of the power-of-two cyclotomic
+    /// Galois group. The generated hypercube structure will have at most two dimensions,
+    /// and at most one of them will have length `> 2`.
+    /// 
+    /// Note that `(Z/2^(e + 2)Z)* ~ Z/2^eZ x Z/2Z`. Under this isomorphism,
+    /// a subgroup `G` of `(Z/2^(e + 2)Z)*` has one of the following shapes:
+    ///  - `{ (k i, 0) | i }`
+    ///  - `{ (k i, i) | i }`
+    ///  - `{ (2 k i, j) | i, j }`
+    /// 
+    /// for `k = 2^e / |G|`.
+    /// 
+    /// Moreover, we have the following options for `<p>`:
+    ///  - `{ (k i, 0) | i }` implies `<p> = { (l i, 0) | i }`
+    ///  - `{ (k i, i) | i }` implies `<p> = { (l i, 0) | i }` or `<p> = { (l i, i) | i}`
+    ///  - `{ (2 k i, j) | i, j }` implies `<p> = { (l i, 0) | i }` or `<p> = { (l i, i) | i }`
+    /// 
+    /// for `l = 2^e / ord(p)`.
+    /// 
+    pub fn default_pow2_hypercube(galois_group: &Subgroup<CyclotomicGaloisGroup>, p: El<BigIntRing>) -> Self {
+
+        let m = galois_group.m() as i64;
+        let log2_m = ZZi64.abs_log2_ceil(&m).unwrap();
+        assert!(m == 1 << log2_m, "m must be a power of two for default_pow2_hypercube()");
+        let p_mod_m = int_cast(ZZbig.euclidean_rem(p, &int_cast(m, ZZbig, ZZi64)), ZZi64, ZZbig);
+        assert!(signed_gcd(m, p_mod_m, ZZi64) == 1, "m and p must be coprime");
+        let frobenius = galois_group.from_representative(p_mod_m);
+        let Gal = galois_group.parent();
+
+        let order = galois_group.group_order();
+        let d = galois_group.element_order(&frobenius);
+        let g1 = Gal.from_representative(5);
+        let g2 = Gal.from_representative(-1);
+        if order == ZZi64.pow(2, log2_m - 1) as usize || galois_group.contains(&g2) {
+            // the third case, `G ~ <2k> x {0, 1}`
+            if p_mod_m % 4 == 3 {
+                let g1_pow_2k = Gal.pow(&g1, &int_cast(ZZi64.checked_div(&ZZi64.pow(2, log2_m - 1), &(order as i64)).unwrap(), ZZbig, ZZi64));
+                return Self::new(
+                    galois_group.clone(),
+                    frobenius,
+                    d,
+                    vec![order / d],
+                    vec![g1_pow_2k]
+                );
+            } else {
+                let g1_pow_2k = Gal.pow(&g1, &int_cast(ZZi64.checked_div(&ZZi64.pow(2, log2_m - 1), &(order as i64)).unwrap(), ZZbig, ZZi64));
+                return Self::new(
+                    galois_group.clone(),
+                    frobenius,
+                    d,
+                    vec![order / d / 2, 2],
+                    vec![g1_pow_2k, g2]
+                );
+            }
+        }
+
+        let k = ZZi64.checked_div(&ZZi64.pow(2, log2_m - 2), &(order as i64)).unwrap();
+        let g1_pow_k = Gal.pow(&g1, &int_cast(k, ZZbig, ZZi64));
+        if galois_group.contains(&g1_pow_k) {
+            // the first case, `G ~ <k> x {0}`
+            return Self::new(
+                galois_group.clone(),
+                frobenius,
+                d,
+                vec![order / d],
+                vec![g1_pow_k]
+            );
+        } else {
+            // the second case, `G ~ <(k, 1)>`
+            let g2_g1_pow_k = Gal.op(g1_pow_k, g2);
+            debug_assert!(galois_group.contains(&g2_g1_pow_k));
+            return Self::new(
+                galois_group.clone(),
+                frobenius,
+                d,
+                vec![order / d],
+                vec![g2_g1_pow_k]
+            );
+        }
+    }
+
+    ///
     /// Computes "the" Halevi-Shoup hypercube as described in <https://ia.cr/2014/873>.
     /// 
     /// Note that the Halevi-Shoup hypercube is unique except for the ordering of prime
@@ -123,7 +204,8 @@ impl HypercubeStructure {
     /// 
     pub fn halevi_shoup_hypercube(galois_group: &Subgroup<CyclotomicGaloisGroup>, p: El<BigIntRing>) -> Self {
 
-        assert!(galois_group.get_group() == galois_group.parent().get_group().clone().full_subgroup().get_group());
+        assert!(galois_group.is_full_cyclotomic_galois_group());
+        assert!(galois_group.m() % 2 == 1, "the halevi-shoup hypercube structure only exists for odd m");
         let galois_group = galois_group.parent().clone();
 
         ///
@@ -143,8 +225,8 @@ impl HypercubeStructure {
         }
 
         let m = galois_group.m() as i64;
-        let p = int_cast(ZZbig.euclidean_rem(p, &int_cast(m, ZZbig, ZZi64)), ZZi64, ZZbig);
-        assert!(signed_gcd(m, p, ZZi64) == 1, "m and p must be coprime");
+        let frobenius = int_cast(ZZbig.euclidean_rem(p, &int_cast(m, ZZbig, ZZi64)), ZZi64, ZZbig);
+        assert!(signed_gcd(m, frobenius, ZZi64) == 1, "m and p must be coprime");
 
         // the unit group `(Z/mZ)*` decomposes as `X (Z/m_iZ)*`; this gives rise to the natural hypercube structure,
         // although technically many possible hypercube structures are possible
@@ -159,56 +241,18 @@ impl HypercubeStructure {
         let mut dimensions = Vec::new();
         for (i, (q, k)) in factorization.iter().enumerate() {
             let Zqk = zm_rns.at(i);
-            if *q == 2 {
-                // `(Z/2^kZ)*` is an exception, since it is not cyclic
-                if *k == 1 {
-                    continue;
-                } else if *k == 2 {
-                    unimplemented!()
-                } else {
-                    // `(Z/2^kZ)*` is isomorphic to `<g1> x <g2>` where `<g1> ~ Z/2^(k - 2)Z` and `<g2> ~ Z/2Z`
-                    let g1 = Zqk.int_hom().map(5);
-                    let ord_g1 = ZZi64.pow(*q, *k as usize - 2);
-                    let g2 = Zqk.can_hom(&ZZi64).unwrap().map(-1);
-                    if p % 4 == 1 {
-                        // `p` is in `<g1>`
-                        let logg1_p = unit_group_dlog(Zqk, g1, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
-                        dimensions.push(HypercubeDimension {
-                            order_of_projected_p: ord_g1 / signed_gcd(logg1_p, ord_g1, &ZZi64), 
-                            group_order: ord_g1,
-                            g_main: from_crt(i, g1),
-                            factor_m: (2, *k),
-                        });
-                        dimensions.push(HypercubeDimension {
-                            order_of_projected_p: 1, 
-                            group_order: 2,
-                            g_main: from_crt(i, g2),
-                            factor_m: (2, *k),
-                        });
-                    } else {
-                        // `<p, g1> = (Z/2^kZ)*` and `p * g2 in <g1>`
-                        let logg1_pg2 = unit_group_dlog(Zqk, g1, Zqk.mul(Zqk.can_hom(&ZZi64).unwrap().map(p), g2)).unwrap();
-                        dimensions.push(HypercubeDimension {
-                            order_of_projected_p: max(ord_g1 / signed_gcd(logg1_pg2, ord_g1, &ZZi64), 2),
-                            group_order: 2 * ord_g1,
-                            g_main: from_crt(i, g1),
-                            factor_m: (2, *k)
-                        });
-                    }
-                }
-            } else {
-                // `(Z/q^kZ)*` is cyclic
-                let g = get_multiplicative_generator(*Zqk);
-                let ord_g = euler_phi(&[(*q, *k)]);
-                let logg_p = unit_group_dlog(Zqk, g, Zqk.can_hom(&ZZi64).unwrap().map(p)).unwrap();
-                let ord_p = ord_g / signed_gcd(logg_p, ord_g, ZZi64);
-                dimensions.push(HypercubeDimension {
-                    order_of_projected_p: ord_p, 
-                    group_order: ord_g,
-                    g_main: from_crt(i, g),
-                    factor_m: (*q, *k)
-                });
-            }
+            assert!(*q != 2);
+            // `(Z/q^kZ)*` is cyclic
+            let g = get_multiplicative_generator(*Zqk);
+            let ord_g = euler_phi(&[(*q, *k)]);
+            let logg_p = unit_group_dlog(Zqk, g, Zqk.can_hom(&ZZi64).unwrap().map(frobenius)).unwrap();
+            let ord_p = ord_g / signed_gcd(logg_p, ord_g, ZZi64);
+            dimensions.push(HypercubeDimension {
+                order_of_projected_p: ord_p, 
+                group_order: ord_g,
+                g_main: from_crt(i, g),
+                factor_m: (*q, *k)
+            });
         }
 
         dimensions.sort_by_key(|dim| -(dim.order_of_projected_p as i64));
@@ -220,7 +264,7 @@ impl HypercubeStructure {
             len as usize
         }).collect::<Vec<_>>();
 
-        let p_repr = galois_group.from_representative(p);
+        let p_repr = galois_group.from_representative(frobenius);
         let gs = dimensions.iter().map(|dim| galois_group.from_ring_el(dim.g_main)).collect();
         let mut result = Self::new(
             galois_group.into().full_subgroup(),
@@ -229,9 +273,7 @@ impl HypercubeStructure {
             lengths,
             gs
         );
-        if m % 2 == 1 {
-            result.choice = HypercubeTypeData::CyclotomicTensorProductHypercube(dimensions.iter().map(|dim| dim.factor_m).collect());
-        }
+        result.choice = HypercubeTypeData::CyclotomicTensorProductHypercube(dimensions.iter().map(|dim| dim.factor_m).collect());
         return result;
     }
 
@@ -450,16 +492,19 @@ fn test_halevi_shoup_hypercube() {
 
     assert_eq!(1, hypercube_structure.dim_length(0));
     assert_eq!(30, hypercube_structure.dim_length(1));
+}
 
+#[test]
+fn test_pow2_hypercube() {
     let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
+    let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(7, ZZbig, ZZi64));
     assert_eq!(4, hypercube_structure.d());
     assert_eq!(1, hypercube_structure.dim_count());
 
     assert_eq!(4, hypercube_structure.dim_length(0));
 
     let galois_group = CyclotomicGaloisGroupBase::new(32).into().full_subgroup();
-    let hypercube_structure = HypercubeStructure::halevi_shoup_hypercube(&galois_group, int_cast(17, ZZbig, ZZi64));
+    let hypercube_structure = HypercubeStructure::default_pow2_hypercube(&galois_group, int_cast(17, ZZbig, ZZi64));
     assert_eq!(2, hypercube_structure.d());
     assert_eq!(2, hypercube_structure.dim_count());
 
@@ -471,8 +516,8 @@ fn test_halevi_shoup_hypercube() {
 fn test_serialization() {
     for hypercube in [
         HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(11 * 31).into().full_subgroup(), int_cast(2, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(7, ZZbig, ZZi64)),
-        HypercubeStructure::halevi_shoup_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(17, ZZbig, ZZi64))
+        HypercubeStructure::default_pow2_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(7, ZZbig, ZZi64)),
+        HypercubeStructure::default_pow2_hypercube(&CyclotomicGaloisGroupBase::new(32).into().full_subgroup(), int_cast(17, ZZbig, ZZi64))
     ] {
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
         let tokens = hypercube.serialize(&serializer).unwrap();

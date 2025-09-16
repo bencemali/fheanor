@@ -1,6 +1,5 @@
 
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
-use feanor_math::group::AbelianGroupStore;
 use feanor_math::homomorphism::*;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ring::*;
@@ -22,7 +21,7 @@ use crate::NiceZn;
 
 fn assert_hypercube_supported(H: &HypercubeStructure) {
     assert!(H.galois_group().m() % 2 == 1);
-    assert!(H.galois_group().parent().get_group().clone().full_subgroup().get_group() == H.galois_group().get_group());
+    assert!(H.galois_group().is_full_cyclotomic_galois_group());
     assert!(H.is_tensor_product_compatible());
 }
 

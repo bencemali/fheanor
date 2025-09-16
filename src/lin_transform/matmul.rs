@@ -816,7 +816,7 @@ use feanor_math::integer::*;
 fn test_to_circuit_single() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -872,7 +872,7 @@ fn test_compute_automorphisms_per_dimension() {
 fn test_compose() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
@@ -901,7 +901,7 @@ fn test_compose() {
 fn test_invert() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(23));
-    let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));

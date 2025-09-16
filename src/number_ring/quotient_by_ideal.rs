@@ -101,8 +101,8 @@ impl<NumberRing, ZnTy> NumberRingQuotientByIdealBase<NumberRing, ZnTy>
     /// where `p^e` is the characteristic of the given polynomial ring (must be a prime power)
     /// and `t(X)` is the given monic polynomial.
     ///  
-    pub fn new(number_ring: NumberRing, poly_ring: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> RingValue<Self> {
-        Self::create(number_ring, poly_ring, ideal_generator, acting_galois_group, Global, STANDARD_CONVOLUTION)
+    pub fn new<const LOG: bool>(number_ring: NumberRing, poly_ring: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>) -> RingValue<Self> {
+        Self::create::<LOG>(number_ring, poly_ring, ideal_generator, acting_galois_group, Global, STANDARD_CONVOLUTION)
     }
 }
 
@@ -150,7 +150,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
     /// follows.
     /// 
     #[instrument(skip_all)]
-    pub fn create(number_ring: NumberRing, ZpeX: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>, allocator: A, convolution: C) -> RingValue<Self> {
+    pub fn create<const LOG: bool>(number_ring: NumberRing, ZpeX: DensePolyRing<ZnTy>, ideal_generator: El<DensePolyRing<ZnTy>>, acting_galois_group: Subgroup<CyclotomicGaloisGroup>, allocator: A, convolution: C) -> RingValue<Self> {
         let Zpe = ZpeX.base_ring();
         assert!(Zpe.is_one(ZpeX.lc(&ideal_generator).unwrap()));
         let (p, e) = is_prime_power(Zpe.integer_ring(), Zpe.modulus()).unwrap();
@@ -167,25 +167,25 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
 
         let gen_mipo_mod_p = FpX.lifted_hom(&ZZX, &ZZ_to_Fp).map_ref(&gen_mipo);
         let ideal_generator_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&ideal_generator);
-        let gcd = FpX.normalize(FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p));
+        let gcd = log_time::<_, _, LOG, _>("Computing gcd(t, f) mod p", |[]| FpX.normalize(FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p)));
         assert!(FpX.degree(&gcd).unwrap() > 0);
 
-        let (lifted_gcd, _) = hensel_lift_quadratic(
+        let (lifted_gcd, _) = log_time::<_, _, LOG, _>("Lifting gcd(t, f)", |[]| hensel_lift_quadratic(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
             &FpX,
             &ZpeX.lifted_hom(&ZZX, reduction_context.main_ring_to_intermediate_ring_reduction(0)).map(gen_mipo),
             (&gcd, &FpX.checked_div(&gen_mipo_mod_p, &gcd).unwrap()),
             DontObserve
-        );
-        let (lifted_gcd_check, _) = hensel_lift_quadratic(
+        ));
+        let (lifted_gcd_check, _) = log_time::<_, _, LOG, _>("Checking", |[]| hensel_lift_quadratic(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
             &FpX,
             &ideal_generator,
             (&gcd, &FpX.checked_div(&ideal_generator_mod_p, &gcd).unwrap()),
             DontObserve
-        );
+        ));
         assert_el_eq!(&ZpeX, &lifted_gcd, &lifted_gcd_check);
         let rank = ZpeX.degree(&lifted_gcd).unwrap();
 
@@ -196,8 +196,8 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
             number_ring: number_ring,
             reducer: BarettPolyReducer::new(ZpeX, &lifted_gcd, 2 * rank - 2, convolution)
         };
-        result.init_galois_conjugates();
-        result.check_galois_group();
+        log_time::<_, _, LOG, _>("Computing Galois data", |[]| result.init_galois_conjugates());
+        log_time::<_, _, LOG, _>("Checking acting Galois subgroup", |[]| result.check_galois_group());
         return RingValue::from(result);
     }
 
@@ -836,7 +836,7 @@ fn test_quotient_by_ideal() {
     let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
     let [t] = poly_ring.with_wrapped_indeterminate(|X| [X - 2]);
     let acting_galois_group = number_ring.galois_group().clone().into().subgroup([]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group,);
+    let ring = NumberRingQuotientByIdealBase::new::<true>(number_ring, poly_ring, t, acting_galois_group,);
     assert_eq!(1, ring.rank());
     let galois_group = ring.get_ring().acting_galois_group().parent();
     assert_eq!(17, ring.elements().count());
@@ -849,7 +849,7 @@ fn test_quotient_by_ideal() {
     let poly_ring = DensePolyRing::new(base_ring.as_field().ok().unwrap(), "X");
     let [t] = poly_ring.with_wrapped_indeterminate(|X| [X.pow_ref(2) + 4]);
     let acting_galois_group = galois_group.get_group().clone().subgroup([galois_group.from_representative(5)]);
-    let ring = NumberRingQuotientByIdealBase::new(number_ring, poly_ring, t, acting_galois_group);
+    let ring = NumberRingQuotientByIdealBase::new::<true>(number_ring, poly_ring, t, acting_galois_group);
     assert_eq!(2, ring.rank());
     let galois_group = ring.get_ring().acting_galois_group();
     assert_el_eq!(ZZbig, int_cast(2, ZZbig, ZZi64), ring.get_ring().acting_galois_group().subgroup_order());

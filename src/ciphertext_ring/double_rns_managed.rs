@@ -774,18 +774,21 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn eq_el(&self, lhs: &Self::Element, rhs: &Self::Element) -> bool {
-        match (lhs.internal.get_repr(), rhs.internal.get_repr()) {
-            (ManagedDoubleRNSElRepresentation::Zero, _) | (_, ManagedDoubleRNSElRepresentation::Zero) => self.is_zero(lhs),
-            (ManagedDoubleRNSElRepresentation::SmallBasis(_), _) | (_, ManagedDoubleRNSElRepresentation::SmallBasis(_)) => self.base.eq_el_non_fft(&*self.to_small_basis(lhs).unwrap(), &*self.to_small_basis(rhs).unwrap()),
+        let lhs_repr = lhs.internal.get_repr().get_kind();
+        let rhs_repr = rhs.internal.get_repr().get_kind();
+        match (lhs_repr, rhs_repr) {
+            (ManagedDoubleRNSElRepresentationKind::Zero, _) | (_, ManagedDoubleRNSElRepresentationKind::Zero) => self.is_zero(lhs),
+            (ManagedDoubleRNSElRepresentationKind::SmallBasis, _) | (_, ManagedDoubleRNSElRepresentationKind::SmallBasis) => self.base.eq_el_non_fft(&*self.to_small_basis(lhs).unwrap(), &*self.to_small_basis(rhs).unwrap()),
             _ => self.base.eq_el(&*self.to_doublerns(lhs).unwrap(), &*self.to_doublerns(rhs).unwrap())
         }
     }
 
     fn is_zero(&self, value: &Self::Element) -> bool {
-        match value.internal.get_repr() {
-            ManagedDoubleRNSElRepresentation::Zero => true,
-            ManagedDoubleRNSElRepresentation::Sum(_) | ManagedDoubleRNSElRepresentation::SmallBasis(_) | ManagedDoubleRNSElRepresentation::Both(_, _) => self.base.eq_el_non_fft(&*self.to_small_basis(value).unwrap(), &self.zero),
-            ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => self.base.is_zero(&double_rns_repr)
+        let val_repr = value.internal.get_repr().get_kind();
+        match val_repr {
+            ManagedDoubleRNSElRepresentationKind::Zero => true,
+            ManagedDoubleRNSElRepresentationKind::Sum | ManagedDoubleRNSElRepresentationKind::SmallBasis | ManagedDoubleRNSElRepresentationKind::Both => self.base.eq_el_non_fft(&*self.to_small_basis(value).unwrap(), &self.zero),
+            ManagedDoubleRNSElRepresentationKind::DoubleRNS => self.base.is_zero(self.to_doublerns(value).unwrap())
         }
     }
 
@@ -1553,4 +1556,19 @@ fn test_serialization() {
             _ => panic!("wrong representation")
         };
     }
+}
+
+#[test]
+fn test_deadlock() {
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(4);
+    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
+    let ring = ManagedDoubleRNSRingBase::new(number_ring, rns_base);
+    let rns_base = ring.base_ring();
+
+    let el = ring.get_ring().new_element_sum(
+        ring.get_ring().base.from_non_fft(rns_base.int_hom().map(10)),
+        ring.get_ring().base.from(rns_base.int_hom().map(-10)),
+    );
+    assert!(ring.is_zero(&el));
+    assert!(ring.eq_el(&el, &el));
 }

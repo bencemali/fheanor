@@ -579,7 +579,7 @@ fn test_composite_clpx_mul() {
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(10) + X.pow_ref(5) - 2]);
     let p = ZZbig.int_hom().map(43691);
     let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([params.number_ring().galois_group().from_representative(18)]);
-    let P = params.create_plaintext_ring::<false>(ZZX.clone(), t, p, acting_galois_group);
+    let P = params.create_plaintext_ring::<true>(ZZX.clone(), t, p, acting_galois_group);
     let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
     let sk = CompositeCLPX::gen_sk(&C, rand::rng(), None);
@@ -600,7 +600,7 @@ fn test_pow2_clpx_mul() {
     let [t] = ZZX.with_wrapped_indeterminate(|X| [X.pow_ref(3) - 2]);
     let p = int_cast(5704689200685129054721, ZZbig, StaticRing::<i128>::RING);
     let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([]);
-    let P = params.create_plaintext_ring::<false>(ZZX.clone(), t, p, acting_galois_group);
+    let P = params.create_plaintext_ring::<true>(ZZX.clone(), t, p, acting_galois_group);
     let (C, C_mul) = params.create_ciphertext_rings(400..420, 10);
 
     let sk = Pow2CLPX::gen_sk(&C, rand::rng(), None);

@@ -10,6 +10,7 @@ use feanor_math::delegate::DelegateRing;
 use feanor_math::delegate::DelegateRingImplFiniteRing;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::field::FieldStore;
+use feanor_math::homomorphism::CanHomFrom;
 use feanor_math::rings::extension::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::zn::*;
@@ -18,6 +19,7 @@ use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::ring::*;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::poly::dense_poly::*;
+use feanor_math::seq::VectorFn;
 use feanor_math::rings::rational::RationalField;
 use feanor_math::integer::*;
 use tracing::instrument;
@@ -42,6 +44,7 @@ pub struct CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
     normt: El<BigIntRing>,
     /// the value `N(t) t^-1`, which is an element of `Z[𝝵]`
     normt_t_inv: El<DensePolyRing<BigIntRing>>,
+    gen_poly: El<DensePolyRing<BigIntRing>>
 }
 
 pub type CLPXPlaintextRing<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>>;
@@ -98,13 +101,14 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         let base_ringX = DensePolyRing::new(base_ring, "X");
         let hom = base_ringX.base_ring().can_hom(&ZZbig).unwrap();
         let ideal_generator = base_ringX.lifted_hom(&poly_ring, &hom).map_ref(&t);
-        let base = NumberRingQuotientByIdealBase::create(number_ring, base_ringX, ideal_generator, acting_galois_group, allocator, convolution);
+        let base = NumberRingQuotientByIdealBase::create::<LOG>(number_ring, base_ringX, ideal_generator, acting_galois_group, allocator, convolution);
         return RingValue::from(Self {
             base: base,
             normt: norm,
             normt_t_inv: normt_t_inv,
             t: t,
-            ZZX: poly_ring
+            ZZX: poly_ring,
+            gen_poly: gen_poly
         });
     }
 
@@ -116,32 +120,70 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         &self.ZZX
     }
 
+    ///
+    /// Reduces the given element modulo `I`.
+    /// 
     #[instrument(skip_all)]
-    pub fn reduce_mod_t(&self, el: El<DensePolyRing<BigIntRing>>) -> <Self as RingBase>::Element {
-        unimplemented!()
+    pub fn reduce_mod_t(&self, el: &El<DensePolyRing<BigIntRing>>) -> <Self as RingBase>::Element {
+        if self.ZZX.is_zero(&el) {
+            return self.zero();
+        }
+        let hom = self.base_ring().can_hom(&ZZbig).unwrap();
+        self.from_canonical_basis_extended((0..=self.ZZX.degree(el).unwrap()).map(|i| hom.map_ref(self.ZZX.coefficient_at(el, i))))
     }
 
+    ///
+    /// Finds a small element in the number ring that reduces to the given
+    /// element modulo `I`.
+    /// 
     #[instrument(skip_all)]
     pub fn small_lift(&self, el: &<Self as RingBase>::Element) -> El<DensePolyRing<BigIntRing>> {
-        unimplemented!()
+        let el_lift = self.ZZX.from_terms(self.wrt_canonical_basis(el).iter().enumerate().map(|(i, c)| (int_cast(self.base_ring().smallest_lift(c), ZZbig, self.base_ring().integer_ring()), i)));
+        let (_, normt_el_over_t) = self.ZZX.div_rem_monic(self.ZZX.mul_ref(&el_lift, &self.normt_t_inv), &self.gen_poly);
+        let (_, closest_multiple_of_t) = self.ZZX.div_rem_monic(
+            self.ZZX.mul_ref_snd(self.ZZX.from_terms(self.ZZX.terms(&normt_el_over_t).map(|(c, i)| (ZZbig.rounded_div(ZZbig.clone_el(c), &self.normt), i))), &self.t),
+            &self.gen_poly
+        );
+        return self.ZZX.sub(el_lift, closest_multiple_of_t);
     }
 
+    ///
+    /// Computes `round(Q lift(x) / t) mod Q`, where `Q` is the characteristic
+    /// of the given ring.
+    /// 
     #[instrument(skip_all)]
     pub fn encode<S>(&self, target: S, el: &<Self as RingBase>::Element) -> El<S>
         where S: RingStore, 
-            S::Type: FreeAlgebra,
-            <<S::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing
+            S::Type: NumberRingQuotient<NumberRing = NumberRing>,
+            <<S::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing + CanHomFrom<BigIntRingBase>
     {
-        unimplemented!()
+        assert!(target.number_ring() == self.number_ring());
+        let el_lift = self.ZZX.from_terms(self.wrt_canonical_basis(el).iter().enumerate().map(|(i, c)| (int_cast(self.base_ring().smallest_lift(c), ZZbig, self.base_ring().integer_ring()), i)));
+        let (_, normt_el_over_t) = self.ZZX.div_rem_monic(self.ZZX.mul_ref(&el_lift, &self.normt_t_inv), &self.gen_poly);
+        let hom = target.base_ring().can_hom(&ZZbig).unwrap();
+        let Q = int_cast(target.base_ring().integer_ring().clone_el(target.base_ring().modulus()), ZZbig, target.base_ring().integer_ring());
+        return target.from_canonical_basis((0..target.rank()).map(|i| hom.map(ZZbig.rounded_div(ZZbig.mul_ref(&Q, self.ZZX.coefficient_at(&normt_el_over_t, i)), &self.normt))));
     }
 
+    ///
+    /// Computes `round(t lift(x) / Q) mod t`, where `Q` is the characteristic
+    /// of the given ring.
+    /// 
     #[instrument(skip_all)]
     pub fn decode<S>(&self, from: S, el: &El<S>) -> <Self as RingBase>::Element
         where S: RingStore, 
-            S::Type: FreeAlgebra,
+            S::Type: NumberRingQuotient<NumberRing = NumberRing>,
             <<S::Type as RingExtension>::BaseRing as RingStore>::Type: ZnRing
     {
-        unimplemented!()
+        assert!(from.number_ring() == self.number_ring());
+        if from.is_zero(el) {
+            return self.zero();
+        }
+        let el_lift = self.ZZX.from_terms(from.wrt_canonical_basis(el).iter().enumerate().map(|(i, c)| (int_cast(from.base_ring().smallest_lift(c), ZZbig, from.base_ring().integer_ring()), i)));
+        let (_, el_t) = self.ZZX.div_rem_monic(self.ZZX.mul_ref(&el_lift, &self.t), &self.gen_poly);
+        let hom = self.base_ring().can_hom(&ZZbig).unwrap();
+        let Q = int_cast(from.base_ring().integer_ring().clone_el(from.base_ring().modulus()), ZZbig, from.base_ring().integer_ring());
+        return self.from_canonical_basis_extended((0..=self.ZZX.degree(&el_t).unwrap()).map(|i| hom.map(ZZbig.rounded_div(ZZbig.clone_el(self.ZZX.coefficient_at(&el_t, i)), &Q))));
     }
 }
 
@@ -230,7 +272,7 @@ use crate::ciphertext_ring::double_rns_ring::DoubleRNSRingBase;
 
 #[cfg(test)]
 fn test_rns_base() -> zn_rns::Zn<zn_64::Zn, BigIntRing> {
-    zn_rns::Zn::create_from_primes(vec![4915200001, 4920115201, 4925030401, 4944691201, 5018419201, 5028249601, 5042995201, 5052825601, 5092147201, 5141299201], ZZbig)
+    zn_rns::Zn::create_from_primes(vec![5598412801, 5665259521, 5698682881, 5715394561, 5732106241, 5771100161, 5821235201, 5899223041, 5921505281, 5966069761, 6032916481, 6155468801], ZZbig)
 }
 
 #[cfg(test)]
@@ -307,33 +349,33 @@ fn test_clpx_plaintext_ring_small_lift() {
 
     let (ring, elements) = test_ring1();
     for a in &elements {
-        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
-    }
-    for a in &elements {
+        let a_lift = ring.get_ring().small_lift(a);
+        assert!(ring.get_ring().ZZX().degree(&a_lift).unwrap_or(0) < ring.number_ring().rank());
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(&a_lift));
         assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
     }
 
     let (ring, elements) = test_ring2();
     for a in &elements {
-        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
-    }
-    for a in &elements {
+        let a_lift = ring.get_ring().small_lift(a);
+        assert!(ring.get_ring().ZZX().degree(&a_lift).unwrap_or(0) < ring.number_ring().rank());
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(&a_lift));
         assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
     }
 
     let (ring, elements) = test_ring3();
     for a in &elements {
-        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
-    }
-    for a in &elements {
+        let a_lift = ring.get_ring().small_lift(a);
+        assert!(ring.get_ring().ZZX().degree(&a_lift).unwrap_or(0) < ring.number_ring().rank());
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(&a_lift));
         assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
     }
 
     let (ring, elements) = test_ring4();
     for a in &elements {
-        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(ring.get_ring().small_lift(a)));
-    }
-    for a in &elements {
+        let a_lift = ring.get_ring().small_lift(a);
+        assert!(ring.get_ring().ZZX().degree(&a_lift).unwrap_or(0) < ring.number_ring().rank());
+        assert_el_eq!(&ring, a, ring.get_ring().reduce_mod_t(&a_lift));
         assert!(ZZX.terms(&ring.get_ring().small_lift(a)).all(|(c, _)| int_cast(ZZbig.clone_el(c), ZZi64, ZZbig).abs() <= 1));
     }
 }

@@ -13,8 +13,6 @@ use feanor_math::seq::*;
 
 use crate::number_ring::galois::*;
 
-pub mod hensel;
-
 pub mod galois;
 
 ///

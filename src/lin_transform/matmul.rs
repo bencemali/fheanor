@@ -820,7 +820,7 @@ fn test_to_circuit_single() {
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
     let transform = MatmulTransform::blockmatmul1d(&H, 0, |(i, k), (j, l), _| if j == i + 1 && k == 0 && l == 0 {
         H.slot_ring().base_ring().one()
     } else {
@@ -854,7 +854,7 @@ fn test_to_circuit_single() {
 fn test_compute_automorphisms_per_dimension() {
     let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(3, 19), Zn::new(7));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(7, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
     assert_eq!(2, H.hypercube().dim_count());
     assert_eq!(3, H.slot_ring().rank());
     assert_eq!(6, H.hypercube().dim_length(0));
@@ -876,7 +876,7 @@ fn test_compose() {
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
 
     let transform1 = MatmulTransform::matmul1d(&H, 0, |i, j, _| if i == j + 1 {
         H.slot_ring().one()
@@ -905,7 +905,7 @@ fn test_invert() {
     assert_eq!(1, hypercube.dim_count());
     assert_eq!(8, hypercube.d());
     assert_eq!(4, hypercube.dim_length(0));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
 
     // Vandermonde matrix w.r.t. [1, 2, 3, 4]
     let transform = MatmulTransform::matmul1d(&H, 0, |i, j, _| H.slot_ring().int_hom().map(StaticRing::<i32>::RING.pow(i as i32 + 1, j)));
@@ -923,7 +923,7 @@ fn test_blockmatmul1d() {
     // F23[X]/(Phi_5) ~ F_(23^4)
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(5), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
     let matrix = [
         [1, 0, 1, 0],
         [0, 0, 0, 2],
@@ -947,7 +947,7 @@ fn test_blockmatmul1d() {
     // F23[X]/(Phi_7) ~ F_(23^3)^2
     let ring = NumberRingQuotientByIntBase::new(OddSquarefreeCyclotomicNumberRing::new(7), Zn::new(23));
     let hypercube = HypercubeStructure::halevi_shoup_hypercube(ring.acting_galois_group(), int_cast(23, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&&ring, hypercube, None);
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
     let matrix = [
         [1, 0, 0],
         [2, 0, 0],

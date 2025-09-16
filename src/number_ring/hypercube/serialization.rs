@@ -1,3 +1,4 @@
+use std::alloc::Global;
 use std::marker::PhantomData;
 
 use feanor_math::group::*;
@@ -5,7 +6,7 @@ use feanor_math::homomorphism::*;
 use feanor_math::ring::*;
 use feanor_math::rings::local::AsLocalPIR;
 use feanor_math::rings::poly::PolyRing;
-use feanor_math::rings::zn::ZnReductionMap;
+use feanor_math::rings::zn::*;
 use feanor_math::serialization::*;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::dense_poly::*;
@@ -17,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use feanor_serde::impl_deserialize_seed_for_dependent_struct;
 
 use crate::number_ring::galois::*;
+use crate::number_ring::hypercube::isomorphism::create_convolution;
 use crate::number_ring::*;
 use crate::{NiceZn, ZZbig};
 
@@ -218,8 +220,9 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
             } where R: RingStore, R::Type: PolyRing + SerializableElementRing
         }
 
-        let decorated_base_ring: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
-        let ZpeX = DensePolyRing::new(decorated_base_ring, "X");
+        let Zpe: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(self.ring.base_ring().get_ring().clone())).unwrap();
+        let convolution = create_convolution(self.ring.rank(), Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
+        let ZpeX = DensePolyRing::new_with_convolution(Zpe, "X", Global, convolution);
         let deserialized = DeserializeSeedHypercubeIsomorphismData { poly_ring: &ZpeX }.deserialize(deserializer)?;
         assert!(self.ring.acting_galois_group().get_group() == deserialized.hypercube_structure.galois_group().get_group(), "ring mismatch");
         assert!(ZZbig.eq_el(&self.ring.characteristic(ZZbig).unwrap(), &deserialized.characteristic), "ring mismatch");

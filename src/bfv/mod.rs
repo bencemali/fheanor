@@ -303,7 +303,7 @@ pub trait BFVInstantiation {
         let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ));
 
-        let H = HypercubeIsomorphism::new::<false>(&P, hypercube, dir);
+        let H = HypercubeIsomorphism::new::<false>(&P, &hypercube, dir);
         let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
         println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
         for a in H.get_slot_values(&m) {

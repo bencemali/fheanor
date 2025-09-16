@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::int_factor::is_prime_power;
-use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_quadratic;
+use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
 use feanor_math::computation::DontObserve;
 use feanor_math::divisibility::*;
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
@@ -169,23 +169,25 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
         let ideal_generator_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&ideal_generator);
         let gcd = log_time::<_, _, LOG, _>("Computing gcd(t, f) mod p", |[]| FpX.normalize(FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p)));
         assert!(FpX.degree(&gcd).unwrap() > 0);
+        let other_factor = FpX.checked_div(&gen_mipo_mod_p, &gcd).unwrap();
+        let factors = [gcd, other_factor];
 
-        let (lifted_gcd, _) = log_time::<_, _, LOG, _>("Lifting gcd(t, f)", |[]| hensel_lift_quadratic(
+        let [lifted_gcd, _] = log_time::<_, _, LOG, _>("Lifting gcd(t, f)", |[]| hensel_lift_factorization(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
             &FpX,
             &ZpeX.lifted_hom(&ZZX, reduction_context.main_ring_to_intermediate_ring_reduction(0)).map(gen_mipo),
-            (&gcd, &FpX.checked_div(&gen_mipo_mod_p, &gcd).unwrap()),
+            &factors[..],
             DontObserve
-        ));
-        let (lifted_gcd_check, _) = log_time::<_, _, LOG, _>("Checking", |[]| hensel_lift_quadratic(
+        )).try_into().ok().unwrap();
+        let [lifted_gcd_check, _] = log_time::<_, _, LOG, _>("Checking", |[]| hensel_lift_factorization(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
             &FpX,
             &ideal_generator,
-            (&gcd, &FpX.checked_div(&ideal_generator_mod_p, &gcd).unwrap()),
+            &factors[..],
             DontObserve
-        ));
+        )).try_into().ok().unwrap();
         assert_el_eq!(&ZpeX, &lifted_gcd, &lifted_gcd_check);
         let rank = ZpeX.degree(&lifted_gcd).unwrap();
 

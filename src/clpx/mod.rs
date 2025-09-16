@@ -626,7 +626,7 @@ fn measure_time_composite_clpx() {
     let acting_galois_group = params.number_ring().galois_group().get_group().clone().subgroup([params.number_ring().galois_group().from_representative(25276)]);
     
     let P = log_time::<_, _, true, _>("CreateEncoding", |[]|
-        params.create_plaintext_ring::<false>(ZZX, t, p, acting_galois_group)
+        params.create_plaintext_ring::<true>(ZZX, t, p, acting_galois_group)
     );
     let int_to_P = P.inclusion().compose(P.base_ring().can_hom(&StaticRing::<i128>::RING).unwrap());
     let (C, C_mul) = log_time::<_, _, true, _>("CreateCtxtRing", |[]|

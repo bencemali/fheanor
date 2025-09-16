@@ -68,7 +68,7 @@ impl<Params> ThinBootstrapParams<Params>
 
         let H = LazyCell::new(|| {
             let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
+            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
@@ -102,7 +102,7 @@ impl<Params> ThinBootstrapParams<Params>
 
         let H = LazyCell::new(|| {
             let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, hypercube, cache_dir)
+            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
         });
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 

@@ -354,7 +354,7 @@ pub trait BGVInstantiation {
         let t = int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring());
         let (p, _e) = is_prime_power(ZZbig, &t).unwrap();
         let hypercube = HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), p);
-        let H = HypercubeIsomorphism::new::<true>(&P, hypercube, cache_dir);
+        let H = HypercubeIsomorphism::new::<true>(&P, &hypercube, cache_dir);
         let m = Self::dec(P, C, Self::clone_ct(P, C, ct), sk);
         println!("ciphertext (noise budget: {} / {}):", Self::noise_budget(P, C, ct, sk), ZZbig.abs_log2_ceil(C.base_ring().modulus()).unwrap());
         for a in H.get_slot_values(&m) {

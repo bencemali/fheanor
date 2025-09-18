@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
 use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::algorithms::extension_ops::create_multiplication_matrix;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
 use feanor_math::computation::DontObserve;
@@ -14,7 +15,7 @@ use feanor_math::integer::*;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
-use feanor_math::rings::extension::{create_multiplication_matrix, FreeAlgebra, FreeAlgebraStore};
+use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::group::*;
 use feanor_math::rings::poly::PolyRingStore;
@@ -169,9 +170,9 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
         let ideal_generator_mod_p = FpX.lifted_hom(&ZpeX, &Zpe_to_Fp).map_ref(&ideal_generator);
         let gcd = log_time::<_, _, LOG, _>("Computing gcd(t, f) mod p", |[]| FpX.normalize(FpX.ideal_gen(&gen_mipo_mod_p, &ideal_generator_mod_p)));
         assert!(FpX.degree(&gcd).unwrap() > 0);
+
         let other_factor = FpX.checked_div(&gen_mipo_mod_p, &gcd).unwrap();
         let factors = [gcd, other_factor];
-
         let [lifted_gcd, _] = log_time::<_, _, LOG, _>("Lifting gcd(t, f)", |[]| hensel_lift_factorization(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
@@ -180,6 +181,10 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
             &factors[..],
             DontObserve
         )).try_into().ok().unwrap();
+
+        let [gcd, _] = factors;
+        let other_factor = FpX.checked_div(&ideal_generator_mod_p, &gcd).unwrap();
+        let factors = [gcd, other_factor];
         let [lifted_gcd_check, _] = log_time::<_, _, LOG, _>("Checking", |[]| hensel_lift_factorization(
             &reduction_context.intermediate_ring_to_field_reduction(0),
             &ZpeX,
@@ -547,6 +552,18 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<Numbe
             data: result,
             ring: PhantomData
         };
+    }
+
+    fn from_canonical_basis_extended<V>(&self, vec: V) -> Self::Element
+        where V: IntoIterator<Item = El<Self::BaseRing>>
+    {
+        let m = self.number_ring().galois_group().m() as usize;
+        let mut result = Vec::with_capacity_in(m, self.allocator.clone());
+        result.resize_with(m, || self.base_ring().zero());
+        for (i, c) in vec.into_iter().enumerate() {
+            self.base_ring().add_assign(&mut result[i % m], c);
+        }
+        return feanor_math::algorithms::extension_ops::from_canonical_basis_extended(self, result);
     }
 
     fn wrt_canonical_basis<'a>(&'a self, el: &'a Self::Element) -> Self::VectorRepresentation<'a> {

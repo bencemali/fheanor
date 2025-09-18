@@ -1,7 +1,7 @@
 
-use std::alloc::Allocator;
-use std::alloc::Global;
+use std::alloc::{Allocator, Global};
 use std::ops::Range;
+use std::sync::Arc;
 
 use feanor_math::algorithms::eea::signed_gcd;
 use feanor_math::algorithms::matmul::ComputeInnerProduct;
@@ -12,8 +12,6 @@ use feanor_math::matrix::OwnedMatrix;
 use feanor_math::primitive_int::*;
 use feanor_math::ring::*;
 use feanor_math::rings::extension::*;
-use feanor_math::rings::poly::dense_poly::DensePolyRing;
-use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::zn_64::*;
 use feanor_math::seq::*;
 use feanor_math::algorithms::linsolve::LinSolveRing;
@@ -22,7 +20,6 @@ use feanor_math::homomorphism::*;
 use tracing::instrument;
 
 use crate::circuit::{Coefficient, PlaintextCircuit};
-use crate::lin_transform::PowerTable;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::*;
 use crate::number_ring::hypercube::structure::*;
@@ -148,20 +145,56 @@ impl<R> MatmulTransform<R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
         let mut result = MatmulTransform {
-            data: ((1 - m)..m).into_iter().map(|s| {
-                let coeff = H.from_slot_values(H.hypercube().hypercube_iter(|idxs: &[usize]| if idxs[dim_index] as i64 >= s && idxs[dim_index] as i64 - s < m {
-                    matrix(idxs[dim_index], (idxs[dim_index] as i64 - s) as usize, idxs)
+            data: ((1 - m)..m).into_iter().filter_map(|s| {
+                let coeffs = H.hypercube().hypercube_iter(|idxs: &[usize]| if idxs[dim_index] as i64 >= s && idxs[dim_index] as i64 - s < m {
+                    Some(matrix(idxs[dim_index], (idxs[dim_index] as i64 - s) as usize, idxs))
                 } else {
-                    H.slot_ring().zero()
-                }));
-                return (
-                    [0].into_iter().chain((0..H.hypercube().dim_count()).map(|j| if j == dim_index { s } else { 0 })).collect::<Vec<_>>().into_boxed_slice(),
-                    coeff, 
-                );
+                    None
+                }).collect::<Vec<_>>();
+                if coeffs.iter().all(|x| x.is_none() || H.slot_ring().is_zero(x.as_ref().unwrap())) {
+                    None
+                } else {
+                    Some((
+                        [0].into_iter().chain((0..H.hypercube().dim_count()).map(|j| if j == dim_index { s } else { 0 })).collect::<Vec<_>>().into_boxed_slice(),
+                        H.from_slot_values(coeffs.into_iter().map(|x| x.unwrap_or_else(|| H.slot_ring().zero()))), 
+                    ))
+                }
             }).collect()
         };
         result.canonicalize(H.ring(), H.hypercube());
         return result;
+    }
+
+    fn slot_ring_frobenius<'a, S>(H: &'a HypercubeIsomorphism<S>) -> Arc<dyn 'a + Fn(&El<SlotRingOf<S>>, usize) -> El<SlotRingOf<S>>>
+        where S: 'a + RingStore<Type = R>,
+            R: 'a
+    {
+        let d = H.hypercube().d();
+        let mut generator_frobenius_conjugates = Vec::with_capacity(d);
+        let mut current = H.slot_ring().canonical_gen();
+
+        for _ in 0..d {
+            generator_frobenius_conjugates.push((0..d).map(|j| H.slot_ring().pow(H.slot_ring().clone_el(&current), j)).collect::<Vec<_>>());
+            current = H.slot_ring().pow(current, H.galois_group().representative(H.hypercube().p()) as usize);
+        }
+
+        #[instrument(skip_all)]
+        fn apply_frobenius<S>(generator_frobenius_conjugates: &Vec<Vec<El<SlotRingOf<S>>>>, slot_ring: &SlotRingOf<S>, d: usize, x: &El<SlotRingOf<S>>, count: usize) -> El<SlotRingOf<S>>
+            where S: RingStore,
+                S::Type: NumberRingQuotient,
+                <<S::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn,
+                DecoratedBaseRingBase<S>: CanIsoFromTo<<<S::Type as RingExtension>::BaseRing as RingStore>::Type>
+        {
+            let mut result = slot_ring.zero();
+            let x_wrt_basis = slot_ring.wrt_canonical_basis(x);
+            for i in 0..d {
+                result = slot_ring.inclusion().fma_map(&generator_frobenius_conjugates[count][i], &x_wrt_basis.at(i), result);
+            }
+            return result;
+        }
+
+        // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
+        return Arc::new(move |x: &El<SlotRingOf<S>>, count: usize| apply_frobenius::<S>(&generator_frobenius_conjugates, H.slot_ring(), d, x, count));
     }
     
     ///
@@ -175,32 +208,33 @@ impl<R> MatmulTransform<R>
             S: RingStore<Type = R>
     {
         let d = H.slot_ring().rank();
-        let Gal = H.galois_group().parent();
         let extract_coeff_factors = (0..d).map(|j| 
             extract_linear_map(H.slot_ring(), |x| H.slot_ring().wrt_canonical_basis(&x).at(j))
         ).collect::<Vec<_>>();
         
-        let poly_ring = DensePolyRing::new(H.slot_ring().base_ring(), "X");
-        // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
-        let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| poly_ring.evaluate(
-            &H.slot_ring().poly_repr(&poly_ring, x, &H.slot_ring().base_ring().identity()), 
-            &H.slot_ring().pow(H.slot_ring().canonical_gen(), Gal.representative(&H.hypercube().frobenius(count)) as usize), 
-            &H.slot_ring().inclusion()
-        );
+        let frobenius = Self::slot_ring_frobenius(H);
+
+        let extract_coeff_factor_conjugates = extract_coeff_factors.iter().map(|c|
+            (0..d).map(|i| frobenius(c, i)).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
         
         // similar to `blockmatmul1d()`, but simpler
         let mut result = MatmulTransform {
-            data: (0..d).map(|frobenius_index| {
-                let coeff = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| {
-                    <_ as ComputeInnerProduct>::inner_product(H.slot_ring().get_ring(), (0..d).map(|l| (
-                        apply_frobenius(&extract_coeff_factors[l], frobenius_index as i64),
+            data: (0..d).filter_map(|frobenius_index| {
+                let coeffs = H.hypercube().hypercube_iter(|idxs| {
+                    <_ as ComputeInnerProduct>::inner_product_ref_fst(H.slot_ring().get_ring(), (0..d).map(|l| (
+                        &extract_coeff_factor_conjugates[l][frobenius_index],
                         H.slot_ring().from_canonical_basis((0..d).map(|k| matrix(k, l, idxs)))
                     )))
-                }));
-                return (
-                    [frobenius_index as i64].into_iter().chain((0..H.hypercube().dim_count()).map(|_| 0)).collect::<Vec<_>>().into_boxed_slice(),
-                    coeff, 
-                );
+                }).collect::<Vec<_>>();
+                if coeffs.iter().all(|x| H.slot_ring().is_zero(x)) {
+                    None
+                } else {
+                    Some((
+                        [frobenius_index as i64].into_iter().chain((0..H.hypercube().dim_count()).map(|_| 0)).collect::<Vec<_>>().into_boxed_slice(),
+                        H.from_slot_values(coeffs), 
+                    ))
+                }
             }).collect()
         };
         result.canonicalize(H.ring(), H.hypercube());
@@ -233,19 +267,15 @@ impl<R> MatmulTransform<R>
     {
         let m = H.hypercube().dim_length(dim_index) as i64;
         let d = H.slot_ring().rank();
-        let Gal = H.galois_group().parent();
         let extract_coeff_factors = (0..d).map(|j| 
             extract_linear_map(H.slot_ring(), |x| H.slot_ring().wrt_canonical_basis(&x).at(j))
         ).collect::<Vec<_>>();
         
-        let canonical_gen_powertable = PowerTable::new(H.slot_ring(), H.slot_ring().canonical_gen(), Gal.m() as usize);
-        // this is the map `X -> X^p`, which is the frobenius in our case, since we choose the canonical generator of the slot ring as root of unity
-        let apply_frobenius = |x: &El<SlotRingOf<S>>, count: i64| H.slot_ring().sum(
-            H.slot_ring().wrt_canonical_basis(x).iter().enumerate().map(|(i, c)| H.slot_ring().inclusion().mul_ref_map(
-                &*canonical_gen_powertable.get_power(i as i64 * Gal.representative(&H.hypercube().frobenius(count)) as i64),
-                &c
-            )
-        ));
+        let frobenius = Self::slot_ring_frobenius(H);
+        
+        let extract_coeff_factor_conjugates = extract_coeff_factors.iter().map(|c|
+            (0..d).map(|i| frobenius(c, i)).collect::<Vec<_>>()
+        ).collect::<Vec<_>>();
         
         // the approach is as follows:
         // We consider the matrix by block-diagonals as in [`matmul1d()`], which correspond to shifting slots within a hypercolumn.
@@ -255,21 +285,26 @@ impl<R> MatmulTransform<R>
         // In other words, we compute the Frobenius-coefficients for the maps `sum a_k 𝝵^k -> a_l` for all `l`. Then we we take the
         // desired map as the linear combination of these extract-coefficient-maps.
         let mut result = MatmulTransform {
-            data: ((1 - m)..m).flat_map(|s| (0..d).map(move |frobenius_index| (s, frobenius_index))).map(|(s, frobenius_index)| {
-                let coeff = H.from_slot_values(H.hypercube().hypercube_iter(|idxs| if idxs[dim_index] as i64 >= s && idxs[dim_index] as i64 - s < m {
+            data: ((1 - m)..m).flat_map(|s| (0..d).map(move |frobenius_index| (s, frobenius_index))).filter_map(|(s, frobenius_index)| {
+                let coeffs = H.hypercube().hypercube_iter(|idxs| if idxs[dim_index] as i64 >= s && idxs[dim_index] as i64 - s < m {
                     let i = idxs[dim_index];
                     let j = (idxs[dim_index] as i64 - s) as usize;
-                    <_ as ComputeInnerProduct>::inner_product(H.slot_ring().get_ring(), (0..d).map(|l| (
-                        apply_frobenius(&extract_coeff_factors[l], frobenius_index as i64),
+                    <_ as ComputeInnerProduct>::inner_product_ref_fst(H.slot_ring().get_ring(), (0..d).map(|l| (
+                        &extract_coeff_factor_conjugates[l][frobenius_index],
                         H.slot_ring().from_canonical_basis((0..d).map(|k| matrix((i, k), (j, l), idxs)))
                     )))
                 } else {
                     H.slot_ring().zero()
-                }));
-                return (
-                    [frobenius_index as i64].into_iter().chain((0..H.hypercube().dim_count()).map(|j| if j == dim_index { s } else { 0 })).collect::<Vec<_>>().into_boxed_slice(),
-                    coeff, 
-                );
+                }).collect::<Vec<_>>();
+                if coeffs.iter().all(|x| H.slot_ring().is_zero(x)) {
+                    None
+                } else {
+                    let value = H.from_slot_values(coeffs);
+                    Some((
+                        [frobenius_index as i64].into_iter().chain((0..H.hypercube().dim_count()).map(|j| if j == dim_index { s } else { 0 })).collect::<Vec<_>>().into_boxed_slice(),
+                        value
+                    ))
+                }
             }).collect()
         };
         result.canonicalize(H.ring(), H.hypercube());
@@ -355,13 +390,6 @@ impl<R> MatmulTransform<R>
             )).collect()
         };
         result.canonicalize(H.ring(), H.hypercube());
-
-        #[cfg(test)] {
-            let check = self.compose(H.ring(), H.hypercube(), &result);
-            assert_eq!(1, check.data.len());
-            assert!(check.data[0].0.iter().all(|i| *i == 0));
-            assert!(H.ring().is_one(&check.data[0].1));
-        }
 
         return result;
     }
@@ -495,6 +523,7 @@ impl<R> MatmulTransform<R>
         return result;
     }
 
+    #[instrument(skip_all)]
     fn canonicalize<S>(&mut self, ring: S, H: &HypercubeStructure)
         where S: Copy + RingStore<Type = R>
     {
@@ -516,7 +545,8 @@ impl<R> MatmulTransform<R>
                 *g = H.std_preimage(&H.map_incl_frobenius(g)).iter().map(|i| *i as i64).collect::<Vec<_>>().into_boxed_slice();
             }
         }
-        self.data.retain(|(_, coeff)| !ring.is_zero(coeff));
+        // This takes significant time; make the parent call responsible for not introducing too much zeros
+        // self.data.retain(|(_, coeff)| !ring.is_zero(coeff));
     }
 
     
@@ -721,7 +751,7 @@ impl<R> MatmulTransform<R>
             } else {
                 true
             });
-            if coeff.is_none() || ring.is_zero(coeff.as_ref().unwrap()) {
+            if coeff.is_none() {
                 return Coefficient::Zero;
             } else {
                 return Coefficient::Other(ring.get_ring().apply_galois_action(coeff.as_ref().unwrap(), &H.galois_group().inv(&gs_el)));

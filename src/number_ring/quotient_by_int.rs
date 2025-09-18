@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 use feanor_math::algorithms::convolution::{ConvolutionAlgorithm, KaratsubaAlgorithm};
 use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::algorithms::extension_ops::create_multiplication_matrix;
 use feanor_math::divisibility::DivisibilityRing;
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::homomorphism::*;
@@ -11,7 +12,7 @@ use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::integer::*;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::matrix::OwnedMatrix;
-use feanor_math::rings::extension::{create_multiplication_matrix, FreeAlgebra, FreeAlgebraStore};
+use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
@@ -337,6 +338,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIntBase<NumberRing
         self.from(self.base_ring().get_ring().from_int(value))
     }
 
+    #[instrument(skip_all)]
     fn eq_el(&self, lhs: &Self::Element, rhs: &Self::Element) -> bool {
         assert_eq!(lhs.data.len(), self.m());
         assert_eq!(rhs.data.len(), self.m());
@@ -423,6 +425,18 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberR
         };
     }
 
+    fn from_canonical_basis_extended<V>(&self, vec: V) -> Self::Element
+        where V: IntoIterator<Item = El<Self::BaseRing>>
+    {
+        let m = self.m();
+        let mut result = self.zero();
+        for (i, c) in vec.into_iter().enumerate() {
+            self.base_ring().add_assign(&mut result.data[i % m], c);
+        }
+        return result;
+    }
+
+    #[instrument(skip_all)]
     fn wrt_canonical_basis<'a>(&'a self, el: &'a Self::Element) -> Self::VectorRepresentation<'a> {
         let mut el_reduced = self.clone_el(el);
         self.reducer.remainder(&mut el_reduced.data);
@@ -590,6 +604,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByInt
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
+    #[instrument(skip_all)]
     fn serialize<S>(&self, el: &Self::Element, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer
     {
@@ -598,6 +613,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByInt
         SerializableNewtypeStruct::new("RingEl", SerializableSeq::new_with_len(el_reduced.data[..self.rank()].iter().map(|x| SerializeWithRing::new(x, self.base_ring())), self.rank())).serialize(serializer)
     }
 
+    #[instrument(skip_all)]
     fn deserialize<'de, D>(&self, deserializer: D) -> Result<Self::Element, D::Error>
         where D: Deserializer<'de> 
     {

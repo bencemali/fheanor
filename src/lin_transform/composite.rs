@@ -45,6 +45,20 @@ fn dwt1d_matrix<R>(H: &HypercubeStructure, slot_ring: &SlotRingOver<R>, dim_inde
     })
 }
 
+#[instrument(skip_all)]
+fn dwt1d_inv_matrix<R>(H: &HypercubeStructure, slot_ring: &SlotRingOver<R>, dim_index: usize, zeta_powertable: &PowerTable<&SlotRingOver<R>>) -> OwnedMatrix<El<SlotRingOver<R>>>
+    where R: RingStore,
+        R::Type: NiceZn
+{
+    assert_hypercube_supported(H);
+    
+    let mut A = dwt1d_matrix(H, slot_ring, dim_index, zeta_powertable);
+    let mut rhs = OwnedMatrix::identity(H.dim_length(dim_index), H.dim_length(dim_index), slot_ring);
+    let mut sol = OwnedMatrix::zero(H.dim_length(dim_index), H.dim_length(dim_index), slot_ring);
+    <_ as LinSolveRingStore>::solve_right(slot_ring, A.data_mut(), rhs.data_mut(), sol.data_mut()).assert_solved();
+    return sol;
+}
+
 ///
 /// Interprets each hypercolumn along the `i = dim_index`-th dimension as a vector of 
 /// length `l_i`, and computes the discrete weighted transform along this vector, 
@@ -89,16 +103,13 @@ fn dwt1d_inv<'a, R>(H: &HypercubeIsomorphism<R>, dim_index: usize, zeta_powertab
     if H.hypercube().dim_length(dim_index) == 1{
         Vec::new()
     } else {
-        let mut A = dwt1d_matrix(H.hypercube(), H.slot_ring(), dim_index, zeta_powertable);
-        let mut rhs = OwnedMatrix::identity(H.hypercube().dim_length(dim_index), H.hypercube().dim_length(dim_index), H.slot_ring());
-        let mut sol = OwnedMatrix::zero(H.hypercube().dim_length(dim_index), H.hypercube().dim_length(dim_index), H.slot_ring());
-        <_ as LinSolveRingStore>::solve_right(H.slot_ring(), A.data_mut(), rhs.data_mut(), sol.data_mut()).assert_solved();
+        let A = dwt1d_inv_matrix(H.hypercube(), H.slot_ring(), dim_index, zeta_powertable);
 
         // multiplication with the matrix `A(i, j) = 𝝵^(j * shift_element(-i))` if we consider an element as multiple vectors along the `dim_index`-th dimension
         vec![MatmulTransform::matmul1d(
             H, 
             dim_index, 
-            |i, j, _idxs| H.slot_ring().clone_el(sol.at(i, j))
+            |i, j, _idxs| H.slot_ring().clone_el(A.at(i, j))
         )]
     }
 }
@@ -172,7 +183,6 @@ pub fn slots_to_powcoeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_fat_impl(H))
 }
 
-#[instrument(skip_all)]
 fn slots_to_powcoeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
@@ -222,7 +232,6 @@ pub fn powcoeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircui
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_fat_impl(H))
 }
 
-#[instrument(skip_all)]
 fn powcoeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
@@ -270,7 +279,6 @@ pub fn slots_to_powcoeffs_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_powcoeffs_thin_impl(H))
 }
 
-#[instrument(skip_all)]
 fn slots_to_powcoeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
@@ -306,7 +314,6 @@ pub fn powcoeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircu
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), powcoeffs_to_slots_thin_impl(H))
 }
 
-#[instrument(skip_all)]
 fn powcoeffs_to_slots_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,

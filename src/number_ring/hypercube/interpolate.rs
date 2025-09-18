@@ -64,6 +64,7 @@ impl<P> FastPolyInterpolation<P>
         P::Type: PolyRing,
         <<P::Type as RingExtension>::BaseRing as RingStore>::Type: NiceZn + PrincipalLocalRing
 {
+    #[instrument(skip_all)]
     pub fn new(poly_ring: P, moduli: Vec<El<P>>) -> Self {
         let n = moduli.len();
         let input_degree = moduli.iter().map(|f| poly_ring.degree(f).unwrap_or(0)).max().unwrap();
@@ -131,6 +132,7 @@ impl<P> FastPolyInterpolation<P>
     /// polynomial multiplication is used by the underlying polynomial ring. It is also
     /// very fast in practice, since we don't perform any polynomial division.
     /// 
+    #[instrument(skip_all)]
     pub fn interpolate_unreduced(&self, remainders: Vec<El<P>>) -> El<P> {
         assert_eq!(self.n, remainders.len());
         for i in 0..self.n {
@@ -166,6 +168,7 @@ use feanor_math::rings::local::AsLocalPIR;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 #[cfg(test)]
 use feanor_math::rings::zn::zn_64::Zn;
+use tracing::instrument;
 
 use crate::NiceZn;
 

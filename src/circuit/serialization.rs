@@ -8,6 +8,7 @@ use serde::de::DeserializeSeed;
 use serde::Serialize;
 use feanor_serde::{impl_deserialize_seed_for_dependent_enum, impl_deserialize_seed_for_dependent_struct};
 use feanor_serde::seq::*;
+use tracing::instrument;
 
 use crate::number_ring::galois::*;
 
@@ -87,6 +88,7 @@ impl<'a, R: RingStore + Copy> SerializablePlaintextCircuit<'a, R>
 impl<'a, R: RingStore + Copy> Serialize for SerializablePlaintextCircuit<'a, R> 
     where R::Type: SerializableElementRing
 {
+    #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
@@ -278,6 +280,7 @@ impl<'de, 'a, R: RingStore + Copy> DeserializeSeed<'de> for DeserializeSeedPlain
 {
     type Value = PlaintextCircuit<R::Type>;
 
+    #[instrument(skip_all)]
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
         where D: serde::Deserializer<'de>
     {

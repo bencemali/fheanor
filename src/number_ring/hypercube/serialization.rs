@@ -16,6 +16,7 @@ use feanor_serde::seq::*;
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use feanor_serde::impl_deserialize_seed_for_dependent_struct;
+use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::create_convolution;
@@ -130,6 +131,7 @@ impl<'a, R> Serialize for SerializableHypercubeIsomorphismWithoutRing<'a, R>
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
+    #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
@@ -191,6 +193,7 @@ impl<'de, R> DeserializeSeed<'de> for DeserializeSeedHypercubeIsomorphismWithout
 {
     type Value = HypercubeIsomorphism<R>;
 
+    #[instrument(skip_all)]
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
         where D: serde::Deserializer<'de>
     {
@@ -244,6 +247,7 @@ impl<R> Serialize for HypercubeIsomorphism<R>
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
+    #[instrument(skip_all)]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer
     {
@@ -257,6 +261,7 @@ impl<'de, R> Deserialize<'de> for HypercubeIsomorphism<R>
         BaseRing<R>: NiceZn + SerializableElementRing,
         DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
 {
+    #[instrument(skip_all)]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: serde::Deserializer<'de>
     {

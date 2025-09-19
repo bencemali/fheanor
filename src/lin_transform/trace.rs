@@ -12,6 +12,7 @@ use feanor_math::ring::*;
 use feanor_math::algorithms::linsolve::LinSolveRingStore;
 
 use crate::circuit::PlaintextCircuit;
+use crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing;
 use crate::number_ring::galois::*;
 use crate::number_ring::hypercube::isomorphism::SlotRingOver;
 use crate::{NiceZn, ZZbig, ZZi64};
@@ -179,9 +180,16 @@ fn test_trace_circuit() {
     let relative_galois_group = full_galois_group.get_group().clone().subgroup([full_galois_group.from_representative(2)]);
     let relative_trace = trace_circuit(&ring, &relative_galois_group);
     assert_eq!(1, relative_trace.output_count());
-    
     let input = ring.canonical_gen();
     let actual = relative_trace.evaluate(std::slice::from_ref(&input), ring.identity()).pop().unwrap();
     let expected = ring.sum([ring.canonical_gen(), ring.pow(ring.canonical_gen(), 2), ring.pow(ring.canonical_gen(), 4)]);
     assert_el_eq!(&ring, expected, actual);
+
+    let ring = NumberRingQuotientByIntBase::new(CompositeCyclotomicNumberRing::new(5, 7), Zn::new(65537));
+    let full_galois_group = ring.number_ring().galois_group();
+    let trace = trace_circuit(&ring, &full_galois_group.get_group().clone().full_subgroup());
+    for i in 0..24 {
+        let actual = trace.evaluate(&[ring.pow(ring.canonical_gen(), i)], ring.identity()).pop().unwrap();
+        assert_el_eq!(&ring, ring.inclusion().map(ring.trace(ring.pow(ring.canonical_gen(), i))), actual);
+    }
 }

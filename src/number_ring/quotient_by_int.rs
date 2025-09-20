@@ -62,7 +62,7 @@ pub struct NumberRingQuotientByIntBase<NumberRing, ZnTy, A = Global, C = Karatsu
 }
 
 ///
-/// [`RingStore`] for [`NumberRingQuotientImplBase`]
+/// [`RingStore`] for [`NumberRingQuotientByIntBase`]
 /// 
 pub type NumberRingQuotientByInt<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>>;
 

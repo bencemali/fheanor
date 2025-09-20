@@ -4,24 +4,20 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
 
+use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
 use tracing::instrument;
 
-use feanor_math::algorithms::fft::cooley_tuckey::bitreverse;
 use feanor_math::primitive_int::StaticRing;
 use feanor_math::ring::*;
-use feanor_math::homomorphism::*;
 use feanor_math::integer::*;
 use feanor_math::rings::poly::*;
 use feanor_math::rings::zn::zn_64;
 use feanor_math::seq::*;
-use feanor_math::rings::zn::*;
-use feanor_math::rings::zn::zn_64::Zn;
 
 use crate::ntt::FheanorNegacyclicNTT;
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
 use crate::DefaultNegacyclicNTT;
-use crate::ZZi64;
 
 pub struct Pow2CyclotomicNumberRing<N = DefaultNegacyclicNTT> {
     log2_m: usize,
@@ -101,7 +97,8 @@ impl<N> AbstractNumberRing for Pow2CyclotomicNumberRing<N>
         return Pow2CyclotomicNumberRingQuotientBases {
             ntt: N::new(Fp, self.log2_m - 1),
             galois_group: self.galois_group.clone(),
-            allocator: Global
+            allocator: Global,
+            log2_m: self.log2_m
         };
     }
 
@@ -126,6 +123,7 @@ pub struct Pow2CyclotomicNumberRingQuotientBases<N, A>
     where N: FheanorNegacyclicNTT<zn_64::Zn>,
         A: Allocator
 {
+    log2_m: usize,
     ntt: N,
     galois_group: CyclotomicGaloisGroup,
     allocator: A
@@ -156,19 +154,16 @@ impl<N, A> NumberRingQuotientBases for Pow2CyclotomicNumberRingQuotientBases<N, 
         assert_eq!(self.rank(), src.len());
         assert_eq!(self.rank(), dst.len());
 
-        let galois_group = &self.galois_group;
-        let galois_group_ring = galois_group.underlying_ring();
-        let galois_element = *galois_group.as_ring_el(galois_element);
-        let bitlength = StaticRing::<i64>::RING.abs_log2_ceil(&(self.rank() as i64)).unwrap();
-        debug_assert_eq!(1 << bitlength, self.rank());
-        let hom = galois_group_ring.can_hom(&ZZi64).unwrap();
+        let galois_el_repr = self.galois_group().representative(galois_element) as usize;
 
         // the elements of src resp. dst follow an order derived from the bitreversing order of the underlying FFT
-        let index_to_galois_el = |i: usize| hom.map(2 * bitreverse(i, bitlength) as i64 + 1);
-        let galois_el_to_index = |s: El<Zn>| bitreverse((galois_group_ring.smallest_positive_lift(s) as usize - 1) / 2, bitlength);
+        let index_to_galois_el = |i: usize| 2 * bitreverse(i, self.log2_m - 1) + 1;
+        let galois_el_to_index = |s: usize| bitreverse((s - 1) / 2, self.log2_m - 1);
 
         for i in 0..self.rank() {
-            *dst.at_mut(i) = *src.at(galois_el_to_index(galois_group_ring.mul(galois_element, index_to_galois_el(i))));
+            // explicitly perform the reduction here, as we know that the modulus is a power of two,
+            // which makes the reduction cheaper than done by the implementation of Zn
+            *dst.at_mut(i) = *src.at(galois_el_to_index((galois_el_repr * index_to_galois_el(i)) % (1 << self.log2_m)));
         }
     }
 
@@ -227,6 +222,10 @@ use crate::number_ring::quotient_by_int;
 use feanor_math::assert_el_eq;
 #[cfg(test)]
 use feanor_math::rings::extension::FreeAlgebraStore;
+#[cfg(test)]
+use feanor_math::rings::zn::*;
+#[cfg(test)]
+use feanor_math::homomorphism::*;
 
 #[test]
 fn test_pow2_cyclotomic_double_rns_ring() {
@@ -249,7 +248,7 @@ fn test_pow2_cyclotomic_number_ring_quotient() {
 #[test]
 fn test_permute_galois_automorphism() {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(16);
-    let rns_base = zn_rns::Zn::new(vec![Zn::new(17), Zn::new(97)], BigIntRing::RING);
+    let rns_base = zn_rns::Zn::new(vec![zn_64::Zn::new(17), zn_64::Zn::new(97)], BigIntRing::RING);
     let R = double_rns_ring::DoubleRNSRingBase::new_with_alloc(number_ring, rns_base, Global);
     assert_el_eq!(R, R.pow(R.canonical_gen(), 3), R.get_ring().apply_galois_action(&R.canonical_gen(), &R.acting_galois_group().from_representative(3)));
     assert_el_eq!(R, R.pow(R.canonical_gen(), 6), R.get_ring().apply_galois_action(&R.pow(R.canonical_gen(), 2), &R.acting_galois_group().from_representative(3)));
@@ -258,7 +257,7 @@ fn test_permute_galois_automorphism() {
 #[bench]
 fn bench_permute_galois_action(bencher: &mut test::Bencher) {
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(1 << 15);
-    let Fp = Zn::new(65537);
+    let Fp = zn_64::Zn::new(65537);
     let number_ring_mod_p = number_ring.bases_mod_p(Fp);
     let input = (0..(1 << 14)).map(|i| Fp.int_hom().map(i)).collect::<Vec<_>>();
     let mut output = (0..(1 << 14)).map(|_| Fp.zero()).collect::<Vec<_>>();

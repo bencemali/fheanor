@@ -246,3 +246,32 @@ pub mod bgv;
 /// Contains an implementation of the CLPX/GBFV scheme.
 /// 
 pub mod clpx;
+
+
+///
+/// This is a workaround for displaying examples on `docs.rs`.
+/// 
+/// Contains an empty submodule for each example, whose documentation gives
+/// a guide to the corresponding concepts of Fheanor.
+/// 
+/// Note that this module is only included when building the documentation,
+/// you cannot use it when importing `fheanor` as a crate.
+/// 
+#[cfg(any(doc, doctest))]
+pub mod examples {
+
+    #[doc = include_str!("../examples/bfv_basics/Readme.md")]
+    pub mod bfv_basics {}
+
+    #[doc = include_str!("../examples/bgv_basics/Readme.md")]
+    pub mod bgv_basics {}
+
+    #[doc = include_str!("../examples/bfv_impl_v1/Readme.md")]
+    pub mod bfv_impl_v1 {}
+
+    #[doc = include_str!("../examples/bfv_impl_v2/Readme.md")]
+    pub mod bfv_impl_v2 {}
+
+    #[doc = include_str!("../examples/clpx_basics/Readme.md")]
+    pub mod clpx_basics {}
+}

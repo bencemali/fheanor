@@ -110,8 +110,7 @@ pub trait CLPXInstantiation {
     fn create_ciphertext_rings(&self, log2_q: Range<usize>, log2_t_can_bound: usize) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
     ///
-    /// Creates a new [`CLPXEncoding`], which plays the same role for CLPX as the
-    /// plaintext ring does for BGV or BFV.
+    /// Creates the CLPX plaintext ring with the given parameters.
     /// 
     /// Here `t(X)` is a polynomial, representing an element of the number ring.
     /// The given `acting_galois_group` should be the subgroup of the Galois group

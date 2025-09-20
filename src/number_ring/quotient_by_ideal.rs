@@ -66,7 +66,7 @@ pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = Karat
 }
 
 ///
-/// [`RingStore`] for [`NumberRingQuotientImplBase`]
+/// [`RingStore`] for [`NumberRingQuotientByIdealBase`]
 /// 
 pub type NumberRingQuotientByIdeal<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>>;
 

@@ -60,7 +60,7 @@ use super::PreparedMultiplicationRing;
 /// of unity `z`, these prime ideals are of the form `(pi, 𝝵_m - z^j)` with `j in (Z/mZ)*`.
 /// In other words, the double-RNS representation refers to the evaluation of an element (considered
 /// as polyomial in `𝝵_m`) at all primitive `m`-th roots of unity, modulo each `pi`.
-/// This is also the multiplicative basis, as specified by [`AbstractNumberRingMod`].
+/// This is also the multiplicative basis, as specified by [`NumberRingQuotientBases`].
 /// In particular, multiplication of elements refers to component-wise multiplication of these vectors.
 /// 
 pub struct DoubleRNSRingBase<NumberRing, A = Global> 

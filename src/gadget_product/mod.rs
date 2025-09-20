@@ -21,8 +21,8 @@ use crate::rns_conv::{RNSOperation, UsedBaseConversion};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 
 ///
-/// Contains the two basic types [`digits::RNSFactorIndexList`] and [`digits::RNSGadgetVectorDigitIndices`]
-/// that are used to parameterize gadget products.
+/// Contains the type [`RNSGadgetVectorDigitIndices`] which is used to
+/// specify the digit set used for RNS gadget products.
 /// 
 pub mod digits;
 
@@ -34,9 +34,9 @@ type GadgetProductBaseConversion<A> = UsedBaseConversion<A>;
 /// In other words, this stores a "gadget-decomposition" of a single ring element `x`,
 /// i.e. small ring elements `x[i]` such that `x = sum_i g[i] x[i]` for a gadget vector
 /// `g`. The only supported gadget vectors are RNS-based gadget vectors, see 
-/// [`GadgetProductRhsOperand::gadget_vector_digits()`].
+/// [`RNSGadgetProductRhsOperand::gadget_vector_digits()`].
 /// 
-/// For more details, see [`GadgetProductLhsOperand::gadget_product()`].
+/// For more details, see [`RNSGadgetProductLhsOperand::gadget_product()`].
 /// 
 pub struct RNSGadgetProductLhsOperand<R: PreparedMultiplicationRing> {
     /// `i`-th entry stores a `i`-th part of the gadget decomposition of the represented element.
@@ -49,23 +49,23 @@ pub struct RNSGadgetProductLhsOperand<R: PreparedMultiplicationRing> {
 impl<R: BGFVCiphertextRing> RNSGadgetProductLhsOperand<R> {
 
     ///
-    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_element_with(ring: &R, el: &R::Element, digits: &RNSGadgetVectorDigitIndices) -> Self {
         Self::from_element_map_ring_with(ring, el, digits, ring)
     }
 
     /// 
-    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the RNS gadget vector that has `digits` digits.
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the RNS gadget vector that has `digits` digits.
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_element(ring: &R, el: &R::Element, digits: usize) -> Self {
         Self::from_element_with(ring, el, &RNSGadgetVectorDigitIndices::select_digits(digits, ring.base_ring().len()))
     }
 
     /// 
-    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits` over a different
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits` over a different
     /// ring that the original element is contained in.
     /// 
     /// More concretely, if we have a number ring modulo two different moduli `q, q'`, we can decompose
@@ -93,8 +93,8 @@ impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
         A: Allocator + Clone
 {
     ///
-    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the gadget vector given by `digits`.
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_double_rns_ring_with(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: &RNSGadgetVectorDigitIndices) -> Self {
         assert!(digits.iter().all(|digit| digit.end > digit.start));
@@ -105,8 +105,8 @@ impl<NumberRing, A> RNSGadgetProductLhsOperand<DoubleRNSRingBase<NumberRing, A>>
     }
 
     /// 
-    /// Creates a [`GadgetProductLhsOperand`] w.r.t. the RNS gadget vector that has `digits` digits.
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// Creates a [`RNSGadgetProductLhsOperand`] w.r.t. the RNS gadget vector that has `digits` digits.
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn from_double_rns_ring(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: usize) -> Self {
         Self::from_double_rns_ring_with(ring, el, &RNSGadgetVectorDigitIndices::select_digits(digits, ring.base_ring().len()))
@@ -174,7 +174,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     /// `sum_i (g[i] xi + ei) yi`. Note that this will of course decrease the quality of 
     /// approximation to `xy` (i.e. increase the error `sum_i yi ei`). Hence, choose the
     /// parameter `digits` appropriately. The gadget vector used in a specific case can be
-    /// queried using [`GadgetProductRhsOperand::gadget_vector()`]. 
+    /// queried using [`RNSGadgetProductRhsOperand::gadget_vector()`]. 
     /// 
     /// # Example
     /// ```
@@ -347,9 +347,9 @@ fn gadget_decompose_doublerns<NumberRing, A, V>(ring: &DoubleRNSRingBase<NumberR
 /// 
 /// In other words, this stores a multiple "noisy" approximations to a `g[i] * x`, for
 /// a ring element `x` and a gadget vector `g`. The only supported gadget vectors
-/// are RNS-based gadget vectors, see [`GadgetProductRhsOperand::gadget_vector_digits()`].
+/// are RNS-based gadget vectors, see [`RNSGadgetProductRhsOperand::gadget_vector_digits()`].
 /// 
-/// For more details, see [`GadgetProductLhsOperand::gadget_product()`].
+/// For more details, see [`RNSGadgetProductLhsOperand::gadget_product()`].
 /// 
 pub struct RNSGadgetProductRhsOperand<R: PreparedMultiplicationRing> {
     /// `i`-th entry stores a (noisy) encryption/encoding/whatever of the represented element,
@@ -396,7 +396,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     /// Returns the RNS factor indices that correspond to each entry of the underlying
     /// gadget vector.
     /// 
-    /// More concretely, [`GadgetProductLhsOperand`] and [`GadgetProductRhsOperand`] use
+    /// More concretely, [`RNSGadgetProductLhsOperand`] and [`RNSGadgetProductRhsOperand`] use
     /// gadget vectors that are based on the RNS representation of `q = p1 ... pr`. In other
     /// words, the gadget vector `g` is defined as
     /// ```text
@@ -414,7 +414,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     ///
     /// Sets the noisy approximation to `g[i] * x` to the given element.
     /// 
-    /// This will change the element represented by this [`GadgetProductRhsOperand`].
+    /// This will change the element represented by this [`RNSGadgetProductRhsOperand`].
     /// 
     pub fn set_rns_factor(&mut self, ring: &R, i: usize, el: R::Element) {
         self.scaled_element[i] = Some((ring.prepare_multiplicant(&el), el));
@@ -422,16 +422,16 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     
     ///
     /// Returns the noisy approximation to `g[i] * x`, if it was previously set
-    /// via [`GadgetProductRhsOperand::set_rns_factor()`].
+    /// via [`RNSGadgetProductRhsOperand::set_rns_factor()`].
     /// 
     pub fn get_rns_factor<'a>(&'a self, _ring: &R, i: usize) -> Option<&'a R::Element> {
         self.scaled_element[i].as_ref().map(|(_, x)| x)
     }
 
     /// 
-    /// Creates a [`GadgetProductRhsOperand`] representing `0` w.r.t. the RNS-based gadget vector that has `digits` digits.
+    /// Creates a [`RNSGadgetProductRhsOperand`] representing `0` w.r.t. the RNS-based gadget vector that has `digits` digits.
     /// 
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn new(ring: &R, digits: usize) -> Self 
         where R: RingExtension,
@@ -441,11 +441,11 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
     }
 
     /// 
-    /// Creates a [`GadgetProductRhsOperand`] representing `0` w.r.t. the RNS-based gadget vector given by `digits`.
+    /// Creates a [`RNSGadgetProductRhsOperand`] representing `0` w.r.t. the RNS-based gadget vector given by `digits`.
     /// For the exact description how the gadget vector is constructed based on `digits`, see 
-    /// [`GadgetProductRhsOperand::gadget_vector_digits()`].
+    /// [`RNSGadgetProductRhsOperand::gadget_vector_digits()`].
     /// 
-    /// For an explanation of gadget products, see [`GadgetProductLhsOperand::gadget_product()`].
+    /// For an explanation of gadget products, see [`RNSGadgetProductLhsOperand::gadget_product()`].
     /// 
     pub fn new_with_digits(_ring: &R, digits: Box<RNSGadgetVectorDigitIndices>) -> Self 
         where R: RingExtension,

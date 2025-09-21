@@ -34,7 +34,7 @@ impl Serialize for HypercubeStructure {
         #[derive(Serialize)]
         #[serde(rename = "HypercubeStructureData")]
         struct SerializableHypercubeStructureData<'a, G: Serialize> {
-            p: SerializeWithGroup<'a, &'a CyclotomicGaloisGroup>,
+            frobenius: SerializeWithGroup<'a, &'a CyclotomicGaloisGroup>,
             d: usize,
             ls: &'a [usize],
             gs: G,
@@ -44,7 +44,7 @@ impl Serialize for HypercubeStructure {
         SerializableNewtypeStruct::new("HypercubeStructure", (&self.galois_group, SerializableHypercubeStructureData {
             choice: &self.choice,
             d: self.d,
-            p: SerializeWithGroup::new(self.p(), self.galois_group().parent()),
+            frobenius: SerializeWithGroup::new(self.p(), self.galois_group().parent()),
             ls: &self.ls,
             gs: SerializableSeq::new_with_len(self.gs.iter().map(|g| SerializeWithGroup::new(g, self.galois_group().parent())), self.gs.len())
         })).serialize(serializer)
@@ -74,7 +74,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
 
         impl_deserialize_seed_for_dependent_struct!{
             pub struct HypercubeStructureData<'de> using DeserializeSeedHypercubeStructureData {
-                p: GaloisGroupEl: derive_single_galois_group_deserializer,
+                frobenius: GaloisGroupEl: derive_single_galois_group_deserializer,
                 d: usize: |_| PhantomData,
                 ls: Vec<usize>: |_| PhantomData,
                 gs: Vec<GaloisGroupEl>: derive_multiple_galois_group_deserializer,
@@ -91,7 +91,7 @@ impl<'de> Deserialize<'de> for HypercubeStructure {
                 DeserializeSeedHypercubeStructureData { galois_group: parent }
             }
         )).deserialize(deserializer).map(|data| {
-            let mut result = HypercubeStructure::new(deserialized_galois_group.take().unwrap(), data.p, data.d, data.ls, data.gs);
+            let mut result = HypercubeStructure::new(deserialized_galois_group.take().unwrap(), data.frobenius, data.d, data.ls, data.gs);
             result.choice = data.choice;
             return result;
         }).unwrap())

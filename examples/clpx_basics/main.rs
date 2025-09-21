@@ -3,7 +3,7 @@
 // For a guided explanation of this example, see the doc
 #![doc = include_str!("Readme.md")]
 
-use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
+use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
 use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use fheanor::number_ring::*;
 use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
@@ -42,11 +42,11 @@ fn main() {
     println!("G(X)     = {}", FpX.format(&P.generating_poly(&FpX, FpX.base_ring().identity())));
 
     let mut rng = rand::rng();
-    let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
-    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
+    let sk = Pow2CLPX::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+    let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
     
     let m = P.inclusion().map(P.base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
-    let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let ct_sqr = Pow2CLPX::hom_square(&P, &C, &C_for_multiplication, ct, &rk);
     let res = Pow2CLPX::dec(&P, &C, ct_sqr, &sk);
     

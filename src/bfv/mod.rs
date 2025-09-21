@@ -91,23 +91,8 @@ const SAMPLE_PRIMES_MAXOFFSET: usize = SAMPLE_PRIMES_SIZE + SAMPLE_PRIMES_MINOFF
 /// 
 const SAMPLE_PRIMES_SIZE: usize = 57;
 
-///
-/// Represents one of multiple distributions over `R` that are commonly used
-/// to sample the secret key from.
-/// 
-#[derive(Debug, Clone, Copy)]
-pub enum SecretKeyDistribution {
-    /// The constant zero distribution. Clearly such a secret key will be insecure.
-    Zero, 
-    /// Sparse distribution with given hamming weight.
-    /// 
-    /// In other words, a random choice of coefficients of the given size is
-    /// set to a uniformly random value from `{-1, 1}`, and the others
-    /// are set to set.
-    SparseWithHwt(usize), 
-    /// Each coefficient is taken uniformly at random from `{-1, 0, 1}`.
-    UniformTernary
-}
+pub type SecretKeyDistribution = bgv::SecretKeyDistribution;
+
 ///
 /// Trait for types that represent an instantiation of BFV.
 /// 
@@ -197,7 +182,8 @@ pub trait BFVInstantiation {
                 return C.from_canonical_basis(result_data.into_iter().map(|c| C.base_ring().int_hom().map(c)));
             },
             SecretKeyDistribution::UniformTernary => C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.next_u32() % 3) as i32 - 1))),
-            SecretKeyDistribution::Zero => C.zero()
+            SecretKeyDistribution::Zero => C.zero(),
+            SecretKeyDistribution::Custom(_) => panic!("if you use SecretKeyDistribution::Custom(_), you must generate the secret key yourself")
         }
     }
     
@@ -746,6 +732,13 @@ pub trait BFVInstantiation {
         }).collect();
     }
 
+    ///
+    /// Returns an implementation of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
+    /// to a short element of `R/qq'R` congruent to `x` modulo `q`.
+    /// 
+    /// The function is behind a trait object, so that concrete instantiations can use a different
+    /// implementation which is more performant on their concrete choice of rings.
+    /// 
     fn lift_to_Cmul<'a>(C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let C_delta = RingValue::from(C_mul.get_ring().drop_rns_factor(&RNSFactorIndexList::from(0..C.base_ring().len(), C_mul.base_ring().len())));
         let lift = UsedBaseConversion::new(
@@ -765,6 +758,13 @@ pub trait BFVInstantiation {
         });
     }
 
+    ///
+    /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
+    /// to an element of `R/qR` close to `smallest_lift(tx/q)`.
+    /// 
+    /// The function is behind a trait object, so that concrete instantiations can use a different
+    /// implementation which is more performant on their concrete choice of rings.
+    /// 
     fn rescale_to_C<'a>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, C_mul: &'a CiphertextRing<Self>) -> Box<dyn 'a + for<'b> FnMut(&'b El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         assert!(C.number_ring() == C_mul.number_ring());
         assert_eq!(C.get_ring().small_generating_set_len(), C_mul.get_ring().small_generating_set_len());
@@ -1203,6 +1203,15 @@ fn temporarily_extend_rns_base<'a>(current: &'a zn_rns::Zn<Zn, BigIntRing>, by_b
 }
 
 #[cfg(test)]
+use tracing_subscriber::prelude::*;
+#[cfg(test)]
+use feanor_math::assert_el_eq;
+#[cfg(test)]
+use std::fmt::Debug;
+#[cfg(test)]
+use crate::log_time;
+
+#[cfg(test)]
 pub fn test_setup_bfv<Params: BFVInstantiation>(params: Params) -> (PlaintextRing<Params>, CiphertextRing<Params>, CiphertextRing<Params>, SecretKey<Params>, RelinKey<Params>, El<PlaintextRing<Params>>, Ciphertext<Params>) {
     let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
     assert!(P.number_ring().galois_group().m() >= 100);
@@ -1214,15 +1223,6 @@ pub fn test_setup_bfv<Params: BFVInstantiation>(params: Params) -> (PlaintextRin
     let ct = Params::enc_sym(&P, &C, rand::rng(), &m, &sk, 3.2);
     return (P, C, C_mul, sk, rk, m, ct);
 }
-
-#[cfg(test)]
-use tracing_subscriber::prelude::*;
-#[cfg(test)]
-use feanor_math::assert_el_eq;
-#[cfg(test)]
-use std::fmt::Debug;
-#[cfg(test)]
-use crate::log_time;
 
 #[test]
 fn test_pow2_enc_dec() {

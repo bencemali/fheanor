@@ -1,7 +1,9 @@
+use crate::feanor_math::group::AbelianGroupStore;
 
 use super::*;
+use crate::circuit::{evaluator::DefaultCircuitEvaluator, Coefficient, PlaintextCircuit};
 
-pub trait AsBFVPlaintext<Params: BFVInstantiation>: RingBase {
+pub trait AsCLPXPlaintext<Params: CLPXInstantiation>: RingBase {
 
     ///
     /// Computes a plaintext-ciphertext addition.
@@ -51,10 +53,10 @@ pub trait AsBFVPlaintext<Params: BFVInstantiation>: RingBase {
     ) -> Vec<Self::Element>;
 }
 
-impl<R, Params> AsBFVPlaintext<Params> for R
+impl<R, Params> AsCLPXPlaintext<Params> for R
     where R: NumberRingQuotient,
-        Params: BFVInstantiation,
-        Params::PlaintextRing: CanHomFrom<R>
+        Params: CLPXInstantiation,
+        <PlaintextRing<Params> as RingStore>::Type: CanHomFrom<R>
 {
     default fn hom_add_to(
         &self, 
@@ -92,7 +94,7 @@ impl<R, Params> AsBFVPlaintext<Params> for R
     }
 }
 
-impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
+impl<Params: CLPXInstantiation> AsCLPXPlaintext<Params> for StaticRingBase<i64> {
 
     fn hom_add_to(
         &self, 
@@ -111,18 +113,7 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, &int_cast(*m, ZZbig, ZZi64), ct)
-    }
-
-    fn hom_fma(
-        &self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        Params::hom_fma_plain_int(P, C, dst, &int_cast(*lhs, ZZbig, ZZi64), rhs)
+        Params::hom_mul_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZi64).unwrap()).map_ref(m), ct)
     }
 
     fn apply_galois_action_plain(
@@ -135,7 +126,7 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for StaticRingBase<i64> {
     }
 }
 
-impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
+impl<Params: CLPXInstantiation> AsCLPXPlaintext<Params> for BigIntRingBase {
 
     fn hom_add_to(
         &self, 
@@ -154,18 +145,7 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain_int(P, C, m, ct)
-    }
-
-    fn hom_fma(
-        &self, 
-        P: &PlaintextRing<Params>, 
-        C: &CiphertextRing<Params>, 
-        dst: Ciphertext<Params>,
-        lhs: &Self::Element, 
-        rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        Params::hom_fma_plain_int(P, C, dst, lhs, rhs)
+        Params::hom_mul_plain(P, C, &P.inclusion().compose(P.base_ring().can_hom(&ZZbig).unwrap()).map_ref(m), ct)
     }
 
     fn apply_galois_action_plain(
@@ -181,7 +161,7 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
 impl<R: RingBase> PlaintextCircuit<R> {
 
     #[instrument(skip_all)]
-    pub fn evaluate_bfv<Params, S>(&self, 
+    pub fn evaluate_clpx<Params, S>(&self, 
         ring: S,
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
@@ -192,8 +172,8 @@ impl<R: RingBase> PlaintextCircuit<R> {
         key_switches: &mut usize,
         _debug_sk: Option<&SecretKey<Params>>
     ) -> Vec<Ciphertext<Params>>
-        where Params: BFVInstantiation,
-            R: AsBFVPlaintext<Params>,
+        where Params: CLPXInstantiation,
+            R: AsCLPXPlaintext<Params>,
             S: RingStore<Type = R> + Copy
     {
         assert!(!self.has_multiplication_gates() || C_mul.is_some());
@@ -221,10 +201,10 @@ impl<R: RingBase> PlaintextCircuit<R> {
                 Params::hom_square(P, C, C_mul.unwrap(), x, rk.unwrap())
             }).with_gal(|x, gs| if gs.len() == 1 {
                 **key_switches.borrow_mut() += 1;
-                vec![Params::hom_galois(C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
+                vec![Params::hom_galois(P, C, x, &gs[0], &gks.iter().filter(|(g, _)| galois_group.eq_el(g, &gs[0])).next().unwrap().1)]
             } else {
                 **key_switches.borrow_mut() += gs.iter().filter(|g| !galois_group.is_identity(*g)).count();
-                Params::hom_galois_many(C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
+                Params::hom_galois_many(P, C, x, gs, gs.as_fn().map_fn(|expected_g| if let Some(gk) = gks.iter().filter(|(g, _)| galois_group.eq_el(g, expected_g)).next() {
                     &gk.1
                 } else {
                     panic!("Galois key for {} not found", galois_group.underlying_ring().format(&galois_group.as_ring_el(expected_g)))
@@ -234,6 +214,7 @@ impl<R: RingBase> PlaintextCircuit<R> {
     }
 }
 
+use std::cell::RefCell;
 #[cfg(test)]
 use std::slice::from_ref;
 #[cfg(test)]
@@ -243,11 +224,11 @@ use crate::digit_extract::polys::poly_to_circuit;
 
 #[test]
 fn test_hom_evaluate_circuit() {
-    let (P, C, C_mul, sk, rk, _, ct) = test_setup_bfv(Pow2BFV::new(1 << 8));
-    let FpX = DensePolyRing::new(Zn::new(17), "X");
+    let (P, C, C_mul, sk, rk, m, ct) = test_setup_clpx(Pow2CLPX::new(1 << 8));
+    let FpX = DensePolyRing::new(P.base_ring(), "X");
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
     let circuit = poly_to_circuit(&FpX, from_ref(&f));
 
-    let res = circuit.evaluate_bfv::<Pow2BFV, _>(ZZi64, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
-    assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &FpX.base_ring().int_hom().map(2), FpX.base_ring().identity())), &Pow2BFV::dec(&P, &C, res, &sk));
+    let res = circuit.evaluate_clpx::<Pow2CLPX, _>(ZZi64, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
+    assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &P.wrt_canonical_basis(&m).at(0), FpX.base_ring().identity())), &Pow2CLPX::dec(&P, &C, res, &sk));
 }

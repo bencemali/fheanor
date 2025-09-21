@@ -57,7 +57,7 @@ Indeed, as this table shows, a suitable choice of `t` means that we can effectiv
 The ring returned by `create_plaintext_ring()` looks like `(Z/p^eZ)[X]/(f(X))`, but it supports lifting to and reducing from `Z[X]/(Phi_m(X))` via the functions [`crate::clpx::encoding::CLPXPlaintextRingBase::small_lift()`] and [`crate::clpx::encoding::CLPXPlaintextRingBase::reduce_mod_t()`].
 Hence, we can use CLPX as follows:
 ```rust
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
+# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::number_ring::AbstractNumberRing;
 # use fheanor::number_ring::galois::CyclotomicGaloisGroupOps;
@@ -83,15 +83,15 @@ let acting_galois_group = full_galois_group.get_group().clone().subgroup([full_g
 let P = params.create_plaintext_ring::</* LOG = */ true>(ZZX, t, p, acting_galois_group);
 
 let mut rng = rand::rng();
-let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
+let sk = Pow2CLPX::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 let m = P.inclusion().map(P.base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
-let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
 let res = Pow2CLPX::dec(&P, &C, ct, &sk);
 assert_el_eq!(P, &m, &res);
 ```
 Applying homomorphic operations is just as easy as for BFV as well. 
 ```rust
-# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX};
+# use fheanor::clpx::{CLPXInstantiation, CiphertextRing, Pow2CLPX, SecretKeyDistribution};
 # use fheanor::DefaultNegacyclicNTT;
 # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
 # use fheanor::number_ring::AbstractNumberRing;
@@ -120,10 +120,10 @@ Applying homomorphic operations is just as easy as for BFV as well.
 # // the computation is slightly expensive, thus you can pass true as generic argument to log progress to stdout
 # let P = params.create_plaintext_ring::<true>(ZZX, t, p, acting_galois_group);
 let mut rng = rand::rng();
-let sk = Pow2CLPX::gen_sk(&C, &mut rng, None);
-let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()));
+let sk = Pow2CLPX::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
+let rk = Pow2CLPX::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(2, C.base_ring().len()), 3.2);
 let m = P.inclusion().map(P.base_ring().coerce(&BigIntRing::RING, BigIntRing::RING.power_of_two(100)));
-let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk);
+let ct = Pow2CLPX::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
 let ct_sqr = Pow2CLPX::hom_square(&P, &C, &C_for_multiplication, ct, &rk);
 let res = Pow2CLPX::dec(&P, &C, ct_sqr, &sk);
 let res_constant_coeff = P.wrt_canonical_basis(&res).at(0);

@@ -290,7 +290,6 @@ impl<R> HypercubeIsomorphism<R>
         self.slot_ring().from_canonical_basis((0..self.d()).map(|i| poly_ring.base_ring().clone_el(poly_ring.coefficient_at(&rem, i))))
     }
 
-    #[instrument(skip_all)]
     pub fn get_slot_values<'a>(&'a self, el: &'a El<R>) -> impl ExactSizeIterator<Item = El<SlotRingOf<R>>> + use<'a, R> {
         self.hypercube_structure.element_iter().map(move |g| self.get_slot_value(el, &g))
     }
@@ -679,20 +678,17 @@ fn test_hypercube_isomorphism_from_to_slot_vector() {
         for _ in 0..10 {
             let slot_ring = isomorphism.slot_ring();
             let expected = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-            println!("{:?}", expected.iter().map(|x| isomorphism.slot_ring().format(x)).collect::<Vec<_>>());
             let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
-            println!("{}", isomorphism.ring().format(&element));
             let actual = isomorphism.get_slot_values(&element).collect::<Vec<_>>();
-            println!("{:?}", actual.iter().map(|x| isomorphism.slot_ring().format(x)).collect::<Vec<_>>());
             for (expected, actual) in expected.iter().zip(actual) {
                 assert_el_eq!(slot_ring, expected, actual);
             }
         }
     }
 
-    // test_from_to_slot_vector(test_ring1());
-    // test_from_to_slot_vector(test_ring2());
-    // test_from_to_slot_vector(test_ring3());
+    test_from_to_slot_vector(test_ring1());
+    test_from_to_slot_vector(test_ring2());
+    test_from_to_slot_vector(test_ring3());
     test_from_to_slot_vector(test_ring4());
 }
 
@@ -748,14 +744,16 @@ fn test_hypercube_isomorphism_rotation() {
 
             let mut input = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
             input[0] = slot_ring.clone_el(&a);
+            let input = isomorphism.from_slot_values(input.into_iter());
 
             let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-            expected[hypercube.dim_length(0) - 1] = slot_ring.clone_el(&a);
+            expected[(hypercube.dim_length(0) - 1) * hypercube.element_count() / hypercube.dim_length(0)] = slot_ring.clone_el(&a);
 
             let actual = ring.apply_galois_action(
-                &isomorphism.from_slot_values(input.into_iter()),
+                &input,
                 &hypercube.galois_group().pow(hypercube.dim_generator(0), &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64))
             );
+
             let actual = isomorphism.get_slot_values(&actual);
             for (expected, actual) in expected.iter().zip(actual) {
                 assert_el_eq!(slot_ring, expected, actual);

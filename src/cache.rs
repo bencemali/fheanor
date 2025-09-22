@@ -127,6 +127,13 @@ impl<'a> From<(&'a str, i64)> for CachedDataKey {
     }
 }
 
+impl<'a> From<(&'a str, i32)> for CachedDataKey {
+
+    fn from(value: (&'a str, i32)) -> Self {
+        Self::Integer(value.0.to_owned(), int_cast(value.1 as i64, ZZbig, ZZi64))
+    }
+}
+
 impl<'a> From<(&'a str, usize)> for CachedDataKey {
 
     fn from(value: (&'a str, usize)) -> Self {

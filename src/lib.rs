@@ -173,7 +173,7 @@ const ZZi128: StaticRing<i128> = StaticRing::<i128>::RING;
 ///
 /// Contains some utilities to cache certain objects on disk.
 /// 
-mod cache;
+pub mod cache;
 
 ///
 /// A smart "borrowed-or-owned" pointer for internal use.

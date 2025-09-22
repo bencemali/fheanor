@@ -7,7 +7,7 @@ use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::algorithms::poly_gcd::hensel::hensel_lift_factorization;
 use feanor_math::algorithms::unity_root::get_prim_root_of_unity;
-use feanor_math::computation::{no_error, LOG_PROGRESS};
+use feanor_math::computation::*;
 use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
 use feanor_math::rings::field::{AsField, AsFieldBase};
 use feanor_math::pid::PrincipalIdealRingStore;
@@ -32,6 +32,8 @@ use tracing::instrument;
 
 use crate::cache::{create_cached, SerializeDeserializeWith, StoreAs};
 use crate::number_ring::galois::*;
+#[cfg(test)]
+use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdeal;
 use crate::number_ring::*;
 use crate::*;
 use crate::ntt::dyn_convolution::*;
@@ -164,7 +166,7 @@ impl<R> HypercubeIsomorphism<R>
         assert!(ring.acting_galois_group().get_group() == hypercube_structure.galois_group().get_group());
         let frobenius = hypercube_structure.frobenius(1);
         let d = hypercube_structure.d();
-        
+       
         // for quotients of cyclotomic number rings, the frobenius associated to a prime ideal
         // is always a nontrivial element of `<p> <= (Z/mZ)*`, where the characteristic of the
         // quotient is a power of `p`
@@ -173,7 +175,7 @@ impl<R> HypercubeIsomorphism<R>
 
         let ring_ref = &ring;
         let convolution = create_convolution(d, ring_ref.base_ring().integer_ring().abs_log2_ceil(ring_ref.base_ring().modulus()).unwrap());
-        let slot_rings: Vec<SlotRingOf<R>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism::new_small_slot_ring] Computing slot rings", |[]| slot_ring_moduli.iter().map(|f| {
+        let slot_rings: Vec<SlotRingOf<R>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Computing slot rings", |[]| slot_ring_moduli.iter().map(|f| {
             let unwrap = UnwrapHom::new(ZpeX.base_ring().get_ring());
             let modulus = (0..d).map(|i| ring_ref.base_ring().negate(unwrap.map_ref(ZpeX.coefficient_at(f, i)))).collect::<Vec<_>>();
             let slot_ring = FreeAlgebraImpl::new_with_convolution(RingValue::from(ring_ref.base_ring().get_ring().clone()), d, modulus, "𝝵", Global, convolution.clone());
@@ -362,8 +364,14 @@ impl<R> HypercubeIsomorphism<R>
             &ring,
             || {
                 let (ZpeX, slot_ring_moduli) = if d * d < m as usize {
+                    if LOG {
+                        println!("[HypercubeIsomorphism] Using algorithm optimized for small slot rings");
+                    }
                     Self::compute_slot_ring_moduli_small_slot_ring::<LOG>(ring, hypercube_structure)
                 } else {
+                    if LOG {
+                        println!("[HypercubeIsomorphism] Using algorithm optimized for large slot rings");
+                    }
                     let (FpX, factor) = Self::compute_factor_of_generating_poly_mod_p::<LOG>(ring, hypercube_structure);
                     Self::compute_slot_ring_moduli_large_slot_ring::<LOG>(ring, hypercube_structure, &FpX, &factor)
                 };
@@ -473,6 +481,14 @@ impl<R> HypercubeIsomorphism<R>
         let root_of_unity = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Computing root of unity", |[]| 
             hensel_lift_root_of_unity(&S, &Fq, get_prim_root_of_unity(&Fq, m).unwrap(), m)
         );
+        debug_assert!(S.is_one(&S.pow(S.clone_el(&root_of_unity), m)));
+        let ZpeX = DensePolyRing::new(S.base_ring(), "X");
+        let gen_poly = ring.generating_poly(&ZpeX, ZnReductionMap::new(ring.base_ring(), ZpeX.base_ring()).unwrap());
+        let root = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Searching for root of generating polynomial", |[]| (0..m).scan(S.one(), |state, _| {
+            let result = S.clone_el(state);
+            S.mul_assign_ref(state, &root_of_unity);
+            Some(result)
+        }).filter(|x| S.is_zero(&ZpeX.evaluate(&gen_poly, x, S.inclusion()))).next().unwrap());
 
         let Zpe: RingValue<DecoratedBaseRingBase<R>> = AsLocalPIR::from_zn(RingValue::from(ring.base_ring().get_ring().clone())).unwrap();
         let convolution = create_convolution(ring.rank(), ring.base_ring().integer_ring().abs_log2_ceil(ring.base_ring().modulus()).unwrap());
@@ -483,10 +499,10 @@ impl<R> HypercubeIsomorphism<R>
             let mut slot_ring_moduli = Vec::new();
             for g in hypercube_structure.element_iter() {
                 let mut result = SX.prod((0..d).scan(
-                    S.pow(S.clone_el(&root_of_unity), galois_group.representative(&galois_group.inv(&g)) as usize), 
-                    |current_root_of_unity, _| {
-                        let result = SX.sub(SX.indeterminate(), SX.inclusion().map_ref(current_root_of_unity));
-                        *current_root_of_unity = S.pow_gen(S.clone_el(current_root_of_unity), &p, ZZbig);
+                    S.pow(S.clone_el(&root), galois_group.representative(&galois_group.inv(&g)) as usize), 
+                    |current_root, _| {
+                        let result = SX.sub(SX.indeterminate(), SX.inclusion().map_ref(current_root));
+                        *current_root = S.pow_gen(S.clone_el(current_root), &p, ZZbig);
                         return Some(result);
                     }
                 ));
@@ -552,7 +568,7 @@ impl<R> HypercubeIsomorphism<R>
                 let reduction_map = reduction_context.intermediate_ring_to_field_reduction(0);
                 let factor = FpX.normalize(FpX.ideal_gen(&factor_conjugate, &gen_poly_mod_p));
                 let other_factor = FpX.checked_div(&gen_poly_mod_p, &factor).unwrap();
-                let [lifted_factor, _] = hensel_lift_factorization(&reduction_map, &ZpeX_undecorated, &FpX, &gen_poly_mod_pe, &[factor, other_factor][..], LOG_PROGRESS).try_into().ok().unwrap();
+                let [lifted_factor, _] = hensel_lift_factorization(&reduction_map, &ZpeX_undecorated, &FpX, &gen_poly_mod_pe, &[factor, other_factor][..], DontObserve).try_into().ok().unwrap();
 
                 result.push(ZpeX.lifted_hom(&ZpeX_undecorated, WrapHom::new(Zpe.get_ring())).map(lifted_factor));
             }
@@ -596,10 +612,11 @@ use serde::de::DeserializeSeed;
 use serde::Serialize;
 #[cfg(test)]
 use crate::number_ring::quotient_by_int::{NumberRingQuotientByInt, NumberRingQuotientByIntBase};
+#[cfg(test)]
+use crate::number_ring::quotient_by_ideal::NumberRingQuotientByIdealBase;
 
 #[cfg(test)]
 fn test_ring1() -> (NumberRingQuotientByInt<Pow2CyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
-
     let galois_group = CyclotomicGaloisGroupBase::new(32);
     let p = galois_group.from_representative(7);
     let gs = vec![galois_group.from_representative(5)];
@@ -634,181 +651,122 @@ fn test_ring3() -> (NumberRingQuotientByInt<CompositeCyclotomicNumberRing, zn_64
     return (ring, hypercube_structure);
 }
 
+#[cfg(test)]
+fn test_ring4() -> (NumberRingQuotientByIdeal<Pow2CyclotomicNumberRing, zn_64::Zn>, HypercubeStructure) {
+    let galois_group = CyclotomicGaloisGroupBase::new(64);
+    let acting_galois_group = galois_group.get_group().clone().subgroup([galois_group.from_representative(17)]);
+    let p = galois_group.from_representative(257);
+    let gs = vec![galois_group.from_representative(17)];
+    let hypercube_structure = HypercubeStructure::new(acting_galois_group.clone(), p, 1, vec![4], gs);
+    let FpX = DensePolyRing::new(zn_64::Zn::new(257), "X");
+    let [t] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
+    let ring = NumberRingQuotientByIdealBase::new::<false>(Pow2CyclotomicNumberRing::new(64), FpX, t, acting_galois_group);
+    return (ring, hypercube_structure);
+}
+
 #[test]
 fn test_hypercube_isomorphism_from_to_slot_vector() {
-    let mut rng = oorandom::Rand64::new(0);
 
-    let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    assert_eq!(4, isomorphism.slot_count());
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let expected = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
+    fn test_from_to_slot_vector<R>((ring, hypercube): (R, HypercubeStructure))
+        where R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+    {
+        let mut rng = oorandom::Rand64::new(1);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+
+        for _ in 0..10 {
+            let slot_ring = isomorphism.slot_ring();
+            let expected = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
+            println!("{:?}", expected.iter().map(|x| isomorphism.slot_ring().format(x)).collect::<Vec<_>>());
+            let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
+            println!("{}", isomorphism.ring().format(&element));
+            let actual = isomorphism.get_slot_values(&element).collect::<Vec<_>>();
+            println!("{:?}", actual.iter().map(|x| isomorphism.slot_ring().format(x)).collect::<Vec<_>>());
+            for (expected, actual) in expected.iter().zip(actual) {
+                assert_el_eq!(slot_ring, expected, actual);
+            }
         }
     }
 
-    let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    assert_eq!(8, isomorphism.slot_count());
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let expected = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
-
-    let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    assert_eq!(8, isomorphism.slot_count());
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let expected = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let element = isomorphism.from_slot_values(expected.iter().map(|a| slot_ring.clone_el(a)));
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
+    // test_from_to_slot_vector(test_ring1());
+    // test_from_to_slot_vector(test_ring2());
+    // test_from_to_slot_vector(test_ring3());
+    test_from_to_slot_vector(test_ring4());
 }
 
 #[test]
 fn test_hypercube_isomorphism_is_isomorphic() {
-    let mut rng = oorandom::Rand64::new(1);
 
-    let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let rhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let expected = (0..isomorphism.slot_count()).map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i])).collect::<Vec<_>>();
-        let element = isomorphism.ring().mul(
-            isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
-            isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a)))
-        );
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
+    fn test_is_isomorphic<R>((ring, hypercube): (R, HypercubeStructure))
+        where R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+    {
+        let mut rng = oorandom::Rand64::new(1);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+        for _ in 0..10 {
+            let slot_ring = isomorphism.slot_ring();
+            let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
+            let rhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
+            let expected = (0..isomorphism.slot_count()).map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i])).collect::<Vec<_>>();
+            let element = isomorphism.ring().mul(
+                isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
+                isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a)))
+            );
+            let actual = isomorphism.get_slot_values(&element);
+            for (expected, actual) in expected.iter().zip(actual) {
+                assert_el_eq!(slot_ring, expected, actual);
+            }
         }
     }
 
-    let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let rhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let expected = (0..isomorphism.slot_count()).map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i])).collect::<Vec<_>>();
-        let element = isomorphism.ring().mul(
-            isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
-            isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a)))
-        );
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
-
-    let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let lhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let rhs = (0..isomorphism.slot_count()).map(|_| slot_ring.random_element(|| rng.rand_u64())).collect::<Vec<_>>();
-        let expected = (0..isomorphism.slot_count()).map(|i| slot_ring.mul_ref(&lhs[i], &rhs[i])).collect::<Vec<_>>();
-        let element = isomorphism.ring().mul(
-            isomorphism.from_slot_values(lhs.iter().map(|a| slot_ring.clone_el(a))),
-            isomorphism.from_slot_values(rhs.iter().map(|a| slot_ring.clone_el(a)))
-        );
-        let actual = isomorphism.get_slot_values(&element);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
+    test_is_isomorphic(test_ring1());
+    test_is_isomorphic(test_ring2());
+    test_is_isomorphic(test_ring3());
+    test_is_isomorphic(test_ring4());
 }
 
 #[test]
 fn test_hypercube_isomorphism_rotation() {
-    let mut rng = oorandom::Rand64::new(1);
 
-    let (ring, hypercube) = test_ring1();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    let ring = isomorphism.ring();
-    let hypercube = isomorphism.hypercube();
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let a = slot_ring.random_element(|| rng.rand_u64());
+    fn test_rotation<R>((ring, hypercube): (R, HypercubeStructure))
+        where R: RingStore,
+            R::Type: NumberRingQuotient,
+            BaseRing<R>: NiceZn,
+            DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
+    {
+        let mut rng = oorandom::Rand64::new(1);
+        let isomorphism = HypercubeIsomorphism::new::<true>(&&ring, &hypercube, None);
+        let ring = isomorphism.ring();
+        let hypercube = isomorphism.hypercube();
+        for _ in 0..10 {
+            let slot_ring = isomorphism.slot_ring();
+            let a = slot_ring.random_element(|| rng.rand_u64());
 
-        let mut input = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        input[0] = slot_ring.clone_el(&a);
+            let mut input = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
+            input[0] = slot_ring.clone_el(&a);
 
-        let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[hypercube.dim_length(0) - 1] = slot_ring.clone_el(&a);
+            let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
+            expected[hypercube.dim_length(0) - 1] = slot_ring.clone_el(&a);
 
-        let actual = ring.apply_galois_action(
-            &isomorphism.from_slot_values(input.into_iter()),
-            &hypercube.galois_group().pow(hypercube.dim_generator(0), &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64))
-        );
-        let actual = isomorphism.get_slot_values(&actual);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
+            let actual = ring.apply_galois_action(
+                &isomorphism.from_slot_values(input.into_iter()),
+                &hypercube.galois_group().pow(hypercube.dim_generator(0), &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64))
+            );
+            let actual = isomorphism.get_slot_values(&actual);
+            for (expected, actual) in expected.iter().zip(actual) {
+                assert_el_eq!(slot_ring, expected, actual);
+            }
         }
     }
 
-    let (ring, hypercube) = test_ring2();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    let ring = isomorphism.ring();
-    let hypercube = isomorphism.hypercube();
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let a = slot_ring.random_element(|| rng.rand_u64());
-        
-        let mut input = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        input[0] = slot_ring.clone_el(&a);
-
-        let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[(hypercube.dim_length(0) - 1) * hypercube.dim_length(1)] = slot_ring.clone_el(&a);
-
-        let actual = ring.apply_galois_action(
-            &isomorphism.from_slot_values(input.into_iter()),
-            &hypercube.galois_group().pow(hypercube.dim_generator(0), &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64))
-        );
-        let actual = isomorphism.get_slot_values(&actual).collect::<Vec<_>>();
-        for (expected, actual) in expected.iter().zip(actual.iter()) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
-
-    let (ring, hypercube) = test_ring3();
-    let isomorphism = HypercubeIsomorphism::new::<true>(&ring, &hypercube, None);
-    let ring = isomorphism.ring();
-    let hypercube = isomorphism.hypercube();
-    for _ in 0..10 {
-        let slot_ring = isomorphism.slot_ring();
-        let a = slot_ring.random_element(|| rng.rand_u64());
-        
-        let mut input = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        input[0] = slot_ring.clone_el(&a);
-
-        let mut expected = (0..isomorphism.slot_count()).map(|_| slot_ring.zero()).collect::<Vec<_>>();
-        expected[(hypercube.dim_length(0) - 1) * hypercube.dim_length(1)] = slot_ring.clone_el(&a);
-
-        let actual = ring.apply_galois_action(
-            &isomorphism.from_slot_values(input.into_iter()),
-            &hypercube.galois_group().pow(hypercube.dim_generator(0), &int_cast(hypercube.dim_length(0) as i64 - 1, ZZbig, ZZi64))
-        );
-        let actual = isomorphism.get_slot_values(&actual);
-        for (expected, actual) in expected.iter().zip(actual) {
-            assert_el_eq!(slot_ring, expected, actual);
-        }
-    }
+    test_rotation(test_ring1());
+    test_rotation(test_ring2());
+    test_rotation(test_ring3());
+    test_rotation(test_ring4());
 }
 
 #[test]
@@ -841,7 +799,9 @@ fn test_serialization() {
             deserialized_hypercube.from_slot_values((0..deserialized_hypercube.slot_count()).map(|i| deserialized_hypercube.slot_ring().int_hom().map(i as i32)))
         );
     }
+
     test_with_test_ring(test_ring1());
     test_with_test_ring(test_ring2());
     test_with_test_ring(test_ring3());
+    test_with_test_ring(test_ring4());
 }

@@ -11,6 +11,7 @@ use feanor_math::delegate::DelegateRingImplFiniteRing;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::field::FieldStore;
 use feanor_math::homomorphism::CanHomFrom;
+use feanor_math::homomorphism::CanIsoFromTo;
 use feanor_math::rings::extension::*;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::rings::zn::*;
@@ -250,6 +251,127 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for CLPXPlaintextRingBase<Number
 
     fn apply_galois_action_many(&self, x: &Self::Element, gs: &[GaloisGroupEl]) -> Vec<Self::Element> {
         self.base.apply_galois_action_many(x, gs)
+    }
+}
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing,
+        ZnTy1: RingStore,
+        ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
+        ZnTy2: RingStore,
+        ZnTy2::Type: NiceZn,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type>,
+{
+    type Homomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Homomorphism> {
+        self.base.get_ring().has_canonical_hom(from.base.get_ring())
+    }
+
+    fn map_in(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, el: <CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().map_in(from.base.get_ring(), el, hom)
+    }
+
+    fn map_in_ref(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, el: &<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().map_in_ref(from.base.get_ring(), el, hom)
+    }
+
+    fn mul_assign_map_in(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, lhs: &mut Self::Element, rhs: <CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.base.get_ring().mul_assign_map_in(from.base.get_ring(), lhs, rhs, hom)
+    }
+
+    fn mul_assign_map_in_ref(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, lhs: &mut Self::Element, rhs: &<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.base.get_ring().mul_assign_map_in_ref(from.base.get_ring(), lhs, rhs, hom)
+    }
+
+    fn fma_map_in(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, lhs: &Self::Element, rhs: &<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, summand: Self::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().fma_map_in(from.base.get_ring(), lhs, rhs, summand, hom)
+    }
+}
+
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing,
+        ZnTy1: RingStore,
+        ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
+        ZnTy2: RingStore,
+        ZnTy2::Type: NiceZn,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type>,
+{
+    type Isomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Isomorphism;
+
+    fn has_canonical_iso(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Isomorphism> {
+        self.base.get_ring().has_canonical_iso(from.base.get_ring())
+    }
+
+    fn map_out(&self, from: &CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2>, el: Self::Element, iso: &Self::Isomorphism) -> <CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element {
+        self.base.get_ring().map_out(from.base.get_ring(), el, iso)
+    }
+}
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing,
+        ZnTy1: RingStore,
+        ZnTy1::Type: NiceZn + CanHomFrom<ZnTy2::Type>,
+        ZnTy2: RingStore,
+        ZnTy2::Type: NiceZn,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type>,
+{
+    type Homomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanHomFrom<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Homomorphism;
+
+    fn has_canonical_hom(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Homomorphism> {
+        self.base.get_ring().has_canonical_hom(from)
+    }
+
+    fn map_in(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, el: <NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().map_in(from, el, hom)
+    }
+
+    fn map_in_ref(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, el: &<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().map_in_ref(from, el, hom)
+    }
+
+    fn mul_assign_map_in(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, lhs: &mut Self::Element, rhs: <NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.base.get_ring().mul_assign_map_in(from, lhs, rhs, hom)
+    }
+
+    fn mul_assign_map_in_ref(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, lhs: &mut Self::Element, rhs: &<CLPXPlaintextRingBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, hom: &Self::Homomorphism) {
+        self.base.get_ring().mul_assign_map_in_ref(from, lhs, rhs, hom)
+    }
+
+    fn fma_map_in(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, lhs: &Self::Element, rhs: &<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element, summand: Self::Element, hom: &Self::Homomorphism) -> Self::Element {
+        self.base.get_ring().fma_map_in(from, lhs, rhs, summand, hom)
+    }
+}
+
+impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>> for CLPXPlaintextRingBase<NumberRing, ZnTy1, A1, C1>
+    where NumberRing: AbstractNumberRing,
+        ZnTy1: RingStore,
+        ZnTy1::Type: NiceZn + CanIsoFromTo<ZnTy2::Type>,
+        ZnTy2: RingStore,
+        ZnTy2::Type: NiceZn,
+        A1: Allocator + Clone,
+        C1: ConvolutionAlgorithm<ZnTy1::Type>,
+        A2: Allocator + Clone,
+        C2: ConvolutionAlgorithm<ZnTy2::Type>,
+{
+    type Isomorphism = <NumberRingQuotientByIdealBase<NumberRing, ZnTy1, A1, C1> as CanIsoFromTo<NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>>>::Isomorphism;
+
+    fn has_canonical_iso(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>) -> Option<Self::Isomorphism> {
+        self.base.get_ring().has_canonical_iso(from)
+    }
+
+    fn map_out(&self, from: &NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2>, el: Self::Element, iso: &Self::Isomorphism) -> <NumberRingQuotientByIdealBase<NumberRing, ZnTy2, A2, C2> as RingBase>::Element {
+        self.base.get_ring().map_out(from, el, iso)
     }
 }
 

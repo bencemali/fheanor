@@ -5,6 +5,7 @@ use std::ops::Range;
 
 use feanor_math::algorithms::convolution::STANDARD_CONVOLUTION;
 use feanor_math::algorithms::discrete_log::Subgroup;
+use feanor_math::algorithms::int_factor::is_prime_power;
 use feanor_math::matrix::OwnedMatrix;
 use feanor_math::ring::*;
 use feanor_math::rings::finite::FiniteRing;
@@ -24,6 +25,10 @@ use crate::ciphertext_ring::{perform_rns_op, BGFVCiphertextRing};
 use crate::gadget_product::digits::RNSGadgetVectorDigitIndices;
 use crate::gadget_product::*;
 use crate::number_ring::galois::*;
+use crate::number_ring::hypercube::isomorphism::BaseRing;
+use crate::number_ring::hypercube::isomorphism::DecoratedBaseRingBase;
+use crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism;
+use crate::number_ring::hypercube::structure::HypercubeStructure;
 use crate::number_ring::*;
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 use crate::ciphertext_ring::double_rns_managed::*;
@@ -217,6 +222,30 @@ pub trait CLPXInstantiation {
         println!();
     }
 
+    ///
+    /// Decrypts a given ciphertext and prints the values in its slots to stdout.
+    /// Designed for debugging purposes.
+    /// 
+    #[instrument(skip_all)]
+    fn dec_println_slots(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: &Ciphertext<Self>, sk: &SecretKey<Self>, dir: Option<&str>)
+        where DecoratedBaseRingBase<PlaintextRing<Self>>: CanIsoFromTo<BaseRing<PlaintextRing<Self>>>
+    {
+        let ZZ = P.base_ring().integer_ring();
+        let (p, _e) = is_prime_power(ZZ, P.base_ring().modulus()).unwrap();
+        let hypercube = if P.number_ring().galois_group().m() % 2 == 0 {
+            HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        } else {
+            HypercubeStructure::halevi_shoup_hypercube(P.acting_galois_group(), int_cast(p, ZZbig, ZZ))
+        };
+        let H = HypercubeIsomorphism::new::<false>(&P, &hypercube, dir);
+        let m = Self::dec(P, C, Self::clone_ct(C, ct), sk);
+        println!("ciphertext (noise budget: {}):", Self::noise_budget(P, C, ct, sk));
+        for a in H.get_slot_values(&m) {
+            H.slot_ring().println(&a);
+        }
+        println!();
+    }
+    
     ///
     /// Computes an encryption of the sum of two encrypted messages.
     /// 

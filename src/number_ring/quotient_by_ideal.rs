@@ -181,19 +181,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
             &factors[..],
             DontObserve
         )).try_into().ok().unwrap();
-
-        let [gcd, _] = factors;
-        let other_factor = FpX.checked_div(&ideal_generator_mod_p, &gcd).unwrap();
-        let factors = [gcd, other_factor];
-        let [lifted_gcd_check, _] = log_time::<_, _, LOG, _>("Checking", |[]| hensel_lift_factorization(
-            &reduction_context.intermediate_ring_to_field_reduction(0),
-            &ZpeX,
-            &FpX,
-            &ideal_generator,
-            &factors[..],
-            DontObserve
-        )).try_into().ok().unwrap();
-        assert_el_eq!(&ZpeX, &lifted_gcd, &lifted_gcd_check);
+        assert!(ZpeX.is_zero(&ZpeX.div_rem_monic(ideal_generator, &lifted_gcd).1));
         let rank = ZpeX.degree(&lifted_gcd).unwrap();
 
         let mut result = Self {

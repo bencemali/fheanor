@@ -528,7 +528,9 @@ impl<R> HypercubeIsomorphism<R>
         let mut modulus = SparseMapVector::new(d, Zpe.clone());
         let hom = WrapHom::new(Zpe.get_ring());
         for (c, i) in poly_ring.terms(factor) {
-            *modulus.at_mut(i) = Zpe.negate(hom.map_ref(c));
+            if i != d {
+                *modulus.at_mut(i) = Zpe.negate(hom.map_ref(c));
+            }
         }
         modulus.at_mut(0);
         let convolution = create_convolution(d, ring.base_ring().integer_ring().abs_log2_ceil(ring.base_ring().modulus()).unwrap());

@@ -12,6 +12,7 @@ use feanor_math::algorithms::linsolve::LinSolveRing;
 use feanor_math::integer::*;
 use feanor_math::iters::{multi_cartesian_product, MultiProduct};
 use feanor_math::matrix::OwnedMatrix;
+use feanor_math::pid::PrincipalIdealRing;
 use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;

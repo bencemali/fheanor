@@ -117,6 +117,14 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         &self.t
     }
 
+    pub fn normt_t_inv(&self) -> &El<DensePolyRing<BigIntRing>> {
+        &self.normt_t_inv
+    }
+
+    pub fn normt(&self) -> &El<BigIntRing> {
+        &self.normt
+    }
+
     pub fn ZZX(&self) -> &DensePolyRing<BigIntRing> {
         &self.ZZX
     }

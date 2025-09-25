@@ -22,7 +22,6 @@ use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
 use feanor_math::rings::zn::*;
-use feanor_math::assert_el_eq;
 use feanor_math::ring::*;
 use feanor_math::seq::*;
 use feanor_math::serialization::{SerializableElementRing, SerializeWithRing, DeserializeWithRing};
@@ -835,6 +834,8 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
 
 #[cfg(test)]
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
+#[cfg(test)]
+use feanor_math::assert_el_eq;
 
 #[test]
 fn test_quotient_by_ideal() {

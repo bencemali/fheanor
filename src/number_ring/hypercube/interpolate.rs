@@ -1,5 +1,5 @@
 
-use feanor_math::algorithms::extension_invert::invert_over_local_zn;
+use feanor_math::algorithms::zpe_extension::invert_over_local_zn;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::local::PrincipalLocalRing;
 use feanor_math::ring::*;

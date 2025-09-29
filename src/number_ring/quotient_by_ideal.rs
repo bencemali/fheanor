@@ -58,7 +58,7 @@ pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = Karat
 {
     number_ring: NumberRing,
     acting_galois_group: Subgroup<CyclotomicGaloisGroup>,
-    generator_powers: Vec<NumberRingQuotientEl<NumberRing, ZnTy, A, C>>,
+    generator_powers: Vec<NumberRingQuotientByIdealEl<NumberRing, ZnTy, A, C>>,
     allocator: A,
     reducer: BarettPolyReducer<ZnTy, C>,
 }
@@ -68,7 +68,7 @@ pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = Karat
 /// 
 pub type NumberRingQuotientByIdeal<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> = RingValue<NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>>;
 
-pub struct NumberRingQuotientEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
+pub struct NumberRingQuotientByIdealEl<NumberRing, ZnTy, A = Global, C = KaratsubaAlgorithm> 
     where NumberRing: AbstractNumberRing,
         ZnTy: RingStore,
         ZnTy::Type: NiceZn,
@@ -232,7 +232,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
             ].into_iter().chain((1..self.rank()).map(|i| 
                 self.base_ring().sub_ref_fst(&last[i - 1], self.base_ring().mul_ref(&last[rank - 1], &generating_poly[i]))
             )));
-            self.generator_powers.push(NumberRingQuotientEl { ring: PhantomData, data: new });
+            self.generator_powers.push(NumberRingQuotientByIdealEl { ring: PhantomData, data: new });
         }
     }
 }
@@ -325,7 +325,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
         self.convolution().compute_convolution_prepared(&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data), &mut result, self.base_ring());
         self.reducer.remainder(&mut result);
         result.truncate(self.rank());
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             ring: PhantomData,
             data: result
         };
@@ -346,7 +346,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
         }), &mut result, self.base_ring());
         self.reducer.remainder(&mut result);
         result.truncate(self.rank());
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             ring: PhantomData,
             data: result
         };
@@ -372,12 +372,12 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRi
         A: Allocator + Clone,
         C: ConvolutionAlgorithm<ZnTy::Type>
 {
-    type Element = NumberRingQuotientEl<NumberRing, ZnTy, A, C>;
+    type Element = NumberRingQuotientByIdealEl<NumberRing, ZnTy, A, C>;
 
     fn clone_el(&self, val: &Self::Element) -> Self::Element {
         let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
         result.extend(val.data.iter().map(|x| self.base_ring().clone_el(x)));
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };
@@ -431,7 +431,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRi
         self.convolution().compute_convolution_prepared(&lhs.data, None, &rhs.data, None, &mut result, self.base_ring());
         self.reducer.remainder(&mut result);
         result.truncate(self.rank());
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             ring: PhantomData,
             data: result
         };
@@ -455,7 +455,7 @@ impl<NumberRing, ZnTy, A, C> RingBase for NumberRingQuotientByIdealBase<NumberRi
     fn zero(&self) -> Self::Element {
         let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
         result.extend((0..self.rank()).map(|_| self.base_ring().zero()));
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };
@@ -514,6 +514,32 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIdealBase<Num
         result.data[0] = x;
         return result;
     }
+
+    fn fma_base(&self, lhs: &Self::Element, rhs: &El<Self::BaseRing>, summand: Self::Element) -> Self::Element {
+        assert_eq!(self.rank(), lhs.data.len());
+        assert_eq!(self.rank(), summand.data.len());
+        
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend(summand.data.into_iter().enumerate().map(|(i, x)| self.base_ring().fma(&lhs.data[i], rhs, x)));
+        return NumberRingQuotientByIdealEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn mul_assign_base(&self, lhs: &mut Self::Element, rhs: &El<Self::BaseRing>) {
+        assert_eq!(self.rank(), lhs.data.len());
+        for x in &mut lhs.data {
+            self.base_ring().mul_assign_ref(x, rhs);
+        }
+    }
+
+    fn mul_assign_base_through_hom<S: ?Sized + RingBase, H: Homomorphism<S, <Self::BaseRing as RingStore>::Type>>(&self, lhs: &mut Self::Element, rhs: &S::Element, hom: H) {
+        assert_eq!(self.rank(), lhs.data.len());
+        for x in &mut lhs.data {
+            hom.mul_assign_ref_map(x, rhs);
+        }
+    }
 }
 
 impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, C>
@@ -532,7 +558,7 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<Numbe
         let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
         result.extend(vec);
         assert_eq!(result.len(), self.rank());
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };
@@ -665,7 +691,7 @@ impl<NumberRing, ZnTy, A, C> FiniteRing for NumberRingQuotientByIdealBase<Number
     fn random_element<G: FnMut() -> u64>(&self, mut rng: G) -> Self::Element {
         let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
         result.extend((0..self.rank()).map(|_| self.base_ring().random_element(&mut rng)));
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };
@@ -729,7 +755,7 @@ impl<NumberRing, ZnTy, A, C> SerializableElementRing for NumberRingQuotientByIde
         if result.len() != self.rank() {
             return Err(serde::de::Error::invalid_length(result.len(), &format!("expected {} elements", self.rank()).as_str()));
         }
-        return Ok(NumberRingQuotientEl {
+        return Ok(NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         });
@@ -788,7 +814,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanHomFrom<NumberRingQuotientById
         assert_eq!(el.data.len(), self.rank());
         let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
         result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_in(from.base_ring().get_ring(), from.base_ring().clone_el(&el.data[i]), hom)));
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };
@@ -821,7 +847,7 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
         assert_eq!(el.data.len(), self.rank());
         let mut result = Vec::with_capacity_in(self.rank(), from.allocator.clone());
         result.extend((0..self.rank()).map(|i| self.base_ring().get_ring().map_out(from.base_ring().get_ring(), self.base_ring().clone_el(&el.data[i]), iso)));
-        return NumberRingQuotientEl {
+        return NumberRingQuotientByIdealEl {
             data: result,
             ring: PhantomData
         };

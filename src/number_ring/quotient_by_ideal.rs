@@ -17,7 +17,6 @@ use feanor_math::matrix::OwnedMatrix;
 use feanor_math::reduce_lift::poly_factor_gcd::IntegersWithLocalZnQuotient;
 use feanor_math::rings::extension::{FreeAlgebra, FreeAlgebraStore};
 use feanor_math::rings::finite::FiniteRing;
-use feanor_math::group::*;
 use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::pid::PrincipalIdealRingStore;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
@@ -36,7 +35,7 @@ use tracing::instrument;
 
 use crate::number_ring::galois::*;
 use crate::number_ring::poly_remainder::BarettPolyReducer;
-use crate::number_ring::{largest_prime_leq_congruent_to_one, AbstractNumberRing, NumberRingQuotient, NumberRingQuotientBases};
+use crate::number_ring::*;
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::serde::de::DeserializeSeed;
 use crate::*;
@@ -59,7 +58,7 @@ pub struct NumberRingQuotientByIdealBase<NumberRing, ZnTy, A = Global, C = Karat
 {
     number_ring: NumberRing,
     acting_galois_group: Subgroup<CyclotomicGaloisGroup>,
-    generator_galois_conjugates: Vec<(GaloisGroupEl, NumberRingQuotientEl<NumberRing, ZnTy, A, C>)>,
+    generator_powers: Vec<NumberRingQuotientEl<NumberRing, ZnTy, A, C>>,
     allocator: A,
     reducer: BarettPolyReducer<ZnTy, C>,
 }
@@ -186,58 +185,55 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
         let mut result = Self {
             acting_galois_group: acting_galois_group,
             allocator: allocator,
-            generator_galois_conjugates: Vec::new(),
+            generator_powers: Vec::new(),
             number_ring: number_ring,
             reducer: BarettPolyReducer::new(ZpeX, &lifted_gcd, 2 * rank - 2, convolution)
         };
-        log_time::<_, _, LOG, _>("Computing Galois data", |[]| result.init_galois_conjugates());
+        log_time::<_, _, LOG, _>("Computing Galois data", |[]| result.init_generator_powers());
         log_time::<_, _, LOG, _>("Checking acting Galois subgroup", |[]| result.check_galois_group());
         return RingValue::from(result);
     }
 
     #[instrument(skip_all)]
     fn check_galois_group(&self) {
-        let poly_ring = DensePolyRing::new(self.base_ring(), "X");
-        let modulus = self.reducer.modulus(&poly_ring);
-
+        let Zm = self.acting_galois_group().underlying_ring();
+        let ZZ_to_Zm = Zm.can_hom(&ZZi64).unwrap();
+        let rank = self.rank();
+        let generating_poly = self.reducer.modulus_coefficients();
+        assert_eq!(rank + 1, generating_poly.len());
+        
         // check that the galois group indeed fixes the ideal
-        for (_, conjugate) in &self.generator_galois_conjugates {
+        for g in self.acting_galois_group().enumerate_elements() {
+            let mut poly_at_galois_conjugate = self.zero();
+            for i in 0..generating_poly.len() {
+                let power = Zm.smallest_positive_lift(Zm.mul_ref_snd(ZZ_to_Zm.map(i as i64), self.acting_galois_group().as_ring_el(&g))) as usize;
+                poly_at_galois_conjugate = RingRef::new(self).inclusion().fma_map(&self.generator_powers[power], &generating_poly[i], poly_at_galois_conjugate);
+            }
             assert!(
-                self.is_zero(&poly_ring.evaluate(&modulus, conjugate, RingValue::from_ref(self).inclusion())),
+                self.is_zero(&poly_at_galois_conjugate),
                 "the given Galois group does not fix the given ideal"                
             );
         }
     }
 
     #[instrument(skip_all)]
-    fn init_galois_conjugates(&mut self) {
-        let number_ring = self.number_ring();
-        let acting_galois_group = self.acting_galois_group();
-        let hom = self.base_ring().can_hom(self.base_ring().integer_ring()).unwrap().compose(self.base_ring().integer_ring().can_hom(&ZZi64).unwrap());
-        
-        let galois_output_expansion = number_ring.can_to_inf_norm_expansion_factor() * number_ring.inf_to_can_norm_expansion_factor();
-        let tmp_p = largest_prime_leq_congruent_to_one(1 << 57, number_ring.mod_p_required_root_of_unity() as i64).unwrap();
-        assert!((tmp_p as f64) > 2. * galois_output_expansion);
-        let tmp_Fp = zn_64::Zn::new(tmp_p as u64);
-        let tmp_p_bases = number_ring.bases_mod_p(tmp_Fp);
-        let x_mult_basis = {
-            let mut data = (0..number_ring.rank()).map(|i| if i == 1 { tmp_Fp.one() } else { tmp_Fp.zero() }).collect::<Vec<_>>();
-            tmp_p_bases.coeff_basis_to_small_basis(&mut data);
-            tmp_p_bases.small_basis_to_mult_basis(&mut data);
-            data
-        };
-        let mut tmp = (0..number_ring.rank()).map(|_| tmp_Fp.zero()).collect::<Vec<_>>();
-        let galois_conjugates = acting_galois_group.enumerate_elements().map(|g| {
-            tmp_p_bases.permute_galois_action(&x_mult_basis, &mut tmp, &g);
-            tmp_p_bases.mult_basis_to_small_basis(&mut tmp);
-            tmp_p_bases.small_basis_to_coeff_basis(&mut tmp);
-            return (
-                g,
-                self.from_canonical_basis_extended(tmp.iter().copied().map(|x| hom.map(tmp_Fp.smallest_lift(x))))
-            )
-        }).collect::<Vec<_>>();
+    fn init_generator_powers(&mut self) {
+        let m = self.acting_galois_group().m() as usize;
+        let rank = self.rank();
+        let generating_poly = self.reducer.modulus_coefficients();
+        assert_eq!(rank + 1, generating_poly.len());
 
-        self.generator_galois_conjugates = galois_conjugates;
+        self.generator_powers.push(self.one());
+        for _ in 1..m {
+            let last = &self.generator_powers.last().unwrap().data;
+            let mut new = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+            new.extend([
+                self.base_ring().negate(self.base_ring().mul_ref(&last[rank - 1], &generating_poly[0]))
+            ].into_iter().chain((1..self.rank()).map(|i| 
+                self.base_ring().sub_ref_fst(&last[i - 1], self.base_ring().mul_ref(&last[rank - 1], &generating_poly[i]))
+            )));
+            self.generator_powers.push(NumberRingQuotientEl { ring: PhantomData, data: new });
+        }
     }
 }
 
@@ -266,7 +262,7 @@ impl<NumberRing, ZnTy, A, C> Clone for NumberRingQuotientByIdealBase<NumberRing,
             number_ring: self.number_ring.clone(),
             reducer: self.reducer.clone(),
             acting_galois_group: self.acting_galois_group.clone(),
-            generator_galois_conjugates: self.generator_galois_conjugates.iter().map(|(g, x)| (g.clone(), self.clone_el(x))).collect()
+            generator_powers: self.generator_powers.iter().map(|x| self.clone_el(x)).collect()
         }
     }
 }
@@ -291,13 +287,14 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotient for NumberRingQuotientByIdealBas
     #[instrument(skip_all)]
     fn apply_galois_action(&self, x: &Self::Element, g: &GaloisGroupEl) -> Self::Element {
         assert!(self.acting_galois_group().dlog(g).is_some());
-        let gen_conjugate = &self.generator_galois_conjugates.iter().filter(|(h, _)| self.acting_galois_group().eq_el(h, g)).next().unwrap().1;
-        let gen_conjugate_prepared = self.prepare_multiplicant(&gen_conjugate);
-        let result = x.data.iter().rev().fold(self.zero(), |current, next| {
-            let mut result = self.mul_prepared(&gen_conjugate, &gen_conjugate_prepared, &current, &self.prepare_multiplicant(&current));
-            self.base_ring().add_assign_ref(&mut result.data[0], next);
-            return result;
-        });
+        let Zm = self.acting_galois_group().underlying_ring();
+        let x_wrt_basis = self.wrt_canonical_basis(x);
+        let mut result = self.zero();
+        let mut current_idx = Zm.zero();
+        for c in x_wrt_basis.iter() {
+            result = RingRef::new(self).inclusion().fma_map(&self.generator_powers[Zm.smallest_positive_lift(current_idx) as usize], &c, result);
+            Zm.add_assign_ref(&mut current_idx, self.acting_galois_group().as_ring_el(g));
+        }
         return result;
     }
 }
@@ -544,13 +541,12 @@ impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIdealBase<Numbe
     fn from_canonical_basis_extended<V>(&self, vec: V) -> Self::Element
         where V: IntoIterator<Item = El<Self::BaseRing>>
     {
-        let m = self.number_ring().galois_group().m() as usize;
-        let mut result = Vec::with_capacity_in(m, self.allocator.clone());
-        result.resize_with(m, || self.base_ring().zero());
+        let m = self.acting_galois_group().m() as usize;
+        let mut result = self.zero();
         for (i, c) in vec.into_iter().enumerate() {
-            self.base_ring().add_assign(&mut result[i % m], c);
+            result = RingRef::new(self).inclusion().fma_map(&self.generator_powers[i % m], &c, result);
         }
-        return feanor_math::algorithms::extension_ops::from_canonical_basis_extended(self, result);
+        return result;
     }
 
     fn wrt_canonical_basis<'a>(&'a self, el: &'a Self::Element) -> Self::VectorRepresentation<'a> {
@@ -836,6 +832,8 @@ impl<NumberRing, ZnTy1, ZnTy2, A1, A2, C1, C2> CanIsoFromTo<NumberRingQuotientBy
 use crate::number_ring::pow2_cyclotomic::Pow2CyclotomicNumberRing;
 #[cfg(test)]
 use feanor_math::assert_el_eq;
+#[cfg(test)]
+use feanor_math::group::*;
 
 #[test]
 fn test_quotient_by_ideal() {

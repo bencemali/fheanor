@@ -491,7 +491,7 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
     let [t] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(4) - 2]);
     let P = NumberRingQuotientByIdealBase::new::<false>(number_ring, FpX, t, acting_galois_group);
     let h = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(257, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&P, &h, Some("."));
+    let H = HypercubeIsomorphism::new::<false>(&&P, &h, Some("."));
 
     let input = H.from_slot_values([
         H.slot_ring().zero(), 
@@ -515,7 +515,7 @@ fn test_slots_to_coeffs_non_cyclotomic_ring() {
     let [t] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(30) - X.pow_ref(2) + 6]);
     let P = NumberRingQuotientByIdealBase::new::<false>(number_ring, FpX, t, acting_galois_group);
     let h = HypercubeStructure::default_pow2_hypercube(P.acting_galois_group(), int_cast(665857, ZZbig, ZZi64));
-    let H = HypercubeIsomorphism::new::<false>(&P, &h, Some("."));
+    let H = HypercubeIsomorphism::new::<false>(&&P, &h, Some("."));
 
     let input = H.from_slot_values([
         H.slot_ring().zero(), 

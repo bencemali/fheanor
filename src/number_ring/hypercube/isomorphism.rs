@@ -893,12 +893,12 @@ fn test_hypercube_isomorphism_rotation() {
 fn test_serialization() {
 
     fn test_with_test_ring<R>((ring, hypercube_structure): (R, HypercubeStructure))
-        where R: RingStore + Clone,
+        where R: RingStore,
             R::Type: NumberRingQuotient,
             BaseRing<R>: NiceZn + SerializableElementRing + CanIsoFromTo<zn_64::ZnBase>,
             DecoratedBaseRingBase<R>: CanIsoFromTo<BaseRing<R>>
     {
-        let hypercube = HypercubeIsomorphism::new::<false>(&ring, &hypercube_structure, None);
+        let hypercube = HypercubeIsomorphism::new::<false>(&&ring, &hypercube_structure, None);
         let serializer = serde_assert::Serializer::builder().is_human_readable(true).build();
         let tokens = SerializableHypercubeIsomorphismWithoutRing::new(&hypercube).serialize(&serializer).unwrap();
         let mut deserializer = serde_assert::Deserializer::builder(tokens).is_human_readable(true).build();

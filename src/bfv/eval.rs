@@ -212,8 +212,8 @@ pub struct EncodedBFVPlaintextRingEl<Params: BFVInstantiation> {
 
 impl<Params: BFVInstantiation> EncodedBFVPlaintextRingBase<Params> {
 
-    pub fn new(P: PlaintextRing<Params>, C: CiphertextRing<Params>) -> Self {
-        Self { P, C }
+    pub fn new(P: PlaintextRing<Params>, C: CiphertextRing<Params>) -> RingValue<Self> {
+        RingValue::from(Self { P, C })
     }
 
     pub fn plaintext_ring(&self) -> &PlaintextRing<Params> {

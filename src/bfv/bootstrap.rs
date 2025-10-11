@@ -61,8 +61,7 @@ impl<Params> ThinBootstrapParams<Params>
     where Params: BFVInstantiation, 
         Params::PlaintextRing: SerializableElementRing,
         NumberRing<Params>: Clone,
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        Params::PlaintextRing: AsBFVPlaintext<Params>
 {
     pub fn build_pow2<const LOG: bool>(&self, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         let log2_m = ZZi64.abs_log2_ceil(&(self.scheme_params.number_ring().galois_group().m() as i64)).unwrap();
@@ -168,8 +167,7 @@ pub struct SparseKeyEncapsulationData<Params: BFVInstantiation> {
 
 impl<Params> SparseKeyEncapsulationData<Params>
     where Params: BFVInstantiation, 
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        Params::PlaintextRing: AsBFVPlaintext<Params>
 {
     pub fn create<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, C_switch_to_sparse: CiphertextRing<Params>, sparse_sk: SecretKey<Params>, standard_sk: &SecretKey<Params>, mut rng: R, noise_sigma: f64) -> Self {
         let switch_to_sparse_key = Params::gen_switch_key(
@@ -222,8 +220,7 @@ pub struct ThinBootstrapData<Params: BFVInstantiation> {
 
 impl<Params> ThinBootstrapData<Params>
     where Params: BFVInstantiation, 
-        Params::PlaintextRing: AsBFVPlaintext<Params>,
-        DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
+        Params::PlaintextRing: AsBFVPlaintext<Params>
 {
     pub fn create(
         params: &ThinBootstrapParams<Params>, 
@@ -448,9 +445,7 @@ impl DigitExtract {
         rk: &RelinKey<Params>,
         key_switches: &mut usize,
         debug_sk: Option<&SecretKey<Params>>
-    ) -> (Ciphertext<Params>, Ciphertext<Params>)
-        where DecoratedBaseRingBase<PlaintextRing<Params>>: CanIsoFromTo<BaseRing<PlaintextRing<Params>>>
-    {
+    ) -> (Ciphertext<Params>, Ciphertext<Params>) {
         let ZZ = P_base.base_ring().integer_ring();
         let (p, actual_r) = is_prime_power(ZZ, P_base.base_ring().modulus()).unwrap();
         assert_el_eq!(ZZbig, self.p(), int_cast(ZZ.clone_el(&p), ZZbig, ZZ));

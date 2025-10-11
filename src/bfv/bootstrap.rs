@@ -849,7 +849,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
     let bootstrap_params = ThinBootstrapParams {
         instantiation: params.clone(),
         v: 1,
-        digit_extract_error_bound: Some(5),
+        digit_extract_error_bound: Some(6),
         sparse_key_encapsulation_rns_factors: Some(2),
         t: int_cast(t, ZZbig, ZZi64),
         slots_to_coeffs_rns_factors: 6

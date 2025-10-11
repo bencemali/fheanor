@@ -15,7 +15,7 @@ use feanor_math::seq::VectorView;
 /// Wrap a `dyn DynConvolutionAlgorithm<R>` in [`DynConvolutionAlgorithmConvolution`]
 /// to use it as a [`ConvolutionAlgorithm`].
 /// 
-pub trait DynConvolutionAlgorithm<R>
+pub trait DynConvolutionAlgorithm<R>: Send + Sync
     where R: ?Sized + RingBase
 {
     ///
@@ -32,7 +32,7 @@ pub trait DynConvolutionAlgorithm<R>
 
 impl<R, C> DynConvolutionAlgorithm<R> for C
     where R: ?Sized + RingBase,
-        C: ConvolutionAlgorithm<R>
+        C: ConvolutionAlgorithm<R> + Send + Sync
 {
     fn compute_convolution_dyn(&self, lhs: &[R::Element], rhs: &[R::Element], dst: &mut [R::Element], ring: &R) {
         self.compute_convolution(lhs, rhs, dst, RingRef::new(ring));

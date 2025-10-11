@@ -33,6 +33,10 @@ pub struct ThinBootstrapParams<Params: BFVInstantiation> {
     /// `p^(r + v)` does not cause noise overflow, hence `v` must scale with the `l_1`-norm
     /// of the secret key.
     pub v: usize,
+    /// Bound on the inf-norm of the error during digit extraction. If this is set, it
+    /// is required that [`ThinBootstrapParams::v`] is `1`, if this is not set, it will
+    /// be implicitly assumed to be `p^v / 2`
+    pub B: Option<usize>,
     /// The plaintext modulus w.r.t. which the bootstrapped input is defined. 
     /// Must be a power of a prime 
     pub t: El<BigIntRing>,
@@ -48,9 +52,8 @@ pub struct ThinBootstrapParams<Params: BFVInstantiation> {
     /// 
     /// Note that the Slots-to-Coeffs transform explicitly uses hybrid key-switching, hence
     /// it will use some additional RNS factors to offset the noise added by the linear
-    /// transform. In other words, this number should be large enough for a modulus-switch
-    /// to an RNS base of this many moduli not to cause a noise overflow, but does not have
-    /// to consider additional noise caused by the Slots-to-Coeffs transform. 
+    /// transform. In other words, this number should be large enough for the Slots-to-Coeffs
+    /// transform, assuming the Galois automorphisms don't produce noise.
     pub pre_bootstrap_rns_factors: usize
 }
 
@@ -76,7 +79,12 @@ impl<Params> ThinBootstrapParams<Params>
         let plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), e));
         let original_plaintext_ring = self.scheme_params.create_plaintext_ring(ZZbig.pow(ZZbig.clone_el(&p), r));
 
-        let digit_extract = DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r);
+        let digit_extract = if let Some(B) = self.B {
+            assert_eq!(1, self.v);
+            DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
+        } else {
+            DigitExtract::new_default(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, r)
+        };
 
         let H = LazyCell::new(|| {
             let hypercube = HypercubeStructure::default_pow2_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
@@ -107,7 +115,11 @@ impl<Params> ThinBootstrapParams<Params>
 
         let p_i64 = int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig);
         let digit_extract = if p_i64 == 2 && e <= 23 {
+            assert!(self.B.is_none());
             DigitExtract::new_precomputed_p_is_2(p_i64, e, r)
+        } else if let Some(B) = self.B {
+            assert_eq!(1, self.v);
+            DigitExtract::new_bounded_error(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig), e, B as i64)
         } else {
             DigitExtract::new_default(p_i64, e, r)
         };
@@ -332,9 +344,9 @@ impl<Params> ThinBootstrapData<Params>
         assert_el_eq!(ZZbig, ZZbig.pow(self.p(), self.r()), int_cast(ZZ.clone_el(P_base.base_ring().modulus()), ZZbig, ZZ));
         log_time::<_, _, LOG, _>("Performing thin bootstrapping", |[]| {
 
-            if let Some(sk) = debug_sk {
-                Params::dec_println_slots(P_base, C, &ct, sk, None);
-            }
+            // if let Some(sk) = debug_sk {
+            //     Params::dec_println_slots(P_base, C, &ct, sk, None);
+            // }
 
             // First, we mod-switch the input ciphertext so that subsequent operations that less time; Note that we mod-switch it
             // to `self.pre_bootstrap_rns_factors` + special moduli RNS factors, where the special moduli are designed to take care
@@ -353,9 +365,9 @@ impl<Params> ThinBootstrapData<Params>
             let C_input = RingValue::from(C.get_ring().drop_rns_factor(&input_dropped_rns_factors));
             let ct_input = Params::mod_switch_ct(P_base, &C_input, C, ct);
             let sk_input = debug_sk.map(|sk| C_input.get_ring().drop_rns_factor_element(C.get_ring(), &input_dropped_rns_factors, &sk));
-            if let Some(sk) = &sk_input {
-                Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
-            }
+            // if let Some(sk) = &sk_input {
+            //     Params::dec_println_slots(P_base, &C_input, &ct_input, sk, None);
+            // }
 
             let values_in_coefficients = log_time::<_, _, LOG, _>("1. Computing Slots-to-Coeffs transform", |[key_switches]| {
                 let galois_group = P_base.acting_galois_group();
@@ -488,6 +500,7 @@ fn test_pow2_bfv_thin_bootstrapping_17() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 2,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };
@@ -532,6 +545,7 @@ fn test_pow2_bfv_thin_bootstrapping_23() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 2,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };
@@ -573,6 +587,7 @@ fn test_pow2_bfv_thin_bootstrapping_sparse_key_encapsulation() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 2,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };
@@ -617,6 +632,7 @@ fn test_composite_bfv_thin_bootstrapping_2() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 9,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };
@@ -690,6 +706,7 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 6,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };
@@ -727,6 +744,57 @@ fn measure_time_double_rns_composite_bfv_thin_bootstrapping() {
 
 #[test]
 #[ignore]
+fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
+    let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
+    tracing_subscriber::registry().with(filtered_chrome_layer).init();
+    
+    let mut rng = rand::rng();
+    
+    let params = Pow2BFV::new(1 << 16);
+    let t = 257;
+    let digits = 7;
+    let bootstrap_params = ThinBootstrapParams {
+        scheme_params: params.clone(),
+        v: 1,
+        B: Some(5),
+        t: int_cast(t, ZZbig, ZZi64),
+        pre_bootstrap_rns_factors: 6
+    };
+    let bootstrapper = bootstrap_params.build_pow2::<true>(Some("."));
+    
+    let P = params.create_plaintext_ring(int_cast(t, ZZbig, ZZi64));
+    let (C, C_mul) = params.create_ciphertext_rings(805..820);
+    
+    let sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(128));
+    let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+        let gk = Pow2BFV::gen_gk(&C, &mut rng, &sk, &g, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+        (g, gk)
+    }).collect::<Vec<_>>();
+    let rk = Pow2BFV::gen_rk(&C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(digits, C.base_ring().len()), 3.2);
+    let C_switch_to_sparse = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(2..C.base_ring().len(), C.base_ring().len())));
+    let sparse_sk = Pow2BFV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(32));
+    let sparse_sk_encapsulation_data = SparseKeyEncapsulationData::create(bootstrapper.intermediate_plaintext_ring(), &C, C_switch_to_sparse, sparse_sk, &sk, &mut rng, 3.2);
+
+    let m = P.int_hom().map(2);
+    let ct = Pow2BFV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
+    let res_ct = bootstrapper.bootstrap_thin::<true>(
+        &C, 
+        &C_mul, 
+        &P, 
+        ct, 
+        &rk, 
+        &gk,
+        Some(&sparse_sk_encapsulation_data),
+        Some(&sk)
+    );
+
+    println!("final noise budget: {}", Pow2BFV::noise_budget(&P, &C, &res_ct, &sk));
+    assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
+}
+
+#[test]
+#[ignore]
 fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let (chrome_layer, _guard) = tracing_chrome::ChromeLayerBuilder::new().build();
     let filtered_chrome_layer = chrome_layer.with_filter(tracing_subscriber::filter::filter_fn(|metadata| !["small_basis_to_mult_basis", "mult_basis_to_small_basis", "small_basis_to_coeff_basis", "coeff_basis_to_small_basis"].contains(&metadata.name())));
@@ -739,6 +807,7 @@ fn measure_time_single_rns_composite_bfv_thin_bootstrapping() {
     let bootstrap_params = ThinBootstrapParams {
         scheme_params: params.clone(),
         v: 6,
+        B: None,
         t: int_cast(t, ZZbig, ZZi64),
         pre_bootstrap_rns_factors: 2
     };

@@ -186,7 +186,7 @@ impl<R> HypercubeIsomorphism<R>
         // is always a nontrivial element of `<p> <= (Z/mZ)*`, where the characteristic of the
         // quotient is a power of `p`
         let (p, e) = is_prime_power(&ZZbig, &ring.characteristic(&ZZbig).unwrap()).unwrap();
-        assert!(hypercube_structure.galois_group().eq_el(&frobenius, &hypercube_structure.galois_group().from_representative(int_cast(ZZbig.clone_el(&p), ZZi64, ZZbig))));
+        assert!(hypercube_structure.galois_group().eq_el(&frobenius, &hypercube_structure.galois_group().from_ring_el(hypercube_structure.galois_group().underlying_ring().coerce(&ZZbig, ZZbig.clone_el(&p)))));
 
         let ring_ref = &ring;
         let convolution = create_convolution(d, ring_ref.base_ring().integer_ring().abs_log2_ceil(ring_ref.base_ring().modulus()).unwrap());
@@ -232,7 +232,7 @@ impl<R> HypercubeIsomorphism<R>
                 (0..d).map(|i| new_ring.base_ring().negate(new_ring.base_ring().clone_el(poly_ring.coefficient_at(&gen_poly, i)))).collect::<Vec<_>>(),
                 "𝝵",
                 Global,
-                create_convolution(d, ZZbig.abs_log2_ceil(&p).unwrap())
+                create_convolution(d, new_ring.base_ring().integer_ring().abs_log2_ceil(new_ring.base_ring().modulus()).unwrap())
             );
             let max_ideal_gen = new_slot_ring.inclusion().map(new_slot_ring.base_ring().coerce(&ZZbig, ZZbig.clone_el(&p)));
             return AsLocalPIR::from(AsLocalPIRBase::promise_is_local_pir(new_slot_ring, max_ideal_gen, Some(e)));
@@ -483,7 +483,7 @@ impl<R> HypercubeIsomorphism<R>
         let FpX = DensePolyRing::new_with_convolution(Fp, "X", Global, convolution);
         let Fp = FpX.base_ring();
         let Fq = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Creating Galois field", |[]|
-            GaloisField::new_with_convolution(Fp, d, Global, create_convolution(d, ZZbig.abs_log2_ceil(&p).unwrap()))
+            GaloisField::new_with_convolution(Fp, d, Global, create_convolution(d, Fp.integer_ring().abs_log2_ceil(Fp.modulus()).unwrap()))
         );
         let FqX = DensePolyRing::new(&Fq, "X");
         
@@ -533,7 +533,7 @@ impl<R> HypercubeIsomorphism<R>
             }
         }
         modulus.at_mut(0);
-        let convolution = create_convolution(d, ring.base_ring().integer_ring().abs_log2_ceil(ring.base_ring().modulus()).unwrap());
+        let convolution = create_convolution(d, Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
         let S = FreeAlgebraImpl::new_with_convolution(Zpe, d, modulus, "θ", Global, convolution);
         let ideal_gen = S.inclusion().map(S.base_ring().coerce(S.base_ring().integer_ring(), p));
         let S = RingValue::from(AsLocalPIRBase::promise_is_local_pir(S, ideal_gen, Some(e)));
@@ -562,7 +562,7 @@ impl<R> HypercubeIsomorphism<R>
         let Fp = RingValue::from(<<<R::Type as RingExtension>::BaseRing as RingStore>::Type as FromModulusCreateableZnRing>::from_modulus::<_, !>(|ZZ| 
             Ok(int_cast(ZZbig.clone_el(&p), RingRef::new(ZZ), ZZbig))
         ).unwrap_or_else(no_error)).as_field().ok().unwrap();
-        let convolution = create_convolution(d, ZZbig.abs_log2_ceil(&p).unwrap());
+        let convolution = create_convolution(d, Fp.integer_ring().abs_log2_ceil(Fp.modulus()).unwrap());
         let Fq = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Creating Galois field", |[]|
             GaloisField::new_with_convolution(Fp, d, Global, convolution)
         );
@@ -666,7 +666,7 @@ impl<R> HypercubeIsomorphism<R>
         let ZpeX = DensePolyRing::new_with_convolution(Zpe, "X", Global, convolution);
         let Zpe = ZpeX.base_ring();
 
-        let convolution = create_convolution(ring.rank(), Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
+        let convolution = create_convolution(2 * ring.rank(), Zpe.integer_ring().abs_log2_ceil(Zpe.modulus()).unwrap());
         let ZpeX_undecorated = DensePolyRing::new_with_convolution(ring.base_ring(), "X", Global, convolution);
         let ZZX = DensePolyRing::new(ZZi64, "X");
         let gen_poly = ring.number_ring().generating_poly(&ZZX);

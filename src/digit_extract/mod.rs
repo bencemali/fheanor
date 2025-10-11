@@ -12,6 +12,7 @@ use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
 use tracing::instrument;
 
 use crate::circuit::PlaintextCircuit;
+use crate::digit_extract::polys::bounded_digit_retain_poly;
 use crate::{ZZbig, ZZi64};
 
 ///
@@ -98,6 +99,27 @@ impl DigitExtract {
         assert!(digit_extraction_circuits.is_sorted_by_key(|(digits, _)| *digits.last().unwrap()));
         
         return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, r, StaticRing::<i64>::RING, digit_extraction_circuits);
+    }
+
+    ///
+    /// Creates a [`DigitExtract`] for a scalar ring `Z/p^eZ`.
+    /// 
+    /// Uses the Ma, Huang, Wang and Want digit extraction polynomials <https://ia.cr/2024/115> 
+    /// for errors bounded by `B` and large `p`, together with a heuristic method to compile them
+    /// into an algebraic circuit, based on the Paterson-Stockmeyer method.
+    /// 
+    #[instrument(skip_all)]
+    pub fn new_bounded_error(p: i64, e: usize, B: i64) -> Self {
+        assert!(is_prime(&StaticRing::<i64>::RING, &p, 10));
+        assert!(B >= 0);
+        assert!(2 * B + 1 <= p);
+        
+        let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, e) as u64), "X");
+        let digit_extraction_circuits = vec![
+            (vec![e], poly_to_circuit(&poly_ring, &[bounded_digit_retain_poly(&poly_ring, B)]))
+        ];
+        
+        return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, e - 1, StaticRing::<i64>::RING, digit_extraction_circuits);
     }
 }
 

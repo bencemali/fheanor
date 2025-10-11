@@ -635,7 +635,7 @@ fn measure_time_double_rns_pow2_bgv_thin_bootstrapping() {
         &rk, 
         &gk,
         sk_distr,
-        None
+        Some(&sk)
     );
     let C_result = Pow2BGV::mod_switch_down_C(&C_master, &ct_result.dropped_rns_factor_indices);
     let sk_result = Pow2BGV::mod_switch_sk(&C_result, &C_master, &sk);

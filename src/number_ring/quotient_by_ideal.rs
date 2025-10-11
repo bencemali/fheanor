@@ -181,6 +181,7 @@ impl<NumberRing, ZnTy, A, C> NumberRingQuotientByIdealBase<NumberRing, ZnTy, A, 
         )).try_into().ok().unwrap();
         assert!(ZpeX.is_zero(&ZpeX.div_rem_monic(ideal_generator, &lifted_gcd).1));
         let rank = ZpeX.degree(&lifted_gcd).unwrap();
+        assert_eq!(rank, acting_galois_group.group_order());
 
         let mut result = Self {
             acting_galois_group: acting_galois_group,

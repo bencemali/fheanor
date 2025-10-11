@@ -80,12 +80,18 @@ impl<NumberRing, ZnTy, A, C> CLPXPlaintextRingBase<NumberRing, ZnTy, A, C>
         let norm = log_time::<_, _, LOG, _>("Compute Resultant", |[]| 
             ZZbig.abs(<_ as ComputeResultantRing>::resultant(&poly_ring, poly_ring.clone_el(&gen_poly), poly_ring.clone_el(&t)))
         );
-        let rest = ZZbig.checked_div(&norm, &ZZbig.pow(base_ring.characteristic(ZZbig).unwrap(), int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig) as usize))
-            .expect("the given ideal does not match the quotient ring characteristic and/or Galois group");
-        assert!(
-            ZZbig.is_one(&signed_gcd(rest, base_ring.characteristic(ZZbig).unwrap(), ZZbig)), 
-            "the given ideal does not match the quotient ring characteristic and/or Galois group; note that the Galois group must have rank equal to the rank of the quotient ring"
-        );
+        let rest = if let Some(rest) = ZZbig.checked_div(&norm, &ZZbig.pow(base_ring.characteristic(ZZbig).unwrap(), int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig) as usize)) {
+            rest
+        } else {
+            panic!("the given ideal has norm {}, which is not divisible by {}^{}", ZZbig.format(&norm), ZZbig.format(&base_ring.characteristic(ZZbig).unwrap()), int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig))
+        };
+        if !ZZbig.is_one(&signed_gcd(rest, base_ring.characteristic(ZZbig).unwrap(), ZZbig)) {
+            panic!("the given ideal has norm {}, which is divisible by more than {} (= size of acting Galois group) powers of {}; note that the Galois group must have rank equal to the rank of the quotient ring", 
+                ZZbig.format(&norm), 
+                int_cast(acting_galois_group.subgroup_order(), ZZi64, ZZbig), 
+                ZZbig.format(&base_ring.characteristic(ZZbig).unwrap())
+            )
+        }
 
         // compute the inverse of `t(X)` modulo `Phi_m(X)`, which is required for encoding
         let ZZX_to_QQX = QQX.lifted_hom(&poly_ring, QQ.inclusion());

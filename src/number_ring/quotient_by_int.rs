@@ -400,6 +400,32 @@ impl<NumberRing, ZnTy, A, C> RingExtension for NumberRingQuotientByIntBase<Numbe
         result.data[0] = x;
         return result;
     }
+
+    fn fma_base(&self, lhs: &Self::Element, rhs: &El<Self::BaseRing>, summand: Self::Element) -> Self::Element {
+        assert_eq!(lhs.data.len(), self.m());
+        assert_eq!(summand.data.len(), self.m());
+        
+        let mut result = Vec::with_capacity_in(self.rank(), self.allocator.clone());
+        result.extend(summand.data.into_iter().enumerate().map(|(i, x)| self.base_ring().fma(&lhs.data[i], rhs, x)));
+        return NumberRingQuotientByIntEl {
+            data: result,
+            ring: PhantomData
+        };
+    }
+
+    fn mul_assign_base(&self, lhs: &mut Self::Element, rhs: &El<Self::BaseRing>) {
+        assert_eq!(lhs.data.len(), self.m());
+        for x in &mut lhs.data {
+            self.base_ring().mul_assign_ref(x, rhs);
+        }
+    }
+
+    fn mul_assign_base_through_hom<S: ?Sized + RingBase, H: Homomorphism<S, <Self::BaseRing as RingStore>::Type>>(&self, lhs: &mut Self::Element, rhs: &S::Element, hom: H) {
+        assert_eq!(lhs.data.len(), self.m());
+        for x in &mut lhs.data {
+            hom.mul_assign_ref_map(x, rhs);
+        }
+    }
 }
 
 impl<NumberRing, ZnTy, A, C> FreeAlgebra for NumberRingQuotientByIntBase<NumberRing, ZnTy, A, C>

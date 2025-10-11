@@ -183,7 +183,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
     /// Performs reduction modulo `X^m - 1`.
     /// 
     #[instrument(skip_all)]
-    pub(super) fn reduce_modulus_partly(&self, k: usize, buffer: &mut [ZnEl], output: &mut [ZnEl]) {
+    fn reduce_modulus_partly(&self, k: usize, buffer: &mut [ZnEl], output: &mut [ZnEl]) {
         assert_eq!(self.m(), output.len());
         let Zp = self.base_ring().at(k);
                 for i in 0..self.m() {
@@ -195,7 +195,7 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
     /// Performs reduction modulo `Phi_m`.
     /// 
     #[instrument(skip_all)]
-    pub(super) fn reduce_modulus_complete(&self, el: &mut SingleRNSRingEl<NumberRing, A, C>) {
+    fn reduce_modulus_complete(&self, el: &mut SingleRNSRingEl<NumberRing, A, C>) {
         let mut el_matrix = self.coefficients_as_matrix_mut(el);
         for k in 0..self.base_ring().len() {
             self.poly_moduli[k].remainder(el_matrix.row_mut_at(k));
@@ -206,11 +206,11 @@ impl<NumberRing, A, C> SingleRNSRingBase<NumberRing, A, C>
         assert_eq!(self.m() as usize * self.base_ring().len(), el.coefficients.len());
     }
 
-    pub(super) fn coefficients_as_matrix<'a>(&self, element: &'a SingleRNSRingEl<NumberRing, A, C>) -> Submatrix<'a, AsFirstElement<ZnEl>, ZnEl> {
+    pub fn coefficients_as_matrix<'a>(&self, element: &'a SingleRNSRingEl<NumberRing, A, C>) -> Submatrix<'a, AsFirstElement<ZnEl>, ZnEl> {
         Submatrix::from_1d(&element.coefficients, self.base_ring().len(), self.m())
     }
 
-    pub(super) fn coefficients_as_matrix_mut<'a>(&self, element: &'a mut SingleRNSRingEl<NumberRing, A, C>) -> SubmatrixMut<'a, AsFirstElement<ZnEl>, ZnEl> {
+    pub fn coefficients_as_matrix_mut<'a>(&self, element: &'a mut SingleRNSRingEl<NumberRing, A, C>) -> SubmatrixMut<'a, AsFirstElement<ZnEl>, ZnEl> {
         SubmatrixMut::from_1d(&mut element.coefficients, self.base_ring().len(), self.m())
     }
 

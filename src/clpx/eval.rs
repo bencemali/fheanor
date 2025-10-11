@@ -229,6 +229,6 @@ fn test_hom_evaluate_circuit() {
     let [f] = FpX.with_wrapped_indeterminate(|X| [X.pow_ref(7) - 3 * X.pow_ref(3) + 2 * X + 10]);
     let circuit = poly_to_circuit(&FpX, from_ref(&f));
 
-    let res = circuit.evaluate_clpx::<Pow2CLPX, _>(ZZi64, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
+    let res = circuit.evaluate_clpx::<Pow2CLPX, _>(ZZbig, &P, &C, Some(&C_mul), &[ct], Some(&rk), &[], &mut 0, None).into_iter().next().unwrap();
     assert_el_eq!(&P, P.inclusion().map(FpX.evaluate(&f, &P.wrt_canonical_basis(&m).at(0), FpX.base_ring().identity())), &Pow2CLPX::dec(&P, &C, res, &sk));
 }

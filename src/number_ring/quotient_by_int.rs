@@ -207,12 +207,12 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
     }
 
     #[instrument(skip_all)]
-    fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: &Self::PreparedMultiplicant, rhs: &Self::Element, rhs_prep: &Self::PreparedMultiplicant) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, lhs_prep: Option<&Self::PreparedMultiplicant>, rhs: &Self::Element, rhs_prep: Option<&Self::PreparedMultiplicant>) -> Self::Element {
         assert_eq!(self.m(), lhs.data.len());
         assert_eq!(self.m(), rhs.data.len());
         let mut result = Vec::with_capacity_in(2 * self.m(), self.allocator.clone());
         result.resize_with(2 * self.m(), || self.base_ring().zero());
-        self.convolution().compute_convolution_prepared(&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data), &mut result, self.base_ring());
+        self.convolution().compute_convolution_prepared(&lhs.data, lhs_prep.map(|x| &x.data), &rhs.data, rhs_prep.map(|x| &x.data), &mut result, self.base_ring());
         let (part1, part2) = result.split_at_mut(self.m());
         for (dst, src) in part1.iter_mut().zip(part2.iter()) {
             self.base_ring().add_assign_ref(dst, src);
@@ -226,7 +226,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
 
     #[instrument(skip_all)]
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::Element, &'a Self::PreparedMultiplicant, &'a Self::Element, &'a Self::PreparedMultiplicant)>,
+        where I: IntoIterator<Item = (&'a Self::Element, Option<&'a Self::PreparedMultiplicant>, &'a Self::Element, Option<&'a Self::PreparedMultiplicant>)>,
             I::IntoIter: ExactSizeIterator,
             Self: 'a
     {
@@ -235,7 +235,7 @@ impl<NumberRing, ZnTy, A, C> PreparedMultiplicationRing for NumberRingQuotientBy
         self.convolution().compute_convolution_sum(parts.into_iter().map(|(lhs, lhs_prep, rhs, rhs_prep)| {
             assert_eq!(self.m(), lhs.data.len());
             assert_eq!(self.m(), rhs.data.len());
-            (&lhs.data, Some(&lhs_prep.data), &rhs.data, Some(&rhs_prep.data))
+            (&lhs.data, lhs_prep.map(|x| &x.data), &rhs.data, rhs_prep.map(|x| &x.data))
         }), &mut result, self.base_ring());
         self.reducer.remainder(&mut result);
         result.truncate(self.m());

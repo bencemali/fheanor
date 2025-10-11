@@ -207,9 +207,9 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
         let lhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(lhs[i]));
         let rhs_prep: [_; 2] = from_fn(|i| self.prepare_multiplicant(rhs[i]));
         [
-            self.mul_prepared(lhs[0], &lhs_prep[0], rhs[0], &rhs_prep[0]),
-            self.inner_product_prepared([(lhs[0], &lhs_prep[0], rhs[1], &rhs_prep[1]), (lhs[1], &lhs_prep[1], rhs[0], &rhs_prep[0])]),
-            self.mul_prepared(lhs[1], &lhs_prep[1], rhs[1], &rhs_prep[1])
+            self.mul_prepared(lhs[0], Some(&lhs_prep[0]), rhs[0], Some(&rhs_prep[0])),
+            self.inner_product_prepared([(lhs[0], Some(&lhs_prep[0]), rhs[1], Some(&rhs_prep[1])), (lhs[1], Some(&lhs_prep[1]), rhs[0], Some(&rhs_prep[0]))]),
+            self.mul_prepared(lhs[1], Some(&lhs_prep[1]), rhs[1], Some(&rhs_prep[1]))
         ]
     }
 }

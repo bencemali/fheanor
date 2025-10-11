@@ -86,6 +86,7 @@ impl<Params> ThinBootstrapParams<Params>
         NumberRing<Params>: Clone,
         CiphertextRing<Params>: Clone
 {
+    #[instrument(skip_all)]
     pub fn build_pow2<const LOG: bool>(&self, C: &CiphertextRing<Params>, gk_digits: &RNSGadgetVectorDigitIndices, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         let log2_m = ZZi64.abs_log2_ceil(&(self.instantiation.number_ring().galois_group().m() as i64)).unwrap();
         assert_eq!(self.instantiation.number_ring().galois_group().m(), 1 << log2_m);
@@ -140,6 +141,7 @@ impl<Params> ThinBootstrapParams<Params>
         );
     }
 
+    #[instrument(skip_all)]
     pub fn build_odd<const LOG: bool>(&self, C: &CiphertextRing<Params>, gk_digits: &RNSGadgetVectorDigitIndices, cache_dir: Option<&str>) -> ThinBootstrapData<Params> {
         assert!(self.instantiation.number_ring().galois_group().m() % 2 != 0);
 
@@ -270,6 +272,7 @@ impl<Params> ThinBootstrapData<Params>
     where Params: BFVInstantiation, 
         Params::PlaintextRing: AsBFVPlaintext<Params>
 {
+    #[instrument(skip_all)]
     pub fn create(
         instantiation: &Params,
         digit_extract: DigitExtract, 
@@ -884,7 +887,7 @@ fn measure_time_double_rns_pow2_bfv_thin_bootstrapping() {
         &rk, 
         &gk,
         Some(&sparse_sk_encapsulation_data),
-        Some(&sk)
+        None
     );
 
     println!("final noise budget: {}", Pow2BFV::noise_budget(&P, &C, &res_ct, &sk));

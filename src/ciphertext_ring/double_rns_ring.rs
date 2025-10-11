@@ -947,12 +947,16 @@ impl<NumberRing, A> PreparedMultiplicationRing for DoubleRNSRingBase<NumberRing,
         ()
     }
 
-    fn mul_prepared(&self, lhs: &Self::Element, _: &(), rhs: &Self::Element, _: &()) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>) -> Self::Element {
         self.mul_ref(lhs, rhs)
+    }
+
+    fn fma_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>, dst: Self::Element) -> Self::Element {
+        self.fma(lhs, rhs, dst)
     }
     
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
+        where I: IntoIterator<Item = (&'a Self::Element, Option<&'a ()>, &'a Self::Element, Option<&'a ()>)>,
             Self: 'a
     {
         <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))

@@ -310,7 +310,7 @@ pub trait BFVInstantiation {
     fn hom_add(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
         let (rhs0, rhs1) = rhs;
-        return (C.add_ref(&lhs0, &rhs0), C.add_ref(&lhs1, &rhs1));
+        return (C.add_ref_snd(lhs0, &rhs0), C.add_ref_snd(lhs1, &rhs1));
     }
     
     ///
@@ -324,7 +324,7 @@ pub trait BFVInstantiation {
     fn hom_sub(C: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: &Ciphertext<Self>) -> Ciphertext<Self> {
         let (lhs0, lhs1) = lhs;
         let (rhs0, rhs1) = rhs;
-        return (C.sub_ref(&lhs0, rhs0), C.sub_ref(&lhs1, rhs1));
+        return (C.sub_ref_snd(lhs0, rhs0), C.sub_ref_snd(lhs1, rhs1));
     }
     
     ///

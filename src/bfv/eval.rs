@@ -14,6 +14,7 @@ use crate::circuit::*;
 use crate::number_ring::*;
 use crate::number_ring::galois::*;
 use crate::bfv::DefaultCircuitEvaluator;
+use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::{ZZi64, ZZbig};
 
 ///
@@ -207,7 +208,8 @@ pub type EncodedBFVPlaintextRing<Params> = RingValue<EncodedBFVPlaintextRingBase
 
 pub struct EncodedBFVPlaintextRingEl<Params: BFVInstantiation> {
     el: El<PlaintextRing<Params>>,
-    encoded: El<CiphertextRing<Params>>
+    encoded: El<CiphertextRing<Params>>,
+    prepared: <<CiphertextRing<Params> as RingStore>::Type as PreparedMultiplicationRing>::PreparedMultiplicant
 }
 
 impl<Params: BFVInstantiation> EncodedBFVPlaintextRingBase<Params> {
@@ -241,8 +243,11 @@ impl<Params: BFVInstantiation> DelegateRing for EncodedBFVPlaintextRingBase<Para
     }
 
     fn rev_delegate(&self, el: <Self::Base as RingBase>::Element) -> Self::Element {
+        let encoded = Params::encode_plain_multiplicant(&self.P, &self.C, &el);
+        let prepared = self.C.get_ring().prepare_multiplicant(&encoded);
         EncodedBFVPlaintextRingEl {
-            encoded: Params::encode_plain_multiplicant(&self.P, &self.C, &el),
+            prepared: prepared,
+            encoded: encoded,
             el: el
         }
     }
@@ -250,6 +255,17 @@ impl<Params: BFVInstantiation> DelegateRing for EncodedBFVPlaintextRingBase<Para
     fn delegate(&self, el: Self::Element) -> <Self::Base as RingBase>::Element { el.el }
     fn delegate_ref<'a>(&self, el: &'a Self::Element) -> &'a <Self::Base as RingBase>::Element { &el.el }
     fn delegate_mut<'a>(&self, el: &'a mut Self::Element) -> &'a mut <Self::Base as RingBase>::Element { &mut el.el }
+}
+
+impl<Params: BFVInstantiation> RingBase for EncodedBFVPlaintextRingBase<Params> {
+
+    fn clone_el(&self, val: &Self::Element) -> Self::Element {
+        EncodedBFVPlaintextRingEl {
+            el: self.P.clone_el(&val.el),
+            encoded: self.C.clone_el(&val.encoded),
+            prepared: self.C.get_ring().prepare_multiplicant(&val.encoded)
+        }
+    }
 }
 
 impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for EncodedBFVPlaintextRingBase<Params> {
@@ -265,15 +281,19 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for EncodedBFVPlaintextRin
         Params::hom_add_plain(P, C, &m.el, ct)
     }
 
+    #[instrument(skip_all)]
     fn hom_mul(
         &self, 
-        P: &PlaintextRing<Params>, 
+        _P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
         m: &<Self as RingBase>::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
         assert!(self.C.get_ring() == C.get_ring());
-        Params::hom_mul_plain_encoded(P, C, &m.encoded, ct)
+        (
+            C.get_ring().mul_prepared(&ct.0, None, &m.encoded, Some(&m.prepared)),
+            C.get_ring().mul_prepared(&ct.1, None, &m.encoded, Some(&m.prepared)),
+        )
     }
 
     #[instrument(skip_all)]
@@ -282,11 +302,13 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for EncodedBFVPlaintextRin
         _P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
         dst: Ciphertext<Params>,
-        lhs: &<Self as RingBase>::Element, 
+        lhs: &Self::Element, 
         rhs: &Ciphertext<Params>
-    ) -> Ciphertext<Params> {
-        assert!(self.C.get_ring() == C.get_ring());
-        (C.fma(&rhs.0, &lhs.encoded, dst.0), C.fma(&rhs.1, &lhs.encoded, dst.1))
+    ) -> Ciphertext<Params> {assert!(self.C.get_ring() == C.get_ring());
+        (
+            C.get_ring().fma_prepared(&rhs.0, None, &lhs.encoded, Some(&lhs.prepared), dst.0),
+            C.get_ring().fma_prepared(&rhs.1, None, &lhs.encoded, Some(&lhs.prepared), dst.1),
+        )
     }
 
     fn apply_galois_action_plain(
@@ -321,7 +343,7 @@ impl<R: RingBase> PlaintextCircuit<R> {
         assert_eq!(C_mul.is_some(), rk.is_some());
         let galois_group = C.acting_galois_group();
         let key_switches = RefCell::new(key_switches);
-        return self.evaluate_generic(
+        let result = self.evaluate_generic(
             inputs,
             DefaultCircuitEvaluator::<_, R, _, _, _, _, _, _>::new(
                 |x| match x {
@@ -332,7 +354,8 @@ impl<R: RingBase> PlaintextCircuit<R> {
                     Coefficient::Zero => dst,
                     Coefficient::One => Params::hom_add(C, dst, ct),
                     Coefficient::NegOne => Params::hom_sub(C, dst, ct),
-                    x => ring.get_ring().hom_fma(P, C, dst, &x.clone(ring).to_ring_el(ring), ct)
+                    Coefficient::Integer(x) => Params::hom_fma_plain_int(P, C, dst, &int_cast(*x as i64, ZZbig, ZZi64), ct),
+                    Coefficient::Other(x) => ring.get_ring().hom_fma(P, C, dst, x, ct)
                 }
             ).with_mul(|lhs, rhs| {
                 **key_switches.borrow_mut() += 1;
@@ -352,6 +375,7 @@ impl<R: RingBase> PlaintextCircuit<R> {
                 }))
             })
         );
+        return result;
     }
 }
 

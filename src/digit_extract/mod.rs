@@ -6,6 +6,7 @@ use feanor_math::ordered::*;
 use feanor_math::primitive_int::{StaticRing, StaticRingBase};
 use feanor_math::ring::*;
 use feanor_math::rings::poly::dense_poly::DensePolyRing;
+use feanor_math::rings::poly::PolyRingStore;
 use feanor_math::rings::zn::zn_64::Zn;
 use feanor_math::homomorphism::*;
 use polys::{digit_retain_poly, poly_to_circuit, precomputed_p_2};
@@ -110,13 +111,16 @@ impl DigitExtract {
     /// 
     #[instrument(skip_all)]
     pub fn new_bounded_error(p: i64, e: usize, B: i64) -> Self {
-        assert!(is_prime(&StaticRing::<i64>::RING, &p, 10));
+        assert!(is_prime(&ZZi64, &p, 10));
         assert!(B >= 0);
         assert!(2 * B + 1 <= p);
         
         let poly_ring = DensePolyRing::new(Zn::new(StaticRing::<i64>::RING.pow(p, e) as u64), "X");
+        let p_half = poly_ring.inclusion().map(poly_ring.base_ring().coerce(&ZZi64, p / 2));
         let digit_extraction_circuits = vec![
-            (vec![e], poly_to_circuit(&poly_ring, &[bounded_digit_retain_poly(&poly_ring, B)]))
+            (vec![e], poly_to_circuit(&poly_ring, &[
+                poly_ring.add(poly_ring.evaluate(&bounded_digit_retain_poly(&poly_ring, B), &poly_ring.sub_ref_snd(poly_ring.indeterminate(), &p_half), poly_ring.inclusion()), p_half)
+            ]))
         ];
         
         return Self::new_with_circuits(int_cast(p, ZZbig, ZZi64), e, e - 1, StaticRing::<i64>::RING, digit_extraction_circuits);

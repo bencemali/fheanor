@@ -585,7 +585,7 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
 {
     type PreparedMultiplicant = ();
 
-    fn mul_prepared(&self, lhs: &Self::Element, _lhs_prep: &(), rhs: &Self::Element, _rhs_prep: &()) -> Self::Element {
+    fn mul_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>) -> Self::Element {
         self.mul_ref(lhs, rhs)
     }
 
@@ -594,8 +594,12 @@ impl<NumberRing, A> PreparedMultiplicationRing for ManagedDoubleRNSRingBase<Numb
         return ();
     }
 
+    fn fma_prepared(&self, lhs: &Self::Element, _: Option<&()>, rhs: &Self::Element, _: Option<&()>, dst: Self::Element) -> Self::Element {
+        self.fma(lhs, rhs, dst)
+    }
+
     fn inner_product_prepared<'a, I>(&self, parts: I) -> Self::Element
-        where I: IntoIterator<Item = (&'a Self::Element, &'a (), &'a Self::Element, &'a ())>,
+        where I: IntoIterator<Item = (&'a Self::Element, Option<&'a ()>, &'a Self::Element, Option<&'a ()>)>,
             Self: 'a
     {
         <_ as ComputeInnerProduct>::inner_product_ref(self, parts.into_iter().map(|(lhs, _, rhs, _)| (lhs, rhs)))
@@ -843,12 +847,34 @@ impl<NumberRing, A> RingBase for ManagedDoubleRNSRingBase<NumberRing, A>
     }
 
     fn mul_ref(&self, lhs: &Self::Element, rhs: &Self::Element) -> Self::Element {
-        let result = if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
-            self.base.mul_ref(&*lhs, &*rhs)
+        if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
+            self.from_double_rns_repr(self.base.mul_ref(&*lhs, &*rhs))
         } else {
-            return self.zero();
-        };
-        return self.from_double_rns_repr(result);
+            self.zero()
+        }
+    }
+
+    fn fma(&self, lhs: &Self::Element, rhs: &Self::Element, summand: Self::Element) -> Self::Element {
+        if let (Some(lhs), Some(rhs)) = (self.to_doublerns(lhs), self.to_doublerns(rhs)) {
+            match summand.internal.get_repr() {
+                ManagedDoubleRNSElRepresentation::DoubleRNS(double_rns_repr) => {
+                    return self.from_double_rns_repr(self.unmanaged_ring().fma(lhs, rhs, double_rns_repr.to_owned(|x| self.unmanaged_ring().clone_el(x))));
+                },
+                ManagedDoubleRNSElRepresentation::Sum(parts) => {
+                    return self.new_element_sum(
+                        self.unmanaged_ring().get_ring().clone_el_non_fft(&parts.0),
+                        self.unmanaged_ring().fma(lhs, rhs, self.unmanaged_ring().clone_el(&parts.1))
+                    )
+                },
+                ManagedDoubleRNSElRepresentation::Zero => {
+                    return self.from_double_rns_repr(self.unmanaged_ring().mul_ref(lhs, rhs))
+                },
+                _ => {}
+            };
+            return self.add(summand, self.from_double_rns_repr(self.unmanaged_ring().mul_ref(lhs, rhs)));
+        } else {
+            return summand;
+        }
     }
 
     fn pow_gen<R: IntegerRingStore>(&self, x: Self::Element, power: &El<R>, integers: R) -> Self::Element 

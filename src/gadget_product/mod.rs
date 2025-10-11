@@ -263,7 +263,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
         assert_eq!(self.element_decomposition.len(), rhs.scaled_element.len(), "Gadget product operands created w.r.t. different digit sets");
         return ring.inner_product_prepared(
             self.element_decomposition.iter().zip(rhs.scaled_element.iter())
-                .filter_map(|((lhs_prep, lhs), rhs)| rhs.as_ref().map(|(rhs_prep, rhs)| (lhs, lhs_prep, rhs, rhs_prep)))
+                .filter_map(|((lhs_prep, lhs), rhs)| rhs.as_ref().map(|(rhs_prep, rhs)| (lhs, Some(lhs_prep), rhs, Some(rhs_prep))))
                 .collect::<Vec<_>>()
         );
     }

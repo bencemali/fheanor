@@ -1,4 +1,8 @@
-# Fheanor
+# Fheanor (bence's personal fork)
+
+> [!WARNING]  
+> This fork depends on [bencemali/feanor-math](https://github.com/bencemali/feanor-math) as a git submodule.  
+> Issue `git submodule update --init --recursive` before build.
 
 ## A toolkit library to build Homomorphic Encryption
 

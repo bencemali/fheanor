@@ -113,6 +113,11 @@ pub struct KeySwitchKey<'a, Params: ?Sized + BGVInstantiation> {
 
 impl<'a, Params: ?Sized + BGVInstantiation> KeySwitchKey<'a, Params> {
 
+    pub fn new(k0: RNSGadgetProductRhsOperand<Params::CiphertextRing>, k1: RNSGadgetProductRhsOperand<Params::CiphertextRing>) -> Self {
+        let ring = PhantomData;
+        Self { k0, k1, ring }
+    }
+
     ///
     /// Returns the digits used for the gadget vector
     /// 
@@ -544,11 +549,7 @@ pub trait BGVInstantiation {
                 res1.set_rns_factor(C.get_ring(), digit_i, base.c1);
             }
         }
-        return KeySwitchKey {
-            k0: res0,
-            k1: res1,
-            ring: PhantomData
-        };
+        return KeySwitchKey::new(res0, res1);
     }
 
     ///
@@ -869,17 +870,12 @@ pub trait BGVInstantiation {
     fn mod_switch_down_rk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<'a, Self>) -> RelinKey<'b, Self> {
         let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
         if drop_moduli.len() == 0 {
-            KeySwitchKey {
-                k0: rk.k0.clone(Cnew.get_ring()),
-                k1: rk.k1.clone(Cnew.get_ring()),
-                ring: PhantomData
-            }
+            KeySwitchKey::new(rk.k0().clone(Cnew.get_ring()), rk.k1().clone(Cnew.get_ring()))
         } else {
-            KeySwitchKey {
-                k0: rk.k0.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
-                k1: rk.k1.clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()), 
-                ring: PhantomData
-            }
+            KeySwitchKey::new(
+                rk.k0().clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()),
+                rk.k1().clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
+            )
         }
     }
 

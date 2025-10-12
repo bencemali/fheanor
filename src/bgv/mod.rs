@@ -1433,21 +1433,26 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
     let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
     let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
-    let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
+    let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()));
 
     let input = P.int_hom().map(2);
     let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk));
-    let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, ctxt, &switch_key);
-    let result = Pow2BGV::dec(&P, &C, result_ctxt, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new));
+    let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &switch_key);
+    let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new));
     assert_el_eq!(&P, P.int_hom().map(2), result);
 
-    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
-    let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
+    let critical_quantity_size = |ct: &Ciphertext<Pow2BGV>, sk: &SecretKey<Pow2BGV>| C.wrt_canonical_basis(&C.add_ref_fst(&ct.c0, C.mul_ref_fst(&ct.c1, Pow2BGV::mod_switch_sk(&C, &C_special, sk))))
+        .iter().map(|c| ZZbig.abs_log2_ceil(&C.base_ring().smallest_lift(c)).unwrap_or(0)).max().unwrap();
+    assert!(critical_quantity_size(&result_ctxt, &sk_new) <= critical_quantity_size(&ctxt, &sk) + 4, "critical quantity size increased too much; {} increased to {}", critical_quantity_size(&ctxt, &sk), critical_quantity_size(&result_ctxt, &sk_new));
+
+    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()));
+    let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
-    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, ctxt, &rk);
-    let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current);
+    let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &rk);
+    let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
     assert_el_eq!(&P, P.int_hom().map(4), result);
+    assert!(critical_quantity_size(&result_ctxt, &sk) <= critical_quantity_size(&ctxt, &sk) + 20, "critical quantity size increased too much; {} increased to {}", critical_quantity_size(&ctxt, &sk), critical_quantity_size(&result_ctxt, &sk));
 
     let special_modulus_factors = RNSFactorIndexList::from(vec![0, 1], C_special.base_ring().len());
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);

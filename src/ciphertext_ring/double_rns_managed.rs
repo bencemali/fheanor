@@ -1015,8 +1015,8 @@ impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing,
     {
         self.from_double_rns_repr(<_ as ComputeInnerProduct>::inner_product_ref(
             &self.base, 
-            els.map(|(l, r)| (self.to_doublerns(l), self.to_doublerns(r)))
-                .filter_map(|(l, r)| l.and_then(|l| r.map(|r| (l, r))))
+            els.filter(|(l, r)| l.internal.get_repr().get_kind() == ManagedDoubleRNSElRepresentationKind::Zero || r.internal.get_repr().get_kind() == ManagedDoubleRNSElRepresentationKind::Zero)
+                .map(|(l, r)| (self.to_doublerns(l).unwrap(), self.to_doublerns(r).unwrap()))
         ))
     }
 

@@ -1015,7 +1015,7 @@ impl<NumberRing, A> ComputeInnerProduct for ManagedDoubleRNSRingBase<NumberRing,
     {
         self.from_double_rns_repr(<_ as ComputeInnerProduct>::inner_product_ref(
             &self.base, 
-            els.filter(|(l, r)| l.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero || r.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero)
+            els.filter(|(l, r)| l.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero && r.internal.get_repr().get_kind() != ManagedDoubleRNSElRepresentationKind::Zero)
                 .map(|(l, r)| (self.to_doublerns(l).unwrap(), self.to_doublerns(r).unwrap()))
         ))
     }
@@ -1402,6 +1402,16 @@ fn test_ring_axioms() {
     let (ring, elements) = ring_and_elements();
     feanor_math::ring::generic_tests::test_ring_axioms(&ring, elements.iter().map(|x| ring.clone_el(x)));
     feanor_math::ring::generic_tests::test_self_iso(&ring, elements.iter().map(|x| ring.clone_el(x)));
+}
+
+#[test]
+fn test_inner_product() {
+    let (ring, elements) = ring_and_elements();
+    assert_el_eq!(
+        &ring,
+        ring.sum(elements.iter().zip(elements.iter().skip(2)).map(|(l, r)| ring.mul_ref(l, r))),
+        ring.get_ring().inner_product_ref(elements.iter().zip(elements.iter().skip(2)))
+    );
 }
 
 #[test]

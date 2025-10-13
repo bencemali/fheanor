@@ -717,6 +717,7 @@ impl<NumberRing, A> RingBase for DoubleRNSRingBase<NumberRing, A>
         }
     }
 
+    #[instrument(skip_all)]
     fn zero(&self) -> Self::Element {
         let mut result = Vec::with_capacity_in(self.element_len(), self.allocator.clone());
         result.extend(self.base_ring().as_iter().flat_map(|Zp| (0..self.rank()).map(|_| Zp.zero())));

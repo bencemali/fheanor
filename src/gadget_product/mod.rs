@@ -285,6 +285,7 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductLhsOperand<R> {
     }
 }
  
+#[instrument(skip_all)]
 fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S) -> Vec<(S::PreparedMultiplicant, S::Element)>
     where R: BGFVCiphertextRing,
         S: BGFVCiphertextRing,
@@ -321,6 +322,7 @@ fn gadget_decompose<R, S, I>(ring: &R, el: &R::Element, digits: I, out_ring: &S)
     return result;
 }
 
+#[instrument(skip_all)]
 fn gadget_decompose_doublerns<NumberRing, A, I>(ring: &DoubleRNSRingBase<NumberRing, A>, el: &SmallBasisEl<NumberRing, A>, digits: I) -> Vec<(<DoubleRNSRingBase<NumberRing, A> as PreparedMultiplicationRing>::PreparedMultiplicant, El<DoubleRNSRing<NumberRing, A>>)>
     where NumberRing: AbstractNumberRing,
         A: Allocator + Clone,

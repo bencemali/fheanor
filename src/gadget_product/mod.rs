@@ -8,6 +8,7 @@ use feanor_math::ring::*;
 use feanor_math::rings::zn::*;
 use feanor_math::seq::{VectorFn, VectorView};
 use feanor_math::homomorphism::Homomorphism;
+use tracing::instrument;
 
 use crate::ciphertext_ring::double_rns_ring::{DoubleRNSRing, DoubleRNSRingBase, SmallBasisEl};
 use crate::ciphertext_ring::indices::RNSFactorIndexList;

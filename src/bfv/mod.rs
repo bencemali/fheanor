@@ -503,7 +503,7 @@ pub trait BFVInstantiation {
 
         let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
-        return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
+        return (C.add(res0, op.gadget_product(s0, C.get_ring())), C.add(res1, op.gadget_product(s1, C.get_ring())));
     }
     
     ///
@@ -535,7 +535,7 @@ pub trait BFVInstantiation {
 
         let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &res2, rk.0.gadget_vector_digits());
         let (s0, s1) = rk;
-        return (C.add_ref(&res0, &op.gadget_product(s0, C.get_ring())), C.add_ref(&res1, &op.gadget_product(s1, C.get_ring())));
+        return (C.add(res0, op.gadget_product(s0, C.get_ring())), C.add(res1, op.gadget_product(s1, C.get_ring())));
         
     }
     

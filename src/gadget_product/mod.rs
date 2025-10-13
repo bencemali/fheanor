@@ -477,6 +477,11 @@ impl<R: PreparedMultiplicationRing> RNSGadgetProductRhsOperand<R> {
 
 impl<R: BGFVCiphertextRing> RNSGadgetProductRhsOperand<R> {
 
+    ///
+    /// Modulus-switches this [`RNSGadgetProductRhsOperand`], i.e. reduces each of
+    /// its components modulo `q'`, where `q'` is a modulus dividing the current
+    /// modulus `q`.
+    /// 
     pub fn modulus_switch(&self, to: &R, dropped_rns_factors: &RNSFactorIndexList, from: &R) -> Self {
         assert_eq!(to.base_ring().get_ring().len() + dropped_rns_factors.len(), from.base_ring().get_ring().len());
         debug_assert_eq!(self.digits.len(), self.scaled_element.len());

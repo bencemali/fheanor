@@ -704,33 +704,17 @@ impl<NumberRing, A> BGFVCiphertextRing for ManagedDoubleRNSRingBase<NumberRing, 
     }
 
     #[instrument(skip_all)]
-    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, mut output: SubmatrixMut<V, zn_64::ZnEl>)
+    fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, zn_64::ZnEl>)
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
-        let matrix = self.base.as_matrix_wrt_small_basis(self.to_small_basis(x).unwrap_or(&self.zero));
-        assert_eq!(output.row_count(), matrix.row_count());
-        assert_eq!(output.col_count(), matrix.col_count());
-        for i in 0..matrix.row_count() {
-            for j in 0..matrix.col_count() {
-                *output.at_mut(i, j) = *matrix.at(i, j);
-            }
-        }
+        self.base.as_representation_wrt_small_generating_set_non_fft(self.to_small_basis(x).unwrap_or(&self.zero), output);
     }
 
     #[instrument(skip_all)]
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, zn_64::ZnEl>) -> Self::Element
         where V: AsPointerToSlice<zn_64::ZnEl>
     {
-        let mut x = self.base.zero_non_fft();
-        let mut x_as_matrix = self.base.as_matrix_wrt_small_basis_mut(&mut x);
-        assert_eq!(data.row_count(), x_as_matrix.row_count());
-        assert_eq!(data.col_count(), x_as_matrix.col_count());
-        for i in 0..data.row_count() {
-            for j in 0..data.col_count() {
-                *x_as_matrix.at_mut(i, j) = self.base.base_ring().at(i).clone_el(data.at(i, j));
-            }
-        }
-        return self.from_small_basis_repr(x);
+        self.from_small_basis_repr(self.base.from_representation_wrt_small_generating_set_non_fft(data))
     }
 }
 

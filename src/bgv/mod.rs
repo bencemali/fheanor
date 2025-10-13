@@ -642,11 +642,10 @@ pub trait BGVInstantiation {
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&lhs.c0, &lhs.c1], [&rhs.c0, &rhs.c1]);
         
         let mut result = Self::key_switch(P, C, C_special, Ciphertext {
-            c0: C.zero(),
+            c0: res0,
             c1: res2,
             implicit_scale: P.base_ring().mul(lhs.implicit_scale, rhs.implicit_scale)
         }, rk);
-        C.add_assign(&mut result.c0, res0);
         C.add_assign(&mut result.c1, res1);
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
@@ -674,11 +673,10 @@ pub trait BGVInstantiation {
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&val.c0, &val.c1], [&val.c0, &val.c1]);
                 
         let mut result = Self::key_switch(P, C, C_special, Ciphertext {
-            c0: C.zero(),
+            c0: res0,
             c1: res2,
             implicit_scale: P.base_ring().pow(val.implicit_scale, 2)
         }, rk);
-        C.add_assign(&mut result.c0, res0);
         C.add_assign(&mut result.c1, res1);
         assert!(P.base_ring().is_unit(&result.implicit_scale));
         return result;
@@ -869,8 +867,8 @@ pub trait BGVInstantiation {
             KeySwitchKey::new(rk.k0().clone(Cnew.get_ring()), rk.k1().clone(Cnew.get_ring()))
         } else {
             KeySwitchKey::new(
-                rk.k0().clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()),
-                rk.k1().clone(Cold.get_ring()).modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
+                rk.k0().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring()),
+                rk.k1().modulus_switch(Cnew.get_ring(), &drop_moduli, Cold.get_ring())
             )
         }
     }
@@ -1067,7 +1065,7 @@ pub trait BGVInstantiation {
 }
 
 #[derive(Debug)]
-pub struct Pow2BGV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
+pub struct Pow2BGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorNegacyclicNTT<Zn> = DefaultNegacyclicNTT> {
     number_ring: Pow2CyclotomicNumberRing<C>,
     ciphertext_allocator: A,
     negacyclic_ntt: PhantomData<C>
@@ -1110,7 +1108,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> Display for Pow2BGV<A, 
     }
 }
 
-impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
+impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow2BGV<A, C> {
 
     type NumberRing = Pow2CyclotomicNumberRing<C>;
     type CiphertextRing = DoubleRNSRingBase<Pow2CyclotomicNumberRing<C>, A>;
@@ -1174,7 +1172,7 @@ impl<A: Allocator + Clone , C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Po
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeBGV<A: Allocator + Clone  = DefaultCiphertextAllocator> {
+pub struct CompositeBGV<A: Allocator + Clone = DefaultCiphertextAllocator> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A
 }
@@ -1267,7 +1265,7 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
 }
 
 #[derive(Clone, Debug)]
-pub struct CompositeSingleRNSBGV<A: Allocator + Clone  = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
+pub struct CompositeSingleRNSBGV<A: Allocator + Clone = DefaultCiphertextAllocator, C: FheanorConvolution<Zn> = DefaultConvolution> {
     number_ring: CompositeCyclotomicNumberRing,
     ciphertext_allocator: A,
     convolution: PhantomData<C>

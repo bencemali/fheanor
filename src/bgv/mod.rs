@@ -545,8 +545,8 @@ pub trait BGVInstantiation {
                 let mut payload = C.clone_el(&old_sk);
                 C.inclusion().mul_assign_ref_map(&mut payload, &factor);
                 C.add_assign(&mut payload, base.c0);
-                res0.set_rns_factor(C.get_ring(), digit_i, payload);
-                res1.set_rns_factor(C.get_ring(), digit_i, base.c1);
+                res0.set_component(C.get_ring(), digit_i, payload);
+                res1.set_component(C.get_ring(), digit_i, base.c1);
             }
         }
         return KeySwitchKey::new(res0, res1);
@@ -574,26 +574,22 @@ pub trait BGVInstantiation {
     fn key_switch<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
         where Self: 'a
     {
-        let special_modulus_rns_factor_indices = RNSFactorIndexList::missing_from_subset(C.base_ring(), C_special.base_ring()).unwrap();
+        let special_modulus = RNSFactorIndexList::missing_from_subset(C.base_ring(), C_special.base_ring()).unwrap();
         assert!(switch_key.k0.gadget_vector_digits() == switch_key.k1.gadget_vector_digits());
 
-        if special_modulus_rns_factor_indices.len() == 0 {
+        if special_modulus.len() == 0 {
             let op = RNSGadgetProductLhsOperand::from_element_with(C.get_ring(), &ct.c1, switch_key.k0.gadget_vector_digits());
             return Ciphertext {
                 c0: C.add_ref_snd(ct.c0, &op.gadget_product(&switch_key.k0, C.get_ring())),
                 c1: op.gadget_product(&switch_key.k1, C.get_ring()),
                 implicit_scale: ct.implicit_scale
             };
-        } else {
-            let special_modulus = ZZbig.prod(special_modulus_rns_factor_indices.iter().map(|i| int_cast(*C_special.base_ring().at(*i).modulus(), ZZbig, ZZi64)));
-            let special_modulus = C_special.base_ring().coerce(&ZZbig, special_modulus);
-            let mut ct1_modswitched = C_special.get_ring().add_rns_factor_element(C.get_ring(), &special_modulus_rns_factor_indices, &ct.c1);
-            C_special.inclusion().mul_assign_map(&mut ct1_modswitched, special_modulus);
-            
-            let op = RNSGadgetProductLhsOperand::from_element_with(
-                C_special.get_ring(), 
-                &ct1_modswitched, 
-                switch_key.gadget_vector_digits(),
+        } else {            
+            let op = RNSGadgetProductLhsOperand::scale_up_from_element_with(
+                C.get_ring(), 
+                &ct.c1, 
+                C_special.get_ring(),
+                switch_key.gadget_vector_digits()
             );
             // we cheat regarding the implicit scale; since the scaling up and down later exactly
             // cancel out any changes to the implicit scale, we just temporarily set it to 1 and later

@@ -566,8 +566,8 @@ pub trait BFVInstantiation {
             let mut payload = C.clone_el(&old_sk);
             C.inclusion().mul_assign_ref_map(&mut payload, &factor);
             C.add_assign_ref(&mut payload, &c0);
-            res0.set_rns_factor(C.get_ring(), i, payload);
-            res1.set_rns_factor(C.get_ring(), i, c1);
+            res0.set_component(C.get_ring(), i, payload);
+            res1.set_component(C.get_ring(), i, c1);
         }
         return (res0, res1);
     }

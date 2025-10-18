@@ -295,14 +295,14 @@ impl<Params> ThinBootstrapData<Params>
             Coefficient::NegOne => Coefficient::NegOne,
             Coefficient::Zero => Coefficient::Zero,
             Coefficient::Integer(x) => Coefficient::Integer(x),
-            Coefficient::Other(x) => Coefficient::Other(WrapHom::new(intermediate_plaintext_ring.get_ring()).map(x))
+            Coefficient::Other(x) => Coefficient::Other(WrapHom::to_delegate_ring(intermediate_plaintext_ring.get_ring()).map(x))
         });
         let slots_to_coeffs_thin = slots_to_coeffs_thin.change_ring_uniform(|x| match x {
             Coefficient::One => Coefficient::One,
             Coefficient::NegOne => Coefficient::NegOne,
             Coefficient::Zero => Coefficient::Zero,
             Coefficient::Integer(x) => Coefficient::Integer(x),
-            Coefficient::Other(x) => Coefficient::Other(WrapHom::new(slots_to_coeffs_plaintext_ring.get_ring()).map(x))
+            Coefficient::Other(x) => Coefficient::Other(WrapHom::to_delegate_ring(slots_to_coeffs_plaintext_ring.get_ring()).map(x))
         });
         Self {
             digit_extract,

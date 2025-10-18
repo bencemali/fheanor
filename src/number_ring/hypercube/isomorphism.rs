@@ -189,7 +189,7 @@ impl<R> HypercubeIsomorphism<R>
         let ring_ref = &ring;
         let convolution = create_convolution(d, ring_ref.base_ring().integer_ring().abs_log2_ceil(ring_ref.base_ring().modulus()).unwrap());
         let slot_rings: Vec<SlotRingOf<R>> = log_time::<_, _, LOG, _>("[HypercubeIsomorphism] Computing slot rings", |[]| slot_ring_moduli.iter().map(|f| {
-            let unwrap = UnwrapHom::new(ZpeX.base_ring().get_ring());
+            let unwrap = UnwrapHom::from_delegate_ring(ZpeX.base_ring().get_ring());
             let modulus = (0..d).map(|i| ring_ref.base_ring().negate(unwrap.map_ref(ZpeX.coefficient_at(f, i)))).collect::<Vec<_>>();
             let slot_ring = FreeAlgebraImpl::new_with_convolution(RingValue::from(ring_ref.base_ring().get_ring().clone()), d, modulus, "𝝵", Global, convolution.clone());
             let max_ideal_gen = slot_ring.inclusion().map(slot_ring.base_ring().coerce(&ZZbig, ZZbig.clone_el(&p)));
@@ -308,7 +308,7 @@ impl<R> HypercubeIsomorphism<R>
 
     #[instrument(skip_all)]
     fn compute_slot_generator_powers(poly_ring: &ZpePolyRing<R>, hypercube_structure: &HypercubeStructure, slot_rings: &[SlotRingOf<R>]) -> Vec<Vec<El<ZpePolyRing<R>>>> {
-        let wrap = WrapHom::new(poly_ring.base_ring().get_ring());
+        let wrap = WrapHom::to_delegate_ring(poly_ring.base_ring().get_ring());
         hypercube_structure.element_iter().zip(slot_rings.iter()).map(|(g, S)| {
             let image_zeta = S.pow(S.canonical_gen(), hypercube_structure.galois_group().representative(&g) as usize);
             (0..hypercube_structure.d()).scan(S.one(), |current, _| {
@@ -325,7 +325,7 @@ impl<R> HypercubeIsomorphism<R>
     {
         let poly_ring = self.slot_to_ring_interpolation.poly_ring();
         let mut values_it = values.into_iter();
-        let wrap = WrapHom::new(poly_ring.base_ring().get_ring());
+        let wrap = WrapHom::to_delegate_ring(poly_ring.base_ring().get_ring());
         let result = values_it.by_ref().enumerate().map(|(i, a)| {
             let a_wrt_basis = self.slot_ring().wrt_canonical_basis(&a);
             let mut result = poly_ring.zero();
@@ -349,7 +349,7 @@ impl<R> HypercubeIsomorphism<R>
         debug_assert!(remainders.iter().all(|r| poly_ring.degree(r).unwrap_or(0) < self.d()));
 
         let unreduced_result = self.slot_to_ring_interpolation.interpolate_unreduced(remainders);
-        let hom = UnwrapHom::new(poly_ring.base_ring().get_ring());
+        let hom = UnwrapHom::from_delegate_ring(poly_ring.base_ring().get_ring());
         if let Some(deg) = poly_ring.degree(&unreduced_result) {
             let result = self.ring().from_canonical_basis_extended((0..(deg + 1)).map(|i| hom.map_ref(poly_ring.coefficient_at(&unreduced_result, i))));
             result
@@ -523,7 +523,7 @@ impl<R> HypercubeIsomorphism<R>
         let Zpe = AsLocalPIR::<RingRef<_>>::from_zn(RingRef::new(ring.base_ring().get_ring())).unwrap();
         let d = poly_ring.degree(factor).unwrap();
         let mut modulus = SparseMapVector::new(d, Zpe.clone());
-        let hom = WrapHom::new(Zpe.get_ring());
+        let hom = WrapHom::to_delegate_ring(Zpe.get_ring());
         for (c, i) in poly_ring.terms(factor) {
             if i != d {
                 *modulus.at_mut(i) = Zpe.negate(hom.map_ref(c));
@@ -535,7 +535,7 @@ impl<R> HypercubeIsomorphism<R>
         let ideal_gen = S.inclusion().map(S.base_ring().coerce(S.base_ring().integer_ring(), p));
         let S = RingValue::from(AsLocalPIRBase::promise_is_local_pir(S, ideal_gen, Some(e)));
         let root_of_unity = S.canonical_gen();
-        assert!(S.is_zero(&poly_ring.evaluate(&ring.generating_poly(&poly_ring, poly_ring.base_ring().identity()), &root_of_unity, S.inclusion().compose(WrapHom::new(S.base_ring().get_ring())))), "invalid factor");
+        assert!(S.is_zero(&poly_ring.evaluate(&ring.generating_poly(&poly_ring, poly_ring.base_ring().identity()), &root_of_unity, S.inclusion().compose(WrapHom::to_delegate_ring(S.base_ring().get_ring())))), "invalid factor");
         return (S, root_of_unity);
     }
 
@@ -627,7 +627,7 @@ impl<R> HypercubeIsomorphism<R>
                 let normalization_factor = SX.base_ring().invert(SX.lc(&result).unwrap()).unwrap();
                 SX.inclusion().mul_assign_map(&mut result, normalization_factor);
     
-                let rewrap = WrapHom::new(ZpeX.base_ring().get_ring()).compose(UnwrapHom::new(S.base_ring().get_ring()));
+                let rewrap = WrapHom::to_delegate_ring(ZpeX.base_ring().get_ring()).compose(UnwrapHom::from_delegate_ring(S.base_ring().get_ring()));
                 slot_ring_moduli.push(ZpeX.from_terms(SX.terms(&result).map(|(c, i)| {
                     let c_wrt_basis = S.wrt_canonical_basis(c);
                     debug_assert!(c_wrt_basis.iter().skip(1).all(|c| S.base_ring().is_zero(&c)));
@@ -688,7 +688,7 @@ impl<R> HypercubeIsomorphism<R>
                 let other_factor = FpX.checked_div(&gen_poly_mod_p, &factor).unwrap();
                 let [lifted_factor, _] = hensel_lift_factorization(&reduction_map, &ZpeX_undecorated, &FpX, &gen_poly_mod_pe, &[factor, other_factor][..], DontObserve).try_into().ok().unwrap();
 
-                result.push(ZpeX.lifted_hom(&ZpeX_undecorated, WrapHom::new(Zpe.get_ring())).map(lifted_factor));
+                result.push(ZpeX.lifted_hom(&ZpeX_undecorated, WrapHom::to_delegate_ring(Zpe.get_ring())).map(lifted_factor));
             }
             return result;
         });

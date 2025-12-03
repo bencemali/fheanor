@@ -53,7 +53,8 @@ use rand_distr::StandardNormal;
 pub mod eval;
 
 ///
-/// Contains the implementation of bootstrapping for BFV.
+/// Contains [`bootstrap::ThinBootstrapper`], an implementation of
+/// thin bootstrapping for BFV.
 /// 
 pub mod bootstrap;
 
@@ -121,6 +122,9 @@ pub type SecretKeyDistribution = bgv::SecretKeyDistribution;
 /// 
 pub trait BFVInstantiation {
 
+    ///
+    /// The number ring which this instantiation of BFV is based on.
+    /// 
     type NumberRing: AbstractNumberRing;
 
     ///
@@ -152,6 +156,10 @@ pub trait BFVInstantiation {
     /// The modulus `q'` is chosen so that `R/qq'R` can represent the result of
     /// the intermediate product of the shortest lifts of two elements of `R/qR`.
     /// 
+    /// If the default choice of `q` and `q'` are not suitable for you, you can
+    /// also manually create the corresponding ciphertext rings, using for example
+    /// [`ManagedDoubleRNSRing::new()`] etc.
+    /// 
     fn create_ciphertext_rings(&self, log2_q: Range<usize>) -> (CiphertextRing<Self>, CiphertextRing<Self>);
 
     ///
@@ -160,9 +168,7 @@ pub trait BFVInstantiation {
     fn create_plaintext_ring(&self, t: El<BigIntRing>) -> PlaintextRing<Self>;
 
     ///
-    /// Generates a secret key, which is either a sparse ternary element of the
-    /// ciphertext ring (with hamming weight `hwt`), or a uniform ternary element
-    /// of the ciphertext ring (if `hwt == None`).
+    /// Generates a secret key, according to the given distribution.
     /// 
     #[instrument(skip_all)]
     fn gen_sk<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, hwt: SecretKeyDistribution) -> SecretKey<Self> {

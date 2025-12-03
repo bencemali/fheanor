@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use feanor_math::algorithms::discrete_log::Subgroup;
 use feanor_math::algorithms::miller_rabin::is_prime;
 use feanor_math::divisibility::DivisibilityRing;
@@ -120,7 +122,7 @@ impl<R: RingStore> NumberRingQuotientStore for R
 /// represent the same ring, and also all three basis should coincide (in case of the "multiplicative
 /// basis", it should coincide for every prime `p`).
 /// 
-pub trait AbstractNumberRing: PartialEq + Clone {
+pub trait AbstractNumberRing: PartialEq + Clone + Debug {
 
     type NumberRingQuotientBases: NumberRingQuotientBases;
 

@@ -25,6 +25,56 @@ use super::*;
 /// Precomputed public data that is required to bootstrap BFV ciphertexts
 /// over a fixed plaintext and ciphertext ring.
 /// 
+/// # Example
+/// 
+/// ```rust
+/// # use fheanor::bfv::*;
+/// # use fheanor::bfv::bootstrap::*;
+/// # use fheanor::gadget_product::digits::RNSGadgetVectorDigitIndices;
+/// # use feanor_math::ring::*;
+/// # use feanor_math::integer::*;
+/// # use feanor_math::primitive_int::*;
+/// # use feanor_math::homomorphism::*;
+/// # use feanor_math::assert_el_eq;
+/// # use feanor_math::seq::*;
+/// # use rand::rng;
+/// # let ZZbig = BigIntRing::RING;
+/// # let ZZi64 = StaticRing::<i64>::RING;
+/// // setting up the scheme
+/// let params = Pow2BFV::new(1 << 10);
+/// let P = params.create_plaintext_ring(int_cast(17, ZZbig, ZZi64));
+/// let (C, C_mul) = params.create_ciphertext_rings(420..440);
+/// let digits = RNSGadgetVectorDigitIndices::select_digits(5, C.base_ring().len());
+/// let bootstrapper = ThinBootstrapper::build_pow2::<true>(&params, &P, &C, 2, None, &digits, Some("."));
+/// 
+/// // creating keys
+/// let sk = Pow2BFV::gen_sk(&C, rng(), SecretKeyDistribution::UniformTernary);
+/// let gk = bootstrapper.required_galois_keys(&P).into_iter().map(|g| {
+///     let gk = Pow2BFV::gen_gk(&C, rng(), &sk, &g, &digits, 3.2);
+///     (g, gk)
+/// }).collect::<Vec<_>>();
+/// let rk = Pow2BFV::gen_rk(&C, rng(), &sk, &digits, 3.2);
+/// 
+/// // sparse key encapsulation is optional, but can make bootstrapping work
+/// // with much smaller parameters (e.g. here we use intermediate plaintext modulus
+/// // p^v = 17, which wouldn't be possible without sparse key encapsulation).
+/// let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 1, 32, rng(), 3.2);
+/// 
+/// let m = P.int_hom().map(2);
+/// let ct = Pow2BFV::enc_sym(&P, &C, rng(), &m, &sk, 3.2);
+/// let res_ct = bootstrapper.bootstrap_thin::<true>(
+///     &C, 
+///     &C_mul, 
+///     &P, 
+///     ct, 
+///     &rk, 
+///     &gk,
+///     Some(&encaps),
+///     Some(&sk)
+/// );
+/// assert_el_eq!(P, P.int_hom().map(2), Pow2BFV::dec(&P, &C, res_ct, &sk));
+/// ```
+/// 
 pub struct ThinBootstrapper<Params: BFVInstantiation> {
     digit_extract: DigitExtract,
     slots_to_coeffs_thin: PlaintextCircuit<EncodedBFVPlaintextRingBase<Params>>,
@@ -84,6 +134,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     /// The parameters corresponding to the plaintext space (i.e. `t = p^r`) are
     /// implicitly given through the `digit_extract` parameter.
     /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
+    /// 
     #[instrument(skip_all)]
     pub fn create(
         instantiation: &Params,
@@ -140,6 +192,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
     ///    no data will be read or written, but always computed from scratch.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
     /// 
     #[instrument(skip_all)]
     pub fn build_pow2<const LOG: bool>(
@@ -232,6 +286,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    estimate the number of RNS factors used for the Slots-to-Coeffs transform.
     ///  - `cache_dir` specifies a directory to load and store precomputed data. If it is `None`,
     ///    no data will be read or written, but always computed from scratch.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
     /// 
     #[instrument(skip_all)]
     pub fn build_odd<const LOG: bool>(
@@ -360,6 +416,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    with significantly smaller parameters.
     ///  - `debug_sk` can be a reference to a secret key, which is used to print out decryptions
     ///    of intermediate results for debugging purposes. May only be set if `LOG == true`.
+    /// 
+    /// For an example on how to do bootstrapping, see the top-level doc [`ThinBootstrapper`].
     /// 
     #[instrument(skip_all)]
     pub fn bootstrap_thin<const LOG: bool>(

@@ -739,6 +739,10 @@ pub trait BFVInstantiation {
     /// Returns an implementation of the function `R/qR -> R/qq'R` that maps every `x` in `R/qR`
     /// to a short element of `R/qq'R` congruent to `x` modulo `q`.
     /// 
+    /// It is returned as a function object, which allows it to store data that is used for the
+    /// rescaling. This function is used by the default implementations of multiplication, i.e.
+    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
+    /// 
     /// The function is behind a trait object, so that concrete instantiations can use a different
     /// implementation which is more performant on their concrete choice of rings.
     /// 
@@ -765,6 +769,10 @@ pub trait BFVInstantiation {
     /// Returns an implementation of the function `R/qq'R -> R/qR` that maps every `x` in `R/qq'R`
     /// to an element of `R/qR` close to `smallest_lift(tx/q)`.
     /// 
+    /// It is returned as a function object, which allows it to store data that is used for the
+    /// rescaling. This function is used by the default implementations of multiplication, i.e.
+    /// [`BFVInstantiation::hom_mul()`] and [`BFVInstantiation::hom_square()`].
+    /// 
     /// The function is behind a trait object, so that concrete instantiations can use a different
     /// implementation which is more performant on their concrete choice of rings.
     /// 
@@ -774,7 +782,7 @@ pub trait BFVInstantiation {
 
         let ZZ = P.base_ring().integer_ring();
         // we treat the case that Zt can be represented using zn_64::Zn separately, since it is 
-        // common and can be mplemented more efficiently
+        // common and can be implemented more efficiently
         if let Some(Zt) = t_fits_zn_64(ZZ, P.base_ring().modulus()) {
             let rescale = AlmostExactRescalingConvert::new_with_alloc(
                 C_mul.base_ring().as_iter().cloned().collect(), 

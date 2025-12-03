@@ -58,8 +58,9 @@ fn ring_literal<R>(ring: R, data: &[i32]) -> El<R>
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of convolution (default
-/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
-/// by using the feature `use_hexl`.
+/// [`ntt::NTTConvolution`]), but can be changed by using the feature `use_hexl`.
+/// 
+/// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
@@ -69,8 +70,9 @@ pub type DefaultConvolution = feanor_math_hexl::conv::HEXLConvolution;
 /// It is also a good choice when instantiating homomorphic encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of convolution (default
-/// [`feanor_math::algorithms::convolution::ntt::NTTConvolution`]), but can be changed 
-/// by using the feature `use_hexl`.
+/// [`NTTConvolution`]), but can be changed by using the feature `use_hexl`.
+/// 
+/// [`NTTConvolution`]: feanor_math::algorithms::convolution::ntt::NTTConvolution
 /// 
 #[cfg(not(feature = "use_hexl"))]
 pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConvolution<feanor_math::rings::zn::zn_64::ZnBase, feanor_math::rings::zn::zn_64::ZnFastmulBase, feanor_math::homomorphism::CanHom<feanor_math::rings::zn::zn_64::ZnFastmul, feanor_math::rings::zn::zn_64::Zn>>;
@@ -81,8 +83,9 @@ pub type DefaultConvolution = feanor_math::algorithms::convolution::ntt::NTTConv
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be  changed by using
-/// the feature `use_hexl`.
+/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
+/// 
+/// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
 /// 
 #[cfg(feature = "use_hexl")]
 pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
@@ -93,8 +96,9 @@ pub type DefaultNegacyclicNTT = feanor_math_hexl::hexl::HEXLNegacyclicNTT;
 /// encryption as a user.
 /// 
 /// By default, it will point to a pure-rust implementation of the negacyclic NTT
-/// (default [`crate::ntt::RustNegacyclicNTT`]), but can be changed by using the
-/// feature `use_hexl`.
+/// (default [`RustNegacyclicNTT`]), but can be  changed by using the feature `use_hexl`.
+/// 
+/// [`RustNegacyclicNTT`]: crate::ntt::RustNegacyclicNTT
 /// 
 #[cfg(not(feature = "use_hexl"))]
 pub type DefaultNegacyclicNTT = crate::ntt::RustNegacyclicNTT<feanor_math::rings::zn::zn_64::Zn>;

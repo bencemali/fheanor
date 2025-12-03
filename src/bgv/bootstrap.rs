@@ -347,7 +347,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
     ///    contain an element of `Z/(t)`), otherwise this function will cause immediate noise overflow.
     ///  - `rk` is a relinearization key, to be used for computing products
     ///  - `gks` is a list of Galois keys, to be used for applying Galois automorphisms. This list
-    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapData::required_galois_keys()`],
+    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapper::required_galois_keys()`],
     ///    but may contain additional Galois keys
     ///  - `debug_sk` can be a reference to a secret key, which is used to print out decryptions
     ///    of intermediate results for debugging purposes. May only be set if `LOG == true`.

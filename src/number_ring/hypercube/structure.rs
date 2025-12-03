@@ -432,9 +432,10 @@ impl HypercubeStructure {
     /// Alias for [`HypercubeStructure::element_count()`], which returns the
     /// number of elements in the hypercube.
     /// 
-    /// When used to build a [`crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism`],
-    /// this number is equal to the number of slots the ring decomposes into,
-    /// hence the name `slot_count()`.
+    /// When used to build a [`HypercubeIsomorphism`], this number is equal to the number 
+    /// of slots the ring decomposes into, hence the name `slot_count()`.
+    /// 
+    /// [`HypercubeIsomorphism`]: crate::number_ring::hypercube::isomorphism::HypercubeIsomorphism
     /// 
     pub fn slot_count(&self) -> usize {
         self.element_count()

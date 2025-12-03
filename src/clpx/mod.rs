@@ -528,6 +528,8 @@ pub trait CLPXInstantiation {
     /// You can achieve the same effect by manually modulus-switching ciphertext to a higher
     /// modulus before calling `hom_galois()`.
     /// 
+    /// [`BFVInstantiation::hom_galois()`]: crate::bfv::BFVInstantiation::hom_galois()
+    /// 
     #[instrument(skip_all)]
     fn hom_galois_many<'b, V>(_P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[GaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
         where V: VectorFn<&'b KeySwitchKey<Self>>,

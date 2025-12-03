@@ -275,12 +275,14 @@ impl<R: ?Sized + RingBase> DigitExtract<R> {
     /// 
     /// This function is designed to test digit extraction, since `quo` and `rem` will be computed
     /// exactly in the same way as in a homomorphic setting. Note also that performing euclidean
-    /// division can be done much easier with [`feanor_math::pid::EuclideanRing::euclidean_div_rem()`]
+    /// division can be done much easier with [`EuclideanRing::euclidean_div_rem()`]
     /// when you have access to the ring elements.
     /// 
     /// This function does not perform any checks on the underlying ring, in particular, you can
     /// call it on an input in `Z/p^e'Z` with `e' > e` or an input in `Z`. Of course, in any case,
     /// the output will only be correct modulo `p^r` resp. `p^e`.
+    /// 
+    /// [`EuclideanRing::euclidean_div_rem()`]: feanor_math::pid::EuclideanRing::euclidean_div_rem()
     /// 
     pub fn evaluate<H, S>(&self, input: S::Element, hom: H) -> (S::Element, S::Element)
         where H: Homomorphism<R, S>,

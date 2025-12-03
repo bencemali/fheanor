@@ -884,7 +884,19 @@ pub trait BGVInstantiation {
         return result;
     }
 
-    fn rescale_ring_element<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
+    ///
+    /// Creates the function that rescales a BGV ciphertext ring element from `q` to `q'`,
+    /// using the BGV-specific rescaling operation `x -> y` where `y` is the closest element
+    /// to `q' x / q` with `q y = q' x mod t`.
+    /// 
+    /// It is returned as a function object, which allows it to store data that is used for the
+    /// rescaling. This function is used by the default implementations of some modulus 
+    /// switching-related functionality, more concretely [`BGVInstantiation::mod_switch_ct()`].
+    /// 
+    /// The function is behind a trait object, so that concrete instantiations can use a different
+    /// implementation which is more performant on their concrete choice of rings.
+    /// 
+    fn rescale_ring_element_fn<'a>(P: &'a PlaintextRing<Self>, Cnew: &'a CiphertextRing<Self>, Cold: &'a CiphertextRing<Self>) -> Box<dyn 'a + FnMut(El<CiphertextRing<Self>>) -> El<CiphertextRing<Self>>> {
         let added_rns_factors = RNSFactorIndexList::missing_from(Cold.base_ring(), Cnew.base_ring());
         let dropped_rns_factors = RNSFactorIndexList::missing_from(Cnew.base_ring(), Cold.base_ring());
         let kept_rns_factors = dropped_rns_factors.complement(Cold.base_ring().len());
@@ -945,7 +957,7 @@ pub trait BGVInstantiation {
     #[instrument(skip_all)]
     fn mod_switch_ct(P: &PlaintextRing<Self>, Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, ct: Ciphertext<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
-        let mut rescale = Self::rescale_ring_element(P, Cnew, Cold);
+        let mut rescale = Self::rescale_ring_element_fn(P, Cnew, Cold);
         let result = Ciphertext {
             c0: rescale(ct.c0),
             c1: rescale(ct.c1),

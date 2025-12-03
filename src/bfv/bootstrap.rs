@@ -353,7 +353,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
     ///    contain an element of `Z/(t)`), otherwise this function will cause immediate noise overflow.
     ///  - `rk` is a relinearization key, to be used for computing products
     ///  - `gks` is a list of Galois keys, to be used for applying Galois automorphisms. This list
-    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapData::required_galois_keys()`],
+    ///    must contain a Galois key for each Galois automorphism listed in [`ThinBootstrapper::required_galois_keys()`],
     ///    but may contain additional Galois keys
     ///  - `sparse_key_encapsulation` optionally contains all data required to temporarily switch
     ///    to a sparse secret key before bootstrapping. If used, this can make bootstrapping work

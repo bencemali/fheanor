@@ -164,8 +164,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// 
     /// This function is a compromise between encapsulating the storage of ring elements
     /// and exposing it (which is sometimes necessary for performance). 
-    /// Hence, it is recommended to instead use [`feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()`]
-    /// and [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`], whose
+    /// Hence, it is recommended to instead use [`FreeAlgebra::wrt_canonical_basis()`]
+    /// and [`FreeAlgebra::from_canonical_basis()`], whose
     /// result is uniquely defined. However, note that these may incur costs for internal
     /// representation conversion, which may not always be acceptable.
     /// 
@@ -179,6 +179,9 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// cases, it is indeed ok if the representation is not unique, as long as it is w.r.t. a small
     /// generating set.
     /// 
+    /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
+    /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
+    /// 
     fn as_representation_wrt_small_generating_set<V>(&self, x: &Self::Element, output: SubmatrixMut<V, ZnEl>)
         where V: AsPointerToSlice<ZnEl>;
 
@@ -190,10 +193,13 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     /// 
     /// This function is a compromise between encapsulating the storage of ring elements
     /// and exposing it (which is sometimes necessary for performance). 
-    /// Hence, it is recommended to instead use [`feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()`]
-    /// and [`feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()`], whose result
+    /// Hence, it is recommended to instead use [`FreeAlgebra::wrt_canonical_basis()`]
+    /// and [`FreeAlgebra::from_canonical_basis()`], whose result
     /// is uniquely defined. However, note that these may incur costs for internal representation
     /// conversion, which may not always be acceptable.
+    /// 
+    /// [`FreeAlgebra::from_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::from_canonical_basis()
+    /// [`FreeAlgebra::wrt_canonical_basis()`]: feanor_math::rings::extension::FreeAlgebra::wrt_canonical_basis()
     /// 
     fn from_representation_wrt_small_generating_set<V>(&self, data: Submatrix<V, ZnEl>) -> Self::Element
         where V: AsPointerToSlice<ZnEl>;

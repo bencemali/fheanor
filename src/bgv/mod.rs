@@ -53,7 +53,7 @@ pub type CiphertextRing<Params: BGVInstantiation> = RingValue<Params::Ciphertext
 pub type PlaintextRing<Params: BGVInstantiation> = RingValue<Params::PlaintextRing>;
 pub type PlaintextZnRing<Params: BGVInstantiation> = RingValue<Params::PlaintextZnRing>;
 pub type SecretKey<Params: BGVInstantiation> = El<CiphertextRing<Params>>;
-pub type RelinKey<'a, Params: BGVInstantiation> = KeySwitchKey<'a, Params>;
+pub type RelinKey<Params: BGVInstantiation> = KeySwitchKey<Params>;
 
 ///
 /// When choosing primes for an RNS base, we restrict to primes of this bitlength.
@@ -105,17 +105,15 @@ pub enum SecretKeyDistribution {
 /// key-switching, e.g. [`BGVInstantiation::hom_mul()`], [`BGVInstantiation::hom_galois()`]
 /// or [`BGVInstantiation::key_switch()`].
 /// 
-pub struct KeySwitchKey<'a, Params: ?Sized + BGVInstantiation> {
+pub struct KeySwitchKey<Params: ?Sized + BGVInstantiation> {
     k0: RNSGadgetProductRhsOperand<Params::CiphertextRing>,
-    k1: RNSGadgetProductRhsOperand<Params::CiphertextRing>,
-    ring: PhantomData<&'a CiphertextRing<Params>>
+    k1: RNSGadgetProductRhsOperand<Params::CiphertextRing>
 }
 
-impl<'a, Params: ?Sized + BGVInstantiation> KeySwitchKey<'a, Params> {
+impl<Params: ?Sized + BGVInstantiation> KeySwitchKey<Params> {
 
     pub fn new(k0: RNSGadgetProductRhsOperand<Params::CiphertextRing>, k1: RNSGadgetProductRhsOperand<Params::CiphertextRing>) -> Self {
-        let ring = PhantomData;
-        Self { k0, k1, ring }
+        Self { k0, k1 }
     }
 
     ///
@@ -298,10 +296,10 @@ pub trait BGVInstantiation {
     /// error is fixed to `3.2`.
     /// 
     #[instrument(skip_all)]
-    fn rlwe_sample<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>) -> (El<CiphertextRing<Self>>, El<CiphertextRing<Self>>) {
+    fn rlwe_sample<R: Rng + CryptoRng>(C: &CiphertextRing<Self>, mut rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> (El<CiphertextRing<Self>>, El<CiphertextRing<Self>>) {
         let a = C.random_element(|| rng.next_u64());
         let mut b = C.negate(C.mul_ref(&a, &sk));
-        let e = C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.sample::<f64, _>(StandardNormal) * 3.2).round() as i32)));
+        let e = C.from_canonical_basis((0..C.rank()).map(|_| C.base_ring().int_hom().map((rng.sample::<f64, _>(StandardNormal) * noise_sigma).round() as i32)));
         C.add_assign(&mut b, e);
         return (a, b);
     }
@@ -312,9 +310,9 @@ pub trait BGVInstantiation {
     /// of `rng`. Currently, the standard deviation of the error is fixed to `3.2`.
     /// 
     #[instrument(skip_all)]
-    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
+    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
         let t = C.base_ring().coerce(&ZZbig, int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()));
-        let (a, b) = Self::rlwe_sample(C, rng, sk);
+        let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
         return Ciphertext {
             c0: C.inclusion().mul_ref_snd_map(b, &t),
             c1: C.inclusion().mul_ref_snd_map(a, &t),
@@ -407,8 +405,8 @@ pub trait BGVInstantiation {
     /// Currently, the standard deviation of the error is fixed to `3.2`.
     /// 
     #[instrument(skip_all)]
-    fn enc_sym<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, m: &El<PlaintextRing<Self>>, sk: &SecretKey<Self>) -> Ciphertext<Self> {
-        Self::hom_add_plain(P, C, m, Self::enc_sym_zero(P, C, rng, sk))
+    fn enc_sym<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, m: &El<PlaintextRing<Self>>, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
+        Self::hom_add_plain(P, C, m, Self::enc_sym_zero(P, C, rng, sk, noise_sigma))
     }
 
     ///
@@ -528,14 +526,12 @@ pub trait BGVInstantiation {
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_switch_key<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
-        where Self: 'a
-    {
+    fn gen_switch_key<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, mut rng: R, old_sk: &SecretKey<Self>, new_sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
         assert_eq!(C.base_ring().len(), digits.rns_base_len());
         let mut res0 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         let mut res1 = RNSGadgetProductRhsOperand::new_with_digits(C.get_ring(), digits.to_owned());
         for digit_i in 0..digits.len() {
-            let base = Self::enc_sym_zero(P, C, &mut rng, new_sk);
+            let base = Self::enc_sym_zero(P, C, &mut rng, new_sk, noise_sigma);
             let digit_range = res0.gadget_vector_digits().at(digit_i).clone();
             let factor = C.base_ring().get_ring().from_congruence((0..C.base_ring().len()).map(|i2| {
                 let Fp = C.base_ring().at(i2);
@@ -571,9 +567,7 @@ pub trait BGVInstantiation {
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
-    fn key_switch<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn key_switch(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, switch_key: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         let special_modulus = RNSFactorIndexList::missing_from_subset(C.base_ring(), C_special.base_ring()).unwrap();
         assert!(switch_key.k0.gadget_vector_digits() == switch_key.k1.gadget_vector_digits());
 
@@ -613,10 +607,8 @@ pub trait BGVInstantiation {
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_rk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices) -> RelinKey<'a, Self>
-        where Self: 'a
-    {
-        Self::gen_switch_key(P, C, rng, &C.pow(C.clone_el(sk), 2), sk, digits)
+    fn gen_rk<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> RelinKey<Self> {
+        Self::gen_switch_key(P, C, rng, &C.pow(C.clone_el(sk), 2), sk, digits, noise_sigma)
     }
 
     ///
@@ -633,9 +625,7 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_mul<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_mul(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, lhs: Ciphertext<Self>, rhs: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&lhs.implicit_scale));
         assert!(P.base_ring().is_unit(&rhs.implicit_scale));
 
@@ -665,9 +655,7 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_square<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_square(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, val: Ciphertext<Self>, rk: &RelinKey<Self>) -> Ciphertext<Self> {
         assert!(P.base_ring().is_unit(&val.implicit_scale));
 
         let [res0, res1, res2] = C.get_ring().two_by_two_convolution([&val.c0, &val.c1], [&val.c0, &val.c1]);
@@ -734,9 +722,7 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_galois<'a>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &GaloisGroupEl, gk: &KeySwitchKey<'a, Self>) -> Ciphertext<Self>
-        where Self: 'a
-    {
+    fn hom_galois(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, g: &GaloisGroupEl, gk: &KeySwitchKey<Self>) -> Ciphertext<Self> {
         Self::key_switch(P, C, C_special, Ciphertext {
             c0: C.get_ring().apply_galois_action(&ct.c0, g),
             c1: C.get_ring().apply_galois_action(&ct.c1, g),
@@ -755,11 +741,9 @@ pub trait BGVInstantiation {
     /// For more details, see [`BGVInstantiation::key_switch()`].
     /// 
     #[instrument(skip_all)]
-    fn hom_galois_many<'a, 'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[GaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
-        where V: VectorFn<&'b KeySwitchKey<'a, Self>>,
-            KeySwitchKey<'a, Self>: 'b,
-            'a: 'b,
-            Self: 'a
+    fn hom_galois_many<'b, V>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, C_special: &CiphertextRing<Self>, ct: Ciphertext<Self>, gs: &[GaloisGroupEl], gks: V) -> Vec<Ciphertext<Self>>
+        where V: VectorFn<&'b KeySwitchKey<Self>>,
+            KeySwitchKey<Self>: 'b
     {
         assert!(P.base_ring().is_unit(&ct.implicit_scale));
         assert_eq!(gs.len(), gks.len());
@@ -861,7 +845,7 @@ pub trait BGVInstantiation {
     /// RNS factors.
     /// 
     #[instrument(skip_all)]
-    fn mod_switch_down_rk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<'a, Self>) -> RelinKey<'b, Self> {
+    fn mod_switch_down_rk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, rk: &RelinKey<Self>) -> RelinKey<Self> {
         let drop_moduli = RNSFactorIndexList::missing_from_subset(Cnew.base_ring(), Cold.base_ring()).unwrap();
         if drop_moduli.len() == 0 {
             KeySwitchKey::new(rk.k0().clone(Cnew.get_ring()), rk.k1().clone(Cnew.get_ring()))
@@ -882,7 +866,7 @@ pub trait BGVInstantiation {
     /// RNS factors.
     /// 
     #[instrument(skip_all)]
-    fn mod_switch_down_gk<'a, 'b>(Cnew: &'b CiphertextRing<Self>, Cold: &CiphertextRing<Self>, gk: &KeySwitchKey<'a, Self>) -> KeySwitchKey<'b, Self> {
+    fn mod_switch_down_gk(Cnew: &CiphertextRing<Self>, Cold: &CiphertextRing<Self>, gk: &KeySwitchKey<Self>) -> KeySwitchKey<Self> {
         Self::mod_switch_down_rk(Cnew, Cold, gk)
     }
 
@@ -978,10 +962,8 @@ pub trait BGVInstantiation {
     /// does not depend on the special modulus, and can be used w.r.t. any special modulus.
     /// 
     #[instrument(skip_all)]
-    fn gen_gk<'a, R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &'a CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &GaloisGroupEl, digits: &RNSGadgetVectorDigitIndices) -> KeySwitchKey<'a, Self>
-        where Self: 'a
-    {
-        Self::gen_switch_key(P, C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits)
+    fn gen_gk<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, g: &GaloisGroupEl, digits: &RNSGadgetVectorDigitIndices, noise_sigma: f64) -> KeySwitchKey<Self> {
+        Self::gen_switch_key(P, C, rng, &C.get_ring().apply_galois_action(sk, g), sk, digits, noise_sigma)
     }
 
     ///
@@ -1128,10 +1110,10 @@ impl<A: Allocator + Clone, C: FheanorNegacyclicNTT<Zn>> BGVInstantiation for Pow
     }
 
     #[instrument(skip_all)]
-    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
+    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
         assert!(ZZbig.is_one(&signed_gcd(ZZbig.clone_el(C.base_ring().modulus()), int_cast(P.base_ring().integer_ring().clone_el(P.base_ring().modulus()), ZZbig, P.base_ring().integer_ring()), ZZbig)));
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
-        let (a, b) = Self::rlwe_sample(C, rng, sk);
+        let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
         let result = Ciphertext {
             c0: C.inclusion().mul_ref_snd_map(b, &t),
             c1: C.inclusion().mul_ref_snd_map(a, &t),
@@ -1218,9 +1200,9 @@ impl<A: Allocator + Clone > BGVInstantiation for CompositeBGV<A> {
     }
 
     #[instrument(skip_all)]
-    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>) -> Ciphertext<Self> {
+    fn enc_sym_zero<R: Rng + CryptoRng>(P: &PlaintextRing<Self>, C: &CiphertextRing<Self>, rng: R, sk: &SecretKey<Self>, noise_sigma: f64) -> Ciphertext<Self> {
         let t = C.base_ring().coerce(&ZZi64, *P.base_ring().modulus());
-        let (a, b) = Self::rlwe_sample(C, rng, sk);
+        let (a, b) = Self::rlwe_sample(C, rng, sk, noise_sigma);
         let result = Ciphertext {
             c0: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(b, &t)),
             c1: force_double_rns_repr::<Self, _, _>(C, C.inclusion().mul_ref_snd_map(a, &t)),
@@ -1370,7 +1352,7 @@ fn test_pow2_bgv_enc_dec() {
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::SparseWithHwt(16));
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
     let output = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), &sk);
     assert_el_eq!(&P, input, output);
 }
@@ -1401,10 +1383,10 @@ fn test_pow2_bgv_mul() {
     let P = params.create_plaintext_ring(int_cast(257, ZZbig, ZZi64));
     let C = params.create_ciphertext_ring(500..520);
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk, 3.2);
     let result_ctxt = Pow2BGV::hom_mul(&P, &C, &C, Pow2BGV::clone_ct(&P, &C, &ctxt), ctxt, &rk);
     let result = Pow2BGV::dec(&P, &C, result_ctxt, &sk);
     assert_el_eq!(&P, P.int_hom().map(4), result);
@@ -1423,10 +1405,10 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
     let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
     let sk_new = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
-    let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()));
+    let switch_key = Pow2BGV::gen_switch_key(&P, &C_special, &mut rng, &sk, &sk_new, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk));
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &Pow2BGV::mod_switch_sk(&C, &C_special, &sk), 3.2);
     let result_ctxt = Pow2BGV::key_switch(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &switch_key);
     let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &Pow2BGV::mod_switch_sk(&C, &C_special, &sk_new));
     assert_el_eq!(&P, P.int_hom().map(2), result);
@@ -1435,10 +1417,10 @@ fn test_pow2_bgv_hybrid_key_switch() {
         .iter().map(|c| ZZbig.abs_log2_ceil(&C.base_ring().smallest_lift(c)).unwrap_or(0)).max().unwrap();
     assert!(critical_quantity_size(&result_ctxt, &sk_new) <= critical_quantity_size(&ctxt, &sk) + 4, "critical quantity size increased too much; {} increased to {}", critical_quantity_size(&ctxt, &sk), critical_quantity_size(&result_ctxt, &sk_new));
 
-    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(6, C_special.base_ring().len()), 3.2);
     let sk_current = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current);
+    let ctxt = Pow2BGV::enc_sym(&P, &C, &mut rng, &input, &sk_current, 3.2);
     let result_ctxt = Pow2BGV::hom_square(&P, &C, &C_special, Pow2BGV::clone_ct(&P, &C, &ctxt), &rk);
     let result = Pow2BGV::dec(&P, &C, Pow2BGV::clone_ct(&P, &C, &result_ctxt), &sk_current);
     assert_el_eq!(&P, P.int_hom().map(4), result);
@@ -1448,9 +1430,9 @@ fn test_pow2_bgv_hybrid_key_switch() {
     let C = Pow2BGV::mod_switch_down_C(&C_special, &special_modulus_factors);
     let sk = Pow2BGV::gen_sk(&C_special, &mut rng, SecretKeyDistribution::UniformTernary);
 
-    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C_special, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C_special.base_ring().len()), 3.2);
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C_special, &mut rng, &input, &sk, 3.2);
     let first_mul_ctxt = Pow2BGV::hom_square(&P, &C_special, &C_special, ctxt, &rk);
     let modswitched_ctxt = Pow2BGV::mod_switch_ct(&P, &C, &C_special, first_mul_ctxt);
     let sk = Pow2BGV::mod_switch_sk(&C, &C_special, &sk);
@@ -1471,7 +1453,7 @@ fn test_pow2_bgv_modulus_switch() {
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
@@ -1498,7 +1480,7 @@ fn test_pow2_change_plaintext_modulus() {
     let sk = Pow2BGV::gen_sk(&C, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P0.int_hom().map(2 * 17);
-    let ctxt = Pow2BGV::enc_sym(&P0, &C, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P0, &C, &mut rng, &input, &sk, 3.2);
     let result_ctxt = Pow2BGV::change_plaintext_modulus(&P1, &P0, &C, ctxt);
     let result = Pow2BGV::dec(&P1, &C, result_ctxt, &sk);
     assert_el_eq!(&P1, P1.int_hom().map(2), result);
@@ -1516,14 +1498,14 @@ fn test_pow2_modulus_switch_hom_add() {
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
         let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
         let ctxt_modswitch = Pow2BGV::mod_switch_ct(&P, &C1, &C0, Pow2BGV::clone_ct(&P, &C0, &ctxt));
         let sk_modswitch = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
-        let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch);
+        let ctxt_other = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(30), &sk_modswitch, 3.2);
 
         let ctxt_result = Pow2BGV::hom_add(&P, &C1, ctxt_modswitch, ctxt_other);
 
@@ -1542,17 +1524,17 @@ fn test_pow2_bgv_modulus_switch_rk() {
     assert_eq!(9, C0.base_ring().len());
 
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-    let rk = Pow2BGV::gen_rk(&P, &C0, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C0.base_ring().len()));
+    let rk = Pow2BGV::gen_rk(&P, &C0, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C0.base_ring().len()), 3.2);
 
     let input = P.int_hom().map(2);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &input, &sk, 3.2);
 
     for i in [0, 1, 8] {
         let to_drop = RNSFactorIndexList::from(vec![i], C0.base_ring().len());
         let C1 = Pow2BGV::mod_switch_down_C(&C0, &to_drop);
         let new_sk = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
         let new_rk = Pow2BGV::mod_switch_down_rk(&C1, &C0, &rk);
-        let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk);
+        let ctxt2 = Pow2BGV::enc_sym(&P, &C1, &mut rng, &P.int_hom().map(3), &new_sk, 3.2);
         let result_ctxt = Pow2BGV::hom_mul(
             &P,
             &C1,
@@ -1576,7 +1558,7 @@ fn test_mod_switch_repeated() {
     assert_eq!(14, C0.base_ring().len());
 
     let sk = Pow2BGV::gen_sk(&C0, &mut rng, SecretKeyDistribution::UniformTernary);
-    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk);
+    let ctxt = Pow2BGV::enc_sym(&P, &C0, &mut rng, &P.int_hom().map(2), &sk, 3.2);
     let C1 = Pow2BGV::mod_switch_down_C(&C0, &RNSFactorIndexList::from(vec![0, 1, 12, 13], 14));
     let ctxt1 = Pow2BGV::mod_switch_ct(&P, &C1, &C0, ctxt);
     let sk1 = Pow2BGV::mod_switch_sk(&C1, &C0, &sk);
@@ -1611,7 +1593,7 @@ fn measure_time_pow2_bgv_basic_ops() {
 
     let m = P.int_hom().map(2);
     let ct = log_time::<_, _, true, _>("EncSym", |[]|
-        Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk)
+        Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
 
     let res = log_time::<_, _, true, _>("HomAddPlain", |[]| 
@@ -1625,9 +1607,9 @@ fn measure_time_pow2_bgv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(4), &Pow2BGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
+        Pow2BGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
-    let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct2 = Pow2BGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
         Pow2BGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
@@ -1666,7 +1648,7 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     
     let m = P.int_hom().map(3);
     let ct = log_time::<_, _, true, _>("EncSym", |[]|
-        CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk)
+        CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
     assert_el_eq!(&P, &P.int_hom().map(3), &CompositeBGV::dec(&P, &C, CompositeBGV::clone_ct(&P, &C, &ct), &sk));
 
@@ -1681,9 +1663,9 @@ fn measure_time_double_rns_composite_bgv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeBGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
+        CompositeBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
-    let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct2 = CompositeBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time::<_, _, true, _>("HomMul", |[]|
         CompositeBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );
@@ -1722,7 +1704,7 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     
     let m = P.int_hom().map(3);
     let ct = log_time::<_, _, true, _>("EncSym", |[]|
-        CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk)
+        CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2)
     );
     assert_el_eq!(&P, &P.int_hom().map(3), &CompositeSingleRNSBGV::dec(&P, &C, CompositeSingleRNSBGV::clone_ct(&P, &C, &ct), &sk));
 
@@ -1737,9 +1719,9 @@ fn measure_time_single_rns_composite_bgv_basic_ops() {
     assert_el_eq!(&P, &P.int_hom().map(1), &CompositeSingleRNSBGV::dec(&P, &C, res, &sk));
 
     let rk = log_time::<_, _, true, _>("GenRK", |[]| 
-        CompositeSingleRNSBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()))
+        CompositeSingleRNSBGV::gen_rk(&P, &C, &mut rng, &sk, &RNSGadgetVectorDigitIndices::select_digits(3, C.base_ring().len()), 3.2)
     );
-    let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk);
+    let ct2 = CompositeSingleRNSBGV::enc_sym(&P, &C, &mut rng, &m, &sk, 3.2);
     let res = log_time::<_, _, true, _>("HomMul", |[]| 
         CompositeSingleRNSBGV::hom_mul(&P, &C, &C, ct, ct2, &rk)
     );

@@ -58,7 +58,7 @@ use super::*;
 /// // sparse key encapsulation is optional, but can make bootstrapping work
 /// // with much smaller parameters (e.g. here we use intermediate plaintext modulus
 /// // p^v = 17, which wouldn't be possible without sparse key encapsulation).
-/// let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 1, 32, rng(), 3.2);
+/// let encaps = SparseKeyEncapsulationKey::new(bootstrapper.intermediate_plaintext_ring(), &C, &sk, 2, 16, rng(), 3.2);
 /// 
 /// let m = P.int_hom().map(2);
 /// let ct = Pow2BFV::enc_sym(&P, &C, rng(), &m, &sk, 3.2);
@@ -592,7 +592,7 @@ impl<Params> SparseKeyEncapsulationKey<Params>
     }
 
     pub fn new<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, standard_sk: &SecretKey<Params>, C_sparse_rns_factor_count: usize, hwt: usize, mut rng: R, noise_sigma: f64) -> Self {
-        let C_sparse_sk = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(C.base_ring().len().checked_sub(C_sparse_rns_factor_count).unwrap()..C.base_ring().len(), C.base_ring().len())));
+        let C_sparse_sk = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(C_sparse_rns_factor_count..C.base_ring().len(), C.base_ring().len())));
         let sparse_sk = Params::gen_sk(&C_sparse_sk, &mut rng, SecretKeyDistribution::SparseWithHwt(hwt));
         return Self::create(P, C, C_sparse_sk, sparse_sk, standard_sk, rng, noise_sigma);
     }

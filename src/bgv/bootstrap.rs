@@ -574,7 +574,7 @@ impl<Params> SparseKeyEncapsulationKey<Params>
     }
 
     pub fn new<R: CryptoRng + Rng>(P: &PlaintextRing<Params>, C: &CiphertextRing<Params>, standard_sk: &SecretKey<Params>, C_sparse_rns_factor_count: usize, hwt: usize, mut rng: R, noise_sigma: f64) -> Self {
-        let C_sparse_sk = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(C.base_ring().len().checked_sub(C_sparse_rns_factor_count).unwrap()..C.base_ring().len(), C.base_ring().len())));
+        let C_sparse_sk = RingValue::from(C.get_ring().drop_rns_factor(&RNSFactorIndexList::from(C_sparse_rns_factor_count..C.base_ring().len(), C.base_ring().len())));
         let sparse_sk = Params::gen_sk(&C_sparse_sk, &mut rng, SecretKeyDistribution::SparseWithHwt(hwt));
         return Self::create(P, C, C_sparse_sk, sparse_sk, standard_sk, rng, noise_sigma);
     }

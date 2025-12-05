@@ -9,6 +9,7 @@ use feanor_math::algorithms::cyclotomic::cyclotomic_polynomial;
 use feanor_math::algorithms::unity_root::{get_prim_root_of_unity, get_prim_root_of_unity_pow2};
 use feanor_math::algorithms::fft::*;
 use feanor_math::integer::*;
+use feanor_math::iters::multi_cartesian_product;
 use feanor_math::rings::poly::*;
 use feanor_math::divisibility::*;
 use feanor_math::primitive_int::*;
@@ -20,8 +21,9 @@ use feanor_math::rings::zn::*;
 use feanor_mempool::dynsize::DynLayoutMempool;
 use feanor_mempool::AllocArc;
 use feanor_math::seq::*;
+use tracing::instrument;
 
-use crate::{ZZi64, euler_phi_squarefree};
+use crate::{ZZi64, euler_phi, euler_phi_squarefree};
 use crate::number_ring::galois::*;
 use crate::number_ring::*;
 
@@ -31,7 +33,8 @@ use crate::number_ring::*;
 pub struct OddSquarefreeCyclotomicNumberRing {
     m_factorization_squarefree: Vec<i64>,
     galois_group: CyclotomicGaloisGroup,
-    powinf_to_coeffinf_expansion: f64
+    powinf_to_coeffinf_expansion: f64,
+    coeffinf_to_powinf_expansion: f64
 }
 
 impl OddSquarefreeCyclotomicNumberRing {
@@ -51,7 +54,8 @@ impl OddSquarefreeCyclotomicNumberRing {
         Self {
             m_factorization_squarefree: factorization.iter().map(|(p, _)| *p).collect(),
             galois_group: CyclotomicGaloisGroupBase::new(m as u64),
-            powinf_to_coeffinf_expansion: compute_powinf_to_coeffinf_expansion(m as i64)
+            powinf_to_coeffinf_expansion: compute_powinf_to_coeffinf_expansion(m as i64),
+            coeffinf_to_powinf_expansion: compute_coeffinf_to_powinf_expansion(m as i64)
         }
     }
 
@@ -68,6 +72,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// `| x |_coeffinf` is the infinity norm w.r.t. the coefficient basis representation.
     /// Here `σ` ranges through all embeddings `R -> C`.
     /// 
+    #[allow(unused)]
     fn coeffinf_to_caninf_expansion(&self) -> f64 {
         // every entry of the conversion matrix is bounded by 1 in 
         // absolute value
@@ -89,6 +94,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
     /// 
+    #[allow(unused)]
     fn caninf_to_powinf_expansion(&self) -> f64 {
         // if `m = p` is a prime, we can give an explicit inverse to the matrix
         // `A = ( zeta^(ij) )` where `i in (Z/pZ)*` and `j in { 0, ..., p - 2 }` by
@@ -117,15 +123,54 @@ impl OddSquarefreeCyclotomicNumberRing {
     fn powinf_to_coeffinf_expansion(&self) -> f64 {
         self.powinf_to_coeffinf_expansion
     }
+
+    ///
+    /// Returns a bound on
+    /// ```text
+    ///   sup_(x in R \ {0}) |x|_powinf / |x|_coeffinf
+    /// ```
+    /// where `| x |_powinf` is the infinity norm w.r.t. the powerful
+    /// basis representation and `| x |_coeffinf` is the infinity norm w.r.t.
+    /// the coefficient basis representation.
+    /// 
+    /// Note that the powerful basis means the tensor product of the coefficient
+    /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
+    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// 
+    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// 
+    fn coeffinf_to_powinf_expansion(&self) -> f64 {
+        self.coeffinf_to_powinf_expansion
+    }
+
+    ///
+    /// Returns a bound on
+    /// ```text
+    ///   sup_(x, y in R \ {0}) | xy |_powinf / (|x|_powinf |y|_powinf)
+    /// ```
+    /// where `|x|_powinf` is the infinity norm w.r.t. the powerful
+    /// basis representation.
+    /// 
+    /// Note that the powerful basis means the tensor product of the coefficient
+    /// bases of all prime-power cyclotomic subfields. This is sometimes, but not
+    /// necessarily, the "small basis" as given by [`CompositeCyclotomicNumberRing`].
+    /// 
+    /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
+    /// 
+    fn powinf_basis_product_expansion_factor(&self) -> f64 {
+        self.m() as f64 * 2f64.powi(self.m_factorization_squarefree.len() as i32)
+    }
 }
 
 ///
-/// Computes the linf operator norm of the function
+/// Computes the linf operator norm of the powerful basis-to-coefficient basis
+/// conversion function, i.e. the linear map
 /// ```text
 ///   < X^(i1 * m/m1 + ... + ir * m/mr) | ij < phi(mj) > -> < 1, X, ..., X^(phi(m) - 1) >
-///                            f                         ->          f mod Phi_m         
+///                            f                         ->          f mod Phi_m
 /// ```
 /// 
+#[instrument(skip_all)]
 pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
     let factorization = factor(ZZi64, m);
     let factorization_rings = factorization.iter().map(|(p, e)| Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
@@ -137,7 +182,7 @@ pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
             ring.smallest_positive_lift(ring.checked_div(&ring.int_hom().map(i as i32), &ring.int_hom().map((m / *ring.modulus()).try_into().unwrap())).unwrap()) < ZZi64.pow(*p, e - 1) * (p - 1)
         )
     };
-    let mut row_accumulated = (0..phi_m).map(|_| 0).collect::<Vec<_>>();
+    let mut row_accumulated: Vec<i64> = (0..phi_m).map(|_| 0).collect::<Vec<_>>();
     let mut current = ZZX.negate(ZZX.clone_el(&Phi_m));
     ZZX.truncate_monomials(&mut current, row_accumulated.len());
     for i in 0..phi_m {
@@ -148,7 +193,7 @@ pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
     for i in phi_m..(m as usize) {
         if is_powerful_basis_monomial(i) {
             for (c, j) in ZZX.terms(&current) {
-                row_accumulated[j] += c.abs();
+                row_accumulated[j] = row_accumulated[j].checked_add(c.abs()).unwrap();
             }
         }
         ZZX.mul_assign_monomial(&mut current, 1);
@@ -156,6 +201,36 @@ pub fn compute_powinf_to_coeffinf_expansion(m: i64) -> f64 {
             current = ZZX.inclusion().fma_map(&Phi_m, &-ZZX.lc(&current).unwrap(), current)
         }
         assert!(ZZX.degree(&current).unwrap_or(0) < phi_m);
+    }
+    return *row_accumulated.iter().max().unwrap() as f64;
+}
+
+///
+/// Computes the linf operator norm of the coefficient basis-to-powerful basis
+/// conversion function, i.e. the inverse if the bijective linear map
+/// ```text
+///   < X^(i1 * m/m1 + ... + ir * m/mr) | ij < phi(mj) > -> < 1, X, ..., X^(phi(m) - 1) >
+///                            f                         ->          f mod Phi_m
+/// ```
+/// 
+#[instrument(skip_all)]
+pub fn compute_coeffinf_to_powinf_expansion(m: i64) -> f64 {
+    let factorization = factor(ZZi64, m);
+    let factorization_rings = factorization.iter().map(|(p, e)| Zn::new(ZZi64.pow(*p, *e) as u64)).collect::<Vec<_>>();
+    let phi_m = euler_phi(&factorization);
+    let ZZX = SparsePolyRing::new(ZZi64, "X");
+    let cyclotomic_polys = factorization.iter().map(|(p, e)| cyclotomic_polynomial(&ZZX, ZZi64.pow(*p, *e) as usize)).collect::<Vec<_>>();
+    let mut row_accumulated: Vec<i64> = (0..phi_m).map(|_| 0).collect::<Vec<_>>();
+    for i in 0..phi_m {
+        let tensor_indices = factorization_rings.iter().map(|ring| ring.smallest_positive_lift(ring.checked_div(&ring.int_hom().map(i as i32), &ring.int_hom().map((m / *ring.modulus()).try_into().unwrap())).unwrap()));
+        let tensor_polys = tensor_indices.enumerate().map(|(j, power)| ZZX.div_rem_monic(ZZX.from_terms([(1, power as usize)]), &cyclotomic_polys[j]).1).collect::<Vec<_>>();
+        let tensor_polys_terms = tensor_polys.iter().map(|f| ZZX.terms(f).collect::<Vec<_>>()).collect::<Vec<_>>();
+        for (k, coeff) in multi_cartesian_product(tensor_polys_terms.iter().map(|terms| terms.iter()), |terms| (
+            terms.iter().map(|(_, pow)| pow).zip(factorization.iter()).fold(0, |current, (next, (p, e))| current * ZZi64.pow(*p, e - 1) as usize * (p - 1) as usize + next),
+            ZZi64.prod(terms.iter().map(|(coeff, _)| coeff.abs()))
+        ), |_, x| *x) {
+            row_accumulated[k] = row_accumulated[k].checked_add(coeff).unwrap();
+        }
     }
     return *row_accumulated.iter().max().unwrap() as f64;
 }
@@ -172,7 +247,8 @@ impl Clone for OddSquarefreeCyclotomicNumberRing {
         Self {
             m_factorization_squarefree: self.m_factorization_squarefree.clone(),
             galois_group: self.galois_group.clone(),
-            powinf_to_coeffinf_expansion: self.powinf_to_coeffinf_expansion
+            powinf_to_coeffinf_expansion: self.powinf_to_coeffinf_expansion,
+            coeffinf_to_powinf_expansion: self.coeffinf_to_powinf_expansion
         }
     }
 }
@@ -189,7 +265,7 @@ impl AbstractNumberRing for OddSquarefreeCyclotomicNumberRing {
     type NumberRingQuotientBases = OddSquarefreeCyclotomicDecomposedNumberRing<BluesteinFFT<ZnBase, ZnFastmulBase, CanHom<ZnFastmul, Zn>, AllocArc<DynLayoutMempool<Global>>>, AllocArc<DynLayoutMempool<Global>>>;
 
     fn small_basis_product_expansion_factor(&self) -> f64 {
-        self.coeffinf_to_caninf_expansion() * self.coeffinf_to_caninf_expansion() * self.caninf_to_powinf_expansion() * self.powinf_to_coeffinf_expansion()
+        self.coeffinf_to_powinf_expansion() * self.coeffinf_to_powinf_expansion() * self.powinf_basis_product_expansion_factor() * self.powinf_to_coeffinf_expansion()
     }
 
     fn coeff_basis_product_expansion_factor(&self) -> f64 {
@@ -456,4 +532,11 @@ fn test_compute_powinf_to_coeffinf_expansion() {
     assert_eq!(1., compute_powinf_to_coeffinf_expansion(17));
     assert_eq!(8., compute_powinf_to_coeffinf_expansion(17 * 5));
     assert_eq!(52., compute_powinf_to_coeffinf_expansion(13 * 3 * 7));
+}
+
+#[test]
+fn test_compute_coeffinf_to_powinf_expansion() {
+    assert_eq!(1., compute_coeffinf_to_powinf_expansion(17));
+    assert_eq!(4., compute_coeffinf_to_powinf_expansion(17 * 5));
+    assert_eq!(7., compute_coeffinf_to_powinf_expansion(13 * 3 * 7));
 }

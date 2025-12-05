@@ -242,10 +242,10 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         let slots_to_coeffs = create_circuit_cached::<_, _, LOG>(&original_plaintext_ring, &filename_keys![slots2coeffs, m: m, p: &p, r: r], cache_dir, || pow2::slots_to_coeffs_thin(&original_H));
         let coeffs_to_slots = create_circuit_cached::<_, _, LOG>(&plaintext_ring, &filename_keys![coeffs2slots, m: m, p: &p, e: e], cache_dir, || pow2::coeffs_to_slots_thin(&H));
 
-        // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
+        // we estimate the noise growth of the slots-to-coeffs transform as `log2(|Gal|)` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
-        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * log2_m as f64 / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * (P.acting_galois_group().group_order() as f64) / min_rns_factor_log2).ceil() as usize; 
         let slots_to_coeffs_ciphertext_ring = {
             let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
             RingValue::from(C.get_ring().drop_rns_factor(&drop_additional.subtract(&special_modulus)))
@@ -325,10 +325,8 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
             DigitExtract::new_default(p_i64, e, r)
         };
 
-        let H = LazyCell::new(|| {
-            let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
-            HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir)
-        });
+        let hypercube = HypercubeStructure::halevi_shoup_hypercube(plaintext_ring.acting_galois_group(), ZZbig.clone_el(&p));
+        let H = LazyCell::new(|| HypercubeIsomorphism::new::<LOG>(&&plaintext_ring, &hypercube, cache_dir));
         let original_H = LazyCell::new(|| H.change_modulus(&original_plaintext_ring));
 
         let m = plaintext_ring.number_ring().galois_group().m();
@@ -338,7 +336,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         // we estimate the noise growth of the slots-to-coeffs transform as `log2(m)` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
-        let slots_to_coeffs_rns_factors = (ZZbig.abs_log2_ceil(&t).unwrap() as f64 * (m as f64).log2() / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * hypercube.dim_count() as f64 / min_rns_factor_log2).ceil() as usize; 
         let slots_to_coeffs_ciphertext_ring = {
             let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
             RingValue::from(C.get_ring().drop_rns_factor(&drop_additional.subtract(&special_modulus)))

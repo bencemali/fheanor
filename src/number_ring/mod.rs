@@ -142,36 +142,22 @@ pub trait AbstractNumberRing: PartialEq + Clone + Debug {
     ///
     /// Returns an upper bound on the value
     /// ```text
-    ///   sup_(x in R \ {0}) | x |_can / | x |_inf
+    ///   sup_(x, y in R \ {0}) | xy |_sbinf / (| x |_sbinf | y |_sbinf)
     /// ```
+    /// where `| x |_sbinf` is the infinity-norm of the coefficients of `x`
+    /// when represented w.r.t. the small basis.
     /// 
-    /// Note that while the canonical norm `|.|_can` depends only on the
-    /// number ring `R`, the infinity norm refers to the infinity norm
-    /// when written w.r.t. the "small basis".
-    /// 
-    fn inf_to_can_norm_expansion_factor(&self) -> f64;
+    fn small_basis_product_expansion_factor(&self) -> f64;
 
     ///
     /// Returns an upper bound on the value
     /// ```text
-    ///   sup_(x in R \ {0}) | x |_inf / | x |_can
+    ///   sup_(x, y in R \ {0}) | xy |_coeffinf / (| x |_coeffinf | y |_coeffinf)
     /// ```
+    /// where `| x |_coeffinf` is the infinity-norm of the coefficients of `x`
+    /// when represented w.r.t. the coefficient basis.
     /// 
-    /// Note that while the canonical norm `|.|_can` depends only on the
-    /// number ring `R`, the infinity norm refers to the infinity norm
-    /// when written w.r.t. the "small basis".
-    /// 
-    fn can_to_inf_norm_expansion_factor(&self) -> f64;
-
-    ///
-    /// Returns an upper bound on the value
-    /// ```text
-    ///   sup_(x, y in R \ {0}) | xy |_inf / (| x |_inf | y |_inf)
-    /// ```
-    /// 
-    fn product_expansion_factor(&self) -> f64 {
-        self.inf_to_can_norm_expansion_factor().powi(2) * self.can_to_inf_norm_expansion_factor()
-    }
+    fn coeff_basis_product_expansion_factor(&self) -> f64;
 
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
         where P: RingStore,
@@ -201,10 +187,10 @@ pub trait AbstractNumberRing: PartialEq + Clone + Debug {
 /// Note that it is valid for any of these basis to coincide, and then implement the 
 /// corresponding conversions as no-ops.
 /// 
-/// This design is motivated by the example of `Z[𝝵_m]` for a composite `m`, since in
-/// this case, we need three different basis.
-///  - The "small basis" is the powerful basis `𝝵^(m/m_1 * i_1 + ... + m/m_r * i_r)` with
-///    `0 <= i_j < phi(m_j)`, where `m_j` runs through pairwise coprime factors of `m`
+/// This design is motivated by the example of `Z[𝝵_m]` for a composite `m = m_1 * m_2`, 
+/// since in this case, we need three different basis.
+///  - The "small basis" is the tensor-product basis `𝝵^(m_2 * i_1 + m_1 * i_2)` with
+///    `0 <= i_1 < phi(m_1)` and `0 <= i_2 < phi(m_2)`.
 ///  - The "multiplicative basis" is the preimage of the unit vector basis under `Fp[𝝵] -> Fp^phi(m)`
 ///  - The "coeff basis" is the basis `1, 𝝵, 𝝵^2, ..., 𝝵^phi(m)`
 /// While one could choose "small basis" and "coeff basis" to be equal (after all, the

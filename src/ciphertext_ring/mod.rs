@@ -173,7 +173,8 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
     ///  - [`single_rns_ring::SingleRNSRing`] will currently return the coefficients of a polynomial
     ///    of degree `< m` (not necessarily `< phi(m)`) that gives the element when evaluated at `𝝵`
     ///  - [`double_rns_managed::ManagedDoubleRNSRing`] will currently return the coefficients w.r.t.
-    ///    the powerful basis representation
+    ///    the "small basis" as specified by [`AbstractNumberRing`]. If `m` is a product of two primes
+    ///    and represented as a [`CompositeCyclotomicNumberRing`], this is the powerful basis.
     /// 
     /// Currently, this function is only used for gadget products and modulus-switching. In these
     /// cases, it is indeed ok if the representation is not unique, as long as it is w.r.t. a small

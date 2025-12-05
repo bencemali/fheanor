@@ -245,7 +245,7 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
-        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().product_expansion_factor().log2()) * log2_m as f64 / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * log2_m as f64 / min_rns_factor_log2).ceil() as usize; 
         let slots_to_coeffs_ciphertext_ring = {
             let (drop_additional, special_modulus) = compute_optimal_special_modulus(C.get_ring(), RNSFactorIndexList::empty_ref(), C.base_ring().len().saturating_sub(slots_to_coeffs_rns_factors), gk_digits);
             RingValue::from(C.get_ring().drop_rns_factor(&drop_additional.subtract(&special_modulus)))
@@ -354,6 +354,23 @@ impl<Params: BFVInstantiation> ThinBootstrapper<Params> {
             digit_extract, 
             slots_to_coeffs_ciphertext_ring
         );
+    }
+
+    ///
+    /// Replaces the digit extraction object used by this bootstrapper.
+    /// 
+    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract) -> Self {
+        assert_el_eq!(ZZbig, self.digit_extract.p(), new_digit_extraction.p());
+        assert_eq!(self.digit_extract.r(), new_digit_extraction.r());
+        assert_eq!(self.digit_extract.e(), new_digit_extraction.e());
+        Self {
+            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
+            digit_extract: new_digit_extraction,
+            intermediate_plaintext_ring: self.intermediate_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            slots_to_coeffs_plaintext_ring: self.slots_to_coeffs_plaintext_ring,
+            slots_to_coeffs_thin: self.slots_to_coeffs_thin
+        }
     }
     
     pub fn r(&self) -> usize {

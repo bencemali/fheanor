@@ -196,7 +196,7 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         // we estimate the noise growth of the slots-to-coeffs transform as `log2_m` multiplications by
         // ring elements of size at most `t`
         let min_rns_factor_log2 = C_master.base_ring().as_iter().map(|rns_factor| *rns_factor.modulus() as i64).map(|rns_factor| (rns_factor as f64).log2()).min_by(f64::total_cmp).unwrap();
-        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().product_expansion_factor().log2()) * log2_m as f64 / min_rns_factor_log2).ceil() as usize; 
+        let slots_to_coeffs_rns_factors = ((ZZbig.abs_log2_ceil(&t).unwrap() as f64 + P.number_ring().coeff_basis_product_expansion_factor().log2()) * log2_m as f64 / min_rns_factor_log2).ceil() as usize; 
 
         return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
     }
@@ -281,6 +281,27 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
         return Self::create(instantiation, original_plaintext_ring, plaintext_ring, C_master.clone(), slots_to_coeffs, coeffs_to_slots, digit_extract, strategy, slots_to_coeffs_rns_factors);
     }
 
+    ///
+    /// Replaces the digit extraction object used by this bootstrapper.
+    /// 
+    pub fn with_digit_extraction(self, new_digit_extraction: DigitExtract) -> Self {
+        assert_el_eq!(ZZbig, self.digit_extract.p(), new_digit_extraction.p());
+        assert_eq!(self.digit_extract.r(), new_digit_extraction.r());
+        assert_eq!(self.digit_extract.e(), new_digit_extraction.e());
+        Self {
+            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
+            digit_extract: new_digit_extraction,
+            intermediate_plaintext_ring: self.intermediate_plaintext_ring,
+            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
+            master_ciphertext_ring: self.master_ciphertext_ring,
+            modswitch_strategy: self.modswitch_strategy,
+            original_plaintext_ring: self.original_plaintext_ring,
+            slots_to_coeffs_rns_factors: self.slots_to_coeffs_rns_factors,
+            tmp_coprime_modulus_plaintext: self.tmp_coprime_modulus_plaintext,
+            slots_to_coeffs_thin: self.slots_to_coeffs_thin
+        }
+    }
+
     fn r(&self) -> usize {
         self.digit_extract.e() - self.digit_extract.v()
     }
@@ -303,24 +324,6 @@ impl<Params, Strategy> ThinBootstrapper<Params, Strategy>
 
     pub fn base_plaintext_ring(&self) -> &PlaintextRing<Params> {
         &self.original_plaintext_ring
-    }
-
-    pub fn with_digit_extraction(self, new: DigitExtract) -> Self {
-        assert!(ZZbig.eq_el(&self.p(), new.p()));
-        assert_eq!(self.r(), new.r());
-        assert_eq!(self.e(), new.e());
-        Self {
-            coeffs_to_slots_thin: self.coeffs_to_slots_thin,
-            digit_extract: new,
-            original_plaintext_ring: self.original_plaintext_ring,
-            plaintext_ring_hierarchy: self.plaintext_ring_hierarchy,
-            intermediate_plaintext_ring: self.intermediate_plaintext_ring,
-            slots_to_coeffs_rns_factors: self.slots_to_coeffs_rns_factors,
-            slots_to_coeffs_thin: self.slots_to_coeffs_thin,
-            modswitch_strategy: self.modswitch_strategy,
-            tmp_coprime_modulus_plaintext: self.tmp_coprime_modulus_plaintext,
-            master_ciphertext_ring: self.master_ciphertext_ring
-        }
     }
 
     pub fn required_galois_keys(&self, P: &PlaintextRing<Params>) -> Vec<GaloisGroupEl> {

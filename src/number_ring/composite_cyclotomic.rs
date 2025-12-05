@@ -97,6 +97,14 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 
     type NumberRingQuotientBases = CompositeCyclotomicNumberRingQuotientBases<L::NumberRingQuotientBases, R::NumberRingQuotientBases>;
 
+    fn small_basis_product_expansion_factor(&self) -> f64 {
+        unimplemented!()
+    }
+
+    fn coeff_basis_product_expansion_factor(&self) -> f64 {
+        unimplemented!()
+    }
+
     fn bases_mod_p(&self, Fp: Zn) -> Self::NumberRingQuotientBases {
         let r1 = self.left_factor.rank() as i64;
         let r2 = self.right_factor.rank() as i64;
@@ -115,7 +123,7 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
         assert_eq!(1, d);
 
         // the main task is to create a sparse representation of the two matrices that
-        // represent the conversion from powerful basis to coefficient basis and back;
+        // represent the conversion from small basis to coefficient basis and back;
         // everything else is done by `SquarefreeCyclotomicNumberRing::mod_p()`
 
         // it turns out to be no problem to store this matrix, using a sparse representation;
@@ -154,14 +162,6 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
         signed_lcm(self.left_factor.mod_p_required_root_of_unity().try_into().unwrap(), self.right_factor.mod_p_required_root_of_unity().try_into().unwrap(), StaticRing::<i64>::RING).try_into().unwrap()
     }
 
-    fn inf_to_can_norm_expansion_factor(&self) -> f64 {
-        self.left_factor.inf_to_can_norm_expansion_factor() * self.right_factor.inf_to_can_norm_expansion_factor()
-    }
-
-    fn can_to_inf_norm_expansion_factor(&self) -> f64 {
-        self.left_factor.can_to_inf_norm_expansion_factor() * self.right_factor.can_to_inf_norm_expansion_factor()
-    }
-
     fn generating_poly<P>(&self, poly_ring: P) -> El<P>
         where P: RingStore,
             P::Type: PolyRing + DivisibilityRing,
@@ -180,13 +180,21 @@ impl<L: AbstractNumberRing, R: AbstractNumberRing> AbstractNumberRing for Compos
 }
 
 ///
+/// The [`NumberRingQuotientBases`] for [`CompositeCyclotomicNumberRing`].
+/// 
 /// The small basis is given by 
 /// ```text
-///   1 ⊗ 1,            𝝵1 ⊗ 1,            𝝵1^2 ⊗ 1,           ...,  𝝵1^(m1 - 1) ⊗ 1,
-///   1 ⊗ 𝝵2,           𝝵1 ⊗ 𝝵2,           𝝵1^2 ⊗ 𝝵2,          ...,  𝝵1^(m1 - 1) ⊗ 𝝵2,
+///   e1 ⊗ e1',           e2 ⊗ e1',           e3 ⊗ e1',           ...,  e(m1 - 1) ⊗ e1',
+///   e1 ⊗ e2',           e2 ⊗ e2',           e3 ⊗ e2',           ...,  e(m1 - 1) ⊗ e2',
 ///   ...
-///   1 ⊗ 𝝵2^(m2 - 1),  𝝵1 ⊗ 𝝵2^(m2 - 1),  𝝵1^2 ⊗ 𝝵2^(m2 - 1), ...,  𝝵1^(m1 - 1) ⊗ 𝝵2^(m2 - 1)
+///   e1 ⊗ e(m2 - 1)',    e2 ⊗ e(m2 - 1)',    e3 ⊗ e(m2 - 1)',    ...,  e(m1 - 1) ⊗ e(m2 - 1)'
 /// ```
+/// where `e1, ..., e(m1 - 1)` and `e1', ..., e(m2 - 1)'` are the small bases of
+/// `left` and `right`, respectively.
+/// 
+/// In particular, this is the powerful basis if `m1` and `m2` are prime, and
+/// `left` and `right` use the coefficient basis as small basis.
+/// Otherwise, it is somewhere between coefficient and powerful basis.
 /// 
 pub struct CompositeCyclotomicNumberRingQuotientBases<L, R, A = Global> 
     where L: NumberRingQuotientBases,

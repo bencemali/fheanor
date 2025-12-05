@@ -72,8 +72,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// `| x |_coeffinf` is the infinity norm w.r.t. the coefficient basis representation.
     /// Here `σ` ranges through all embeddings `R -> C`.
     /// 
-    #[allow(unused)]
-    fn coeffinf_to_caninf_expansion(&self) -> f64 {
+    pub fn coeffinf_to_caninf_expansion(&self) -> f64 {
         // every entry of the conversion matrix is bounded by 1 in 
         // absolute value
         self.rank() as f64
@@ -94,8 +93,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
     /// 
-    #[allow(unused)]
-    fn caninf_to_powinf_expansion(&self) -> f64 {
+    pub fn caninf_to_powinf_expansion(&self) -> f64 {
         // if `m = p` is a prime, we can give an explicit inverse to the matrix
         // `A = ( zeta^(ij) )` where `i in (Z/pZ)*` and `j in { 0, ..., p - 2 }` by
         // `A^-1 = ( zeta^(ij) - zeta^j ) / p` with `i in { 0, ..., p - 2 }` and `j in (Z/pZ)*`.
@@ -120,7 +118,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
     /// 
-    fn powinf_to_coeffinf_expansion(&self) -> f64 {
+    pub fn powinf_to_coeffinf_expansion(&self) -> f64 {
         self.powinf_to_coeffinf_expansion
     }
 
@@ -139,7 +137,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
     /// 
-    fn coeffinf_to_powinf_expansion(&self) -> f64 {
+    pub fn coeffinf_to_powinf_expansion(&self) -> f64 {
         self.coeffinf_to_powinf_expansion
     }
 
@@ -157,7 +155,7 @@ impl OddSquarefreeCyclotomicNumberRing {
     /// 
     /// [`CompositeCyclotomicNumberRing`]: crate::number_ring::composite_cyclotomic::CompositeCyclotomicNumberRing
     /// 
-    fn powinf_basis_product_expansion_factor(&self) -> f64 {
+    pub fn powinf_basis_product_expansion_factor(&self) -> f64 {
         self.m() as f64 * 2f64.powi(self.m_factorization_squarefree.len() as i32)
     }
 }

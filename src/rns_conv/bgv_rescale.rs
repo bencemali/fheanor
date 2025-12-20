@@ -34,9 +34,9 @@ type BGVUsedBaseConversion<A> = UsedBaseConversion<A>;
 /// almost a tie.
 /// 
 /// In some cases, BGV modulus-switching can be implemented more efficiently by using
-/// [`CongruencePreservingAlmostExactBaseConversion`].
+/// [`CongruencePreservingRNSBaseConversion`].
 /// 
-pub struct CongruencePreservingRescaling<A = Global>
+pub struct RNSCongruencePreservingRescale<A = Global>
     where A: Allocator + Clone
 {
     allocator: A,
@@ -45,12 +45,12 @@ pub struct CongruencePreservingRescaling<A = Global>
     /// the `i`-th entry contains the index of `output_rings()[i]` in `input_rings()`, or
     /// `None` if `output_rings()[i]` belongs to `a`
     output_input_permutation: Vec<Option<usize>>,
-    compute_delta: CongruencePreservingAlmostExactBaseConversion<A>,
+    compute_delta: RNSCongruencePreservingBaseConversion<A>,
     a_mod_q: Vec<El<Zn>>,
     b_inv_mod_aq_over_b: Vec<El<Zn>>
 }
 
-impl CongruencePreservingRescaling {
+impl RNSCongruencePreservingRescale {
 
     ///
     /// Creates a new [`CongruencePreservingRescaling`], where
@@ -63,7 +63,7 @@ impl CongruencePreservingRescaling {
     }
 }
 
-impl<A> CongruencePreservingRescaling<A>
+impl<A> RNSCongruencePreservingRescale<A>
     where A: Allocator + Clone
 {
     pub fn scale_down(q_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn, allocator: A) -> Self {
@@ -93,7 +93,7 @@ impl<A> CongruencePreservingRescaling<A>
         let output_rings = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| in_moduli[i]).chain(num_moduli.into_iter()).collect::<Vec<_>>();
         let output_input_permutation = (0..in_moduli.len()).filter(|i| !den_moduli_indices.contains(i)).map(|i| Some(i)).chain((0..a_moduli_len).map(|_| None)).collect::<Vec<_>>();
 
-        let compute_delta = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
+        let compute_delta = RNSCongruencePreservingBaseConversion::new_with_alloc(
             den_moduli_indices.iter().map(|i| in_moduli[*i]).collect(), 
             output_rings, 
             plaintext_modulus, 
@@ -113,7 +113,7 @@ impl<A> CongruencePreservingRescaling<A>
     }
 }
 
-impl<A> RNSOperation for CongruencePreservingRescaling<A>
+impl<A> RNSOperation for RNSCongruencePreservingRescale<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -131,14 +131,14 @@ impl<A> RNSOperation for CongruencePreservingRescaling<A>
     ///
     /// # Implementation notes
     /// 
-    /// A lot of this code is the same as for [`AlmostExactRescaling`], but some subtle differences 
+    /// A lot of this code is the same as for [`RNSRescaling`], but some subtle differences 
     /// make it simpler to re-implement it.
     /// 
     /// In particular, we later refer to `x_mod_b_lift` again, which would not be accessible if we used 
-    /// [`AlmostExactRescaling`]. Also, we currently lift to `aq` instead of `aq/b`, but I am not sure
+    /// [`RNSRescaling`]. Also, we currently lift to `aq` instead of `aq/b`, but I am not sure
     /// if that is really necessary.
     /// 
-    /// [`AlmostExactRescaling`]: crate::rns_conv::bfv_rescale::AlmostExactRescaling
+    /// [`RNSRescaling`]: crate::rns_conv::bfv_rescale::RNSRescaling
     /// 
     #[instrument(skip_all)]
     fn apply<V1, V2>(&self, input: Submatrix<V1, El<Self::Ring>>, mut output: SubmatrixMut<V2, El<Self::Ring>>)
@@ -200,12 +200,12 @@ impl<A> RNSOperation for CongruencePreservingRescaling<A>
 /// # Difference to [`CongruencePreservingRescaling`]
 /// 
 /// [`CongruencePreservingRescaling`] computes the whole BGV modulus-switch. On the other hand, after
-/// performing [`CongruencePreservingAlmostExactBaseConversion`], it is still necessary to subtract the result and
+/// performing [`CongruencePreservingRNSBaseConversion`], it is still necessary to subtract the result and
 /// scale by `b^-1` to achieve the same effect. However, the advantage is that these steps can already
 /// be performed in double-RNS representation, which means that we only need to convert the part `x mod b`
 /// to coefficient/small-basis representation.
 /// 
-pub struct CongruencePreservingAlmostExactBaseConversion<A = Global>
+pub struct RNSCongruencePreservingBaseConversion<A = Global>
     where A: Allocator + Clone
 {
     /// ordered as supplied when instantiating the object
@@ -225,10 +225,10 @@ pub struct CongruencePreservingAlmostExactBaseConversion<A = Global>
     b_mod_q: Vec<El<Zn>>
 }
 
-impl CongruencePreservingAlmostExactBaseConversion {
+impl RNSCongruencePreservingBaseConversion {
 
     ///
-    /// Creates a new [`CongruencePreservingAlmostExactBaseConversion`], where
+    /// Creates a new [`CongruencePreservingRNSBaseConversion`], where
     ///  - `b` is the product of the moduli in `in_moduli`
     ///  - `q` is the product of the moduli in `out_moduli`
     ///  - `t` is the modulus of `plaintext_modulus`
@@ -238,11 +238,11 @@ impl CongruencePreservingAlmostExactBaseConversion {
     }
 }
 
-impl<A> CongruencePreservingAlmostExactBaseConversion<A>
+impl<A> RNSCongruencePreservingBaseConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`CongruencePreservingAlmostExactBaseConversion`], where
+    /// Creates a new [`CongruencePreservingRNSBaseConversion`], where
     ///  - `b` is the product of the moduli in `in_moduli`
     ///  - `q` is the product of the moduli in `out_moduli`
     ///  - `t` is the modulus of `plaintext_modulus`
@@ -294,7 +294,7 @@ impl<A> CongruencePreservingAlmostExactBaseConversion<A>
     }
 }
 
-impl<A> RNSOperation for CongruencePreservingAlmostExactBaseConversion<A>
+impl<A> RNSOperation for RNSCongruencePreservingBaseConversion<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -360,7 +360,7 @@ fn test_rescale_complete() {
     let q = 17 * 23 * 29;
     let qprime = 19 * 31 * 37 * 39;
 
-    let rescaling = CongruencePreservingRescaling::new_with_alloc(
+    let rescaling = RNSCongruencePreservingRescale::new_with_alloc(
         from.clone(), 
         to.clone(), 
         vec![0, 1, 2],
@@ -410,7 +410,7 @@ fn test_rescale_partial() {
     let q = 17 * 23 * 29;
     let qprime = 17 * 29 * 13;
 
-    let rescaling = CongruencePreservingRescaling::new_with_alloc(
+    let rescaling = RNSCongruencePreservingRescale::new_with_alloc(
         from.clone(), 
         vec![Zn::new(13)], 
         vec![1],
@@ -460,7 +460,7 @@ fn test_rescale_down() {
     let q = 17 * 23 * 29;
     let qprime = 23 * 29;
 
-    let rescaling = CongruencePreservingRescaling::scale_down(
+    let rescaling = RNSCongruencePreservingRescale::scale_down(
         from.clone(), 
         vec![0],
         Zt.clone(), 
@@ -501,7 +501,7 @@ fn test_congruence_preserving_baseconv_small() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -541,7 +541,7 @@ fn test_congruence_preserving_baseconv_two_denominators() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 
@@ -581,7 +581,7 @@ fn test_congruence_preserving_baseconv_unordered() {
     let b = *Zb.modulus() as i32;
     let t = *Zt.modulus() as i32;
     
-    let baseconv = CongruencePreservingAlmostExactBaseConversion::new_with_alloc(
+    let baseconv = RNSCongruencePreservingBaseConversion::new_with_alloc(
         from.clone(),
         to.clone(),
         Zt.clone(), 

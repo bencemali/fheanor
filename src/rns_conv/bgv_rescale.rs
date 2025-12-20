@@ -34,9 +34,9 @@ type BGVUsedBaseConversion<A> = UsedBaseConversion<A>;
 /// almost a tie.
 /// 
 /// In some cases, BGV modulus-switching can be implemented more efficiently by using
-/// [`CongruencePreservingRNSBaseConversion`].
+/// [`RNSCongruencePreservingBaseConversion`].
 /// 
-pub struct RNSCongruencePreservingRescale<A = Global>
+pub struct RNSCongruencePreservingRescaling<A = Global>
     where A: Allocator + Clone
 {
     allocator: A,
@@ -50,10 +50,10 @@ pub struct RNSCongruencePreservingRescale<A = Global>
     b_inv_mod_aq_over_b: Vec<El<Zn>>
 }
 
-impl RNSCongruencePreservingRescale {
+impl RNSCongruencePreservingRescaling {
 
     ///
-    /// Creates a new [`CongruencePreservingRescaling`], where
+    /// Creates a new [`RNSCongruencePreservingRescaling`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `a` is the product of `num_moduli`
     ///  - `b` is the product of the moduli of `in_moduli` indexed by `den_moduli_indices`
@@ -63,7 +63,7 @@ impl RNSCongruencePreservingRescale {
     }
 }
 
-impl<A> RNSCongruencePreservingRescale<A>
+impl<A> RNSCongruencePreservingRescaling<A>
     where A: Allocator + Clone
 {
     pub fn scale_down(q_moduli: Vec<Zn>, den_moduli_indices: Vec<usize>, plaintext_modulus: Zn, allocator: A) -> Self {
@@ -71,7 +71,7 @@ impl<A> RNSCongruencePreservingRescale<A>
     }
 
     ///
-    /// Creates a new [`CongruencePreservingRescaling`], where
+    /// Creates a new [`RNSCongruencePreservingRescaling`], where
     ///  - `q` is the product of `in_moduli`
     ///  - `a` is the product of `num_moduli`
     ///  - `b` is the product of the moduli of `in_moduli` indexed by `den_moduli_indices`
@@ -113,7 +113,7 @@ impl<A> RNSCongruencePreservingRescale<A>
     }
 }
 
-impl<A> RNSOperation for RNSCongruencePreservingRescale<A>
+impl<A> RNSOperation for RNSCongruencePreservingRescaling<A>
     where A: Allocator + Clone
 {
     type Ring = Zn;
@@ -185,7 +185,7 @@ impl<A> RNSOperation for RNSCongruencePreservingRescale<A>
 
 ///
 /// Computes the base conversion that preserves the congruence modulo some `t` in a certain sense. 
-/// In particular, this can be used as alternative to [`CongruencePreservingRescaling`] during BGV
+/// In particular, this can be used as alternative to [`RNSCongruencePreservingRescaling`] during BGV
 /// modulus switching.
 /// 
 /// Concretely, the image `y` of `x` is the almost-smallest integer that is `= x mod b` and `= 0 mod t`.
@@ -197,10 +197,10 @@ impl<A> RNSOperation for RNSCongruencePreservingRescale<A>
 /// Hence, "almost-smallest" could be the smallest, or second-smallest integer if there is
 /// almost a tie.
 /// 
-/// # Difference to [`CongruencePreservingRescaling`]
+/// # Difference to [`RNSCongruencePreservingRescaling`]
 /// 
-/// [`CongruencePreservingRescaling`] computes the whole BGV modulus-switch. On the other hand, after
-/// performing [`CongruencePreservingRNSBaseConversion`], it is still necessary to subtract the result and
+/// [`RNSCongruencePreservingRescaling`] computes the whole BGV modulus-switch. On the other hand, after
+/// performing [`RNSCongruencePreservingBaseConversion`], it is still necessary to subtract the result and
 /// scale by `b^-1` to achieve the same effect. However, the advantage is that these steps can already
 /// be performed in double-RNS representation, which means that we only need to convert the part `x mod b`
 /// to coefficient/small-basis representation.
@@ -228,7 +228,7 @@ pub struct RNSCongruencePreservingBaseConversion<A = Global>
 impl RNSCongruencePreservingBaseConversion {
 
     ///
-    /// Creates a new [`CongruencePreservingRNSBaseConversion`], where
+    /// Creates a new [`RNSCongruencePreservingBaseConversion`], where
     ///  - `b` is the product of the moduli in `in_moduli`
     ///  - `q` is the product of the moduli in `out_moduli`
     ///  - `t` is the modulus of `plaintext_modulus`
@@ -242,7 +242,7 @@ impl<A> RNSCongruencePreservingBaseConversion<A>
     where A: Allocator + Clone
 {
     ///
-    /// Creates a new [`CongruencePreservingRNSBaseConversion`], where
+    /// Creates a new [`RNSCongruencePreservingBaseConversion`], where
     ///  - `b` is the product of the moduli in `in_moduli`
     ///  - `q` is the product of the moduli in `out_moduli`
     ///  - `t` is the modulus of `plaintext_modulus`
@@ -360,7 +360,7 @@ fn test_rescale_complete() {
     let q = 17 * 23 * 29;
     let qprime = 19 * 31 * 37 * 39;
 
-    let rescaling = RNSCongruencePreservingRescale::new_with_alloc(
+    let rescaling = RNSCongruencePreservingRescaling::new_with_alloc(
         from.clone(), 
         to.clone(), 
         vec![0, 1, 2],
@@ -410,7 +410,7 @@ fn test_rescale_partial() {
     let q = 17 * 23 * 29;
     let qprime = 17 * 29 * 13;
 
-    let rescaling = RNSCongruencePreservingRescale::new_with_alloc(
+    let rescaling = RNSCongruencePreservingRescaling::new_with_alloc(
         from.clone(), 
         vec![Zn::new(13)], 
         vec![1],
@@ -460,7 +460,7 @@ fn test_rescale_down() {
     let q = 17 * 23 * 29;
     let qprime = 23 * 29;
 
-    let rescaling = RNSCongruencePreservingRescale::scale_down(
+    let rescaling = RNSCongruencePreservingRescaling::scale_down(
         from.clone(), 
         vec![0],
         Zt.clone(), 

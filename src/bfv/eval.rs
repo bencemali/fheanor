@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use feanor_math::rings::extension::FreeAlgebraStore;
-use feanor_math::rings::poly::PolyRing;
+use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
 use feanor_math::rings::zn::ZnRing;
 use tracing::instrument;
@@ -207,7 +207,7 @@ impl<R, Params> AsBFVPlaintext<Params> for SparsePolyRingBase<R>
     where Params: BFVInstantiation,
         R: RingStore<Type = Params::PlaintextZnRing>
 {
-    default fn hom_add(
+    fn hom_add(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
@@ -218,27 +218,36 @@ impl<R, Params> AsBFVPlaintext<Params> for SparsePolyRingBase<R>
         Params::hom_add_plain(P, C, &P.from_canonical_basis_extended((0..=self.degree(m).unwrap_or(0)).map(|i| self.base_ring().clone_el(self.coefficient_at(m, i)))), ct)
     }
 
-    default fn hom_mul(
+    fn hom_mul(
         &self, 
         P: &PlaintextRing<Params>, 
         C: &CiphertextRing<Params>, 
         m: &Self::Element, 
         ct: Ciphertext<Params>
     ) -> Ciphertext<Params> {
-        Params::hom_mul_plain(P, C, &P.can_hom(RingValue::from_ref(self)).unwrap().map_ref(m), ct)
+        // TODO: once we get a function `mul_can_gen_power` or similar, use that here for improved performance
+        assert!(P.base_ring().get_ring() == self.base_ring().get_ring());
+        Params::hom_mul_plain(P, C, &P.from_canonical_basis_extended((0..=self.degree(m).unwrap_or(0)).map(|i| self.base_ring().clone_el(self.coefficient_at(m, i)))), ct)
     }
 
-    default fn apply_galois_action_plain(
+    fn apply_galois_action_plain(
         &self,
         P: &PlaintextRing<Params>, 
         x: &Self::Element,
         gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
-        let Gal = P.acting_galois_group();
-        let m = Gal.m() as usize;
-        gs.iter().map(|g| 
-            RingValue::from_ref(self).from_terms(self.terms(x).map(|(c, i)| (self.base_ring().clone_el(c), (i * Gal.representative(g) as usize) % m)))
-        ).collect()
+        let results = P.apply_galois_action_many(
+            &P.from_canonical_basis_extended((0..=self.degree(x).unwrap_or(0)).map(|i| self.base_ring().clone_el(self.coefficient_at(x, i)))),
+            gs
+        );
+        return results.into_iter()
+            .map(|res| RingValue::from_ref(self).from_terms(P.wrt_canonical_basis(&res).iter().enumerate()
+            .filter_map(|(i, c)| if !P.base_ring().is_zero(&c) {
+                Some((c, i))
+            } else {
+                None
+            })))
+            .collect();
     }
 }
 
@@ -425,7 +434,7 @@ impl<R: RingBase> PlaintextCircuit<R> {
 #[cfg(test)]
 use std::slice::from_ref;
 #[cfg(test)]
-use feanor_math::rings::poly::{dense_poly::DensePolyRing, PolyRingStore};
+use feanor_math::rings::poly::dense_poly::DensePolyRing;
 #[cfg(test)]
 use crate::digit_extract::polys::poly_to_circuit;
 #[cfg(test)]

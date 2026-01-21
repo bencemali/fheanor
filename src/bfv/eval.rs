@@ -1,4 +1,8 @@
 use std::cell::RefCell;
+use feanor_math::rings::extension::FreeAlgebraStore;
+use feanor_math::rings::poly::PolyRing;
+use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
+use feanor_math::rings::zn::ZnRing;
 use tracing::instrument;
 
 use feanor_math::ring::*;
@@ -196,6 +200,45 @@ impl<Params: BFVInstantiation> AsBFVPlaintext<Params> for BigIntRingBase {
         gs: &[GaloisGroupEl]
     ) -> Vec<Self::Element> {
         gs.iter().map(|_| self.clone_el(x)).collect()
+    }
+}
+
+impl<R, Params> AsBFVPlaintext<Params> for SparsePolyRingBase<R>
+    where Params: BFVInstantiation,
+        R: RingStore<Type = Params::PlaintextZnRing>
+{
+    default fn hom_add(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        assert!(P.base_ring().get_ring() == self.base_ring().get_ring());
+        Params::hom_add_plain(P, C, &P.from_canonical_basis_extended((0..=self.degree(m).unwrap_or(0)).map(|i| self.base_ring().clone_el(self.coefficient_at(m, i)))), ct)
+    }
+
+    default fn hom_mul(
+        &self, 
+        P: &PlaintextRing<Params>, 
+        C: &CiphertextRing<Params>, 
+        m: &Self::Element, 
+        ct: Ciphertext<Params>
+    ) -> Ciphertext<Params> {
+        Params::hom_mul_plain(P, C, &P.can_hom(RingValue::from_ref(self)).unwrap().map_ref(m), ct)
+    }
+
+    default fn apply_galois_action_plain(
+        &self,
+        P: &PlaintextRing<Params>, 
+        x: &Self::Element,
+        gs: &[GaloisGroupEl]
+    ) -> Vec<Self::Element> {
+        let Gal = P.acting_galois_group();
+        let m = Gal.m() as usize;
+        gs.iter().map(|g| 
+            RingValue::from_ref(self).from_terms(self.terms(x).map(|(c, i)| (self.base_ring().clone_el(c), (i * Gal.representative(g) as usize) % m)))
+        ).collect()
     }
 }
 

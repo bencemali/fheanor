@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use feanor_math::rings::extension::FreeAlgebraStore;
 use feanor_math::rings::poly::{PolyRing, PolyRingStore};
 use feanor_math::rings::poly::sparse_poly::SparsePolyRingBase;
-use feanor_math::rings::zn::ZnRing;
 use tracing::instrument;
 
 use feanor_math::ring::*;

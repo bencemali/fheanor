@@ -1,4 +1,5 @@
 use feanor_math::assert_el_eq;
+use feanor_math::divisibility::DivisibilityRing;
 use feanor_math::divisibility::DivisibilityRingStore;
 use feanor_math::homomorphism::Homomorphism;
 use feanor_math::integer::*;
@@ -11,6 +12,7 @@ use feanor_math::seq::VectorFn;
 use feanor_math::seq::VectorView;
 use tracing::instrument;
 
+use crate::circuit::Coefficient;
 use crate::circuit::PlaintextCircuit;
 use crate::lin_transform::matmul::*;
 use crate::lin_transform::trace::trace_circuit;
@@ -376,6 +378,37 @@ fn slots_to_coeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransf
 /// Computes the <https://ia.cr/2024/153>-style Slots-to-Coeffs linear transform for the fat bootstrapping case.
 /// 
 /// In the case `p = 1 mod 4`, the slots are enumerated by `i, j` with `0 <= i < l` and `j in {0, 1}`. 
+/// Then the returned linear transform will then put the coefficient of `𝝵^k` in slot `(i, 0)` into the
+/// coefficient of `X^(bitrev(i, l) * m/(4l) + k)` and the coefficient of `𝝵^k` in slot `(i, 1)` into the
+/// coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)`.
+/// 
+/// If `p = 3 mod 4`, the slots are enumerated by `i` with `0 <= i < l` and the transform will put the coefficient
+/// of `𝝵^k` in slot `i` into the coefficient of `X^(bitrev(i, l) * m/(4l) + k)` if `k < d/2` and into the coefficient
+/// of `X^(bitrev(i, l) * m/(4l) + m/4 + k - d/2)` if `k >= d/2`.
+/// 
+#[instrument(skip_all)]
+pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn
+{
+    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_fat_impl(H))
+}
+
+#[instrument(skip_all)]
+pub fn slots_to_coeffs_fat_pack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn
+{
+    unimplemented!()
+}
+
+///
+/// Basically the slots-to-coeffs map, but without initial transform from powers of `𝝵` within
+/// each slot to projections of `X`.
+/// 
+/// In the case `p = 1 mod 4`, the slots are enumerated by `i, j` with `0 <= i < l` and `j in {0, 1}`. 
 /// Then the returned linear transform will then put the coefficient of `𝝵^(k g^i)` in slot `(i, 0)` into the
 /// coefficient of `X^(bitrev(i, l) * m/(4l) + k)` and the coefficient of `𝝵^(-k g^i)` in slot `(i, 1)` into the
 /// coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)`.
@@ -385,16 +418,7 @@ fn slots_to_coeffs_thin_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransf
 /// of `X^(bitrev(i, l) * m/(4l) + m/4 + k - d/2)` if `k >= d/2`.
 /// 
 #[instrument(skip_all)]
-pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
-    where R: RingStore,
-        R::Type: Sized + NumberRingQuotient,
-        BaseRing<R>: NiceZn
-{
-    MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_fat_unpacked_impl(H))
-}
-
-#[instrument(skip_all)]
-fn slots_to_coeffs_fat_unpacked_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
+fn slots_to_coeffs_fat_Xbasis<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
         R::Type: Sized + NumberRingQuotient,
         BaseRing<R>: NiceZn
@@ -420,7 +444,7 @@ fn slots_to_coeffs_fat_unpacked_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<Matm
         });
 
         result.extend(slots_to_coeffs_fat_impl(H));
-        take_mut::take(&mut result[0], |last| last.compose(H.ring(), H.hypercube(), &initial_transform));
+        take_mut::take(&mut result[0], |first| first.compose(H.ring(), H.hypercube(), &initial_transform));
     }
     return result;
 }
@@ -477,6 +501,7 @@ fn slots_to_coeffs_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransfo
 
         result.extend(slots_to_coeffs_thin_impl(H));
 
+        // in this case, we need a transform that acts trivially on `Fp[𝝵_m^(d/2)]`
         result.push(MatmulTransform::blockmatmul0d(H, |row, col, idxs| if col < d/2 {
             S.wrt_canonical_basis(&S.pow(S.canonical_gen(), col * Gal.representative(&Gal.inv(&H.hypercube().map_usize(idxs))) as usize)).at(row)
         } else {
@@ -578,10 +603,6 @@ pub fn coeffs_to_slots_thin<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<
 ///
 /// Computes the <https://ia.cr/2024/153>-style Coeffs-to-Slots linear transform for the fat bootstrapping case.
 /// 
-/// **Potential Pitfall:** This is not the inverse transform to [`slots_to_coefffs_fat()`], since the latter sets
-/// the result coefficients to the coefficients of `𝝵^(±k g^i)`, while this transform moves the input coefficients
-/// into the coefficients of `𝝵^k`.
-/// 
 /// In the case `p = 1 mod 4`, the slots are enumerated by `i, j` with `0 <= i < l` and `j in {0, 1}`. 
 /// Then the returned linear transform will then put the coefficient of `X^(bitrev(i, l) * m/(4l) + k)` into the
 /// coefficient of `𝝵^k` in slot `(i, 0)` and the coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)` into to
@@ -600,6 +621,100 @@ pub fn coeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), coeffs_to_slots_fat_impl(H))
 }
 
+///
+/// Computes the <https://ia.cr/2024/153>-style Coeffs-to-Slots linear transform with unpacking
+/// for the fat bootstrapping case. Thus, the resulting circuit will have one input and `d` outputs,
+/// each of them packing coeffficients from the input in its slots.
+/// 
+/// In the case `p = 1 mod 4`, the slots are enumerated by `i, j` with `0 <= i < l` and `j in {0, 1}`. 
+/// Then the returned linear transform will then put the coefficient of `X^(bitrev(i, l) * m/(4l) + k)`
+/// into the slot `(i, 0)` of the `bitrev(k, d)`-th output, and the coefficient of
+/// `X^(bitrev(i, l) * m/(4l) + m/4 + k)` into slot `(i, 1)` of the `bitrev(k, d)`-th output.
+/// 
+/// If `p = 3 mod 4`, the slots are enumerated by `i` with `0 <= i < l` and the transform will put the coefficient
+/// of `X^(bitrev(i, l) * m/(4l) + k + m/4 * l)` into the coefficient of `𝝵^(k + d/2 * l)` in slot `i`, where 
+/// `0 <= k < d/2` and `l in {0, 1}`.
+/// 
+#[instrument(skip_all)]
+pub fn coeffs_to_slots_fat_unpack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient + DivisibilityRing,
+        BaseRing<R>: NiceZn
+{
+    let m: usize = H.galois_group().m() as usize;
+    let log2_m = ZZi64.abs_log2_ceil(&(m as i64)).unwrap();
+    assert!(m == 1 << log2_m);
+    
+    let ring = H.ring();
+    let S = H.slot_ring();
+    let Gal = H.galois_group();
+    let d= S.rank();
+    let log2_d = ZZi64.abs_log2_ceil(&(d as i64)).unwrap();
+
+    let mut base_transform = coeffs_to_slots_fat_Xbasis(H);
+    take_mut::take(base_transform.last_mut().unwrap(), |transform| transform.compose(ring, H.hypercube(), &MatmulTransform::mult_ring_element(ring, H.hypercube(), 
+        &ring.inclusion().map(ring.base_ring().invert(&ring.base_ring().int_hom().map(d as i32)).unwrap())
+    )));
+    let mut result = MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), base_transform);
+
+    for i in (1..log2_d).rev() {
+        let coeffs = [
+            H.ring().pow(H.ring().canonical_gen(), m - (1 << (log2_d - i - 1))),
+            H.ring().pow(H.ring().canonical_gen(), (m - (1 << (log2_d - i - 1))) * Gal.representative(&H.hypercube().frobenius(1 << i)) as usize),
+        ];
+        result = PlaintextCircuit::add(ring).tensor(PlaintextCircuit::linear_transform_ring(&coeffs[..], ring), ring).tensor_pow(1 << (log2_d - i - 1), ring)
+            .compose(
+                PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(H.hypercube().frobenius(1 << i), Gal, ring), ring)
+                    .compose(PlaintextCircuit::identity(1, ring).output_twice(ring), ring).output_twice(ring)
+                    .tensor_pow(1 << (log2_d - i - 1), ring),
+                ring
+            ).compose(result, ring);
+    }
+
+    if H.hypercube().dim_count() == 2 {
+        // this is the `p = 1 mod 4` case
+        assert_eq!(2, H.hypercube().dim_length(1));
+
+        let coeffs = [
+            H.ring().pow(H.ring().canonical_gen(), m - (1 << (log2_d - 1))),
+            H.ring().pow(H.ring().canonical_gen(), (m - (1 << (log2_d - 1))) * Gal.representative(&H.hypercube().frobenius(1)) as usize),
+        ];
+        result = PlaintextCircuit::add(ring).tensor(PlaintextCircuit::linear_transform_ring(&coeffs[..], ring), ring).tensor_pow(1 << (log2_d - 1), ring)
+            .compose(
+                PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(H.hypercube().frobenius(1), Gal, ring), ring)
+                    .compose(PlaintextCircuit::identity(1, ring).output_twice(ring), ring).output_twice(ring)
+                    .tensor_pow(1 << (log2_d - 1), ring),
+                ring
+            ).compose(result, ring);
+
+    } else {
+        // this is the `p = 3 mod 4` case
+        assert_eq!(1, H.hypercube().dim_count());
+    
+        let alpha = ring.pow(ring.canonical_gen(), d/2);
+        let beta = ring.pow(ring.canonical_gen(), d/2 * Gal.representative(&H.hypercube().frobenius(1)) as usize);
+        let det_inv_twice = ring.int_hom().mul_map(ring.invert(&ring.sub_ref(&beta, &alpha)).unwrap(), 2);
+        result = PlaintextCircuit::linear_transform_ring(&[
+            ring.mul_ref(&det_inv_twice, &beta),
+            ring.negate(ring.mul_ref(&det_inv_twice, &alpha))
+        ], ring).tensor(PlaintextCircuit::linear_transform_ring(&[
+            ring.negate(ring.clone_el(&det_inv_twice)),
+            det_inv_twice
+        ], ring), ring).tensor_pow(1 << (log2_d - 1), ring)
+            .compose(
+                PlaintextCircuit::identity(1, ring).tensor(PlaintextCircuit::gal(H.hypercube().frobenius(1), Gal, ring), ring)
+                    .compose(PlaintextCircuit::identity(1, ring).output_twice(ring), ring).output_twice(ring)
+                    .tensor_pow(1 << (log2_d - 1), ring),
+                ring
+            ).compose(result, ring);
+    }
+
+    return result;
+}
+
+///
+/// Inverse to [`slots_to_coeffs_fat_impl()`].
+/// 
 #[instrument(skip_all)]
 fn coeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
     where R: RingStore,
@@ -644,6 +759,39 @@ fn coeffs_to_slots_fat_impl<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransfo
         }));
     }
 
+    return result;
+}
+
+///
+/// Inverse to [`slots_to_coeffs_fat_Xbasis()`].
+/// 
+#[instrument(skip_all)]
+fn coeffs_to_slots_fat_Xbasis<R>(H: &HypercubeIsomorphism<R>) -> Vec<MatmulTransform<R::Type>>
+    where R: RingStore,
+        R::Type: Sized + NumberRingQuotient,
+        BaseRing<R>: NiceZn
+{
+    let mut result = Vec::new();
+    let S = H.slot_ring();
+    let Gal = H.galois_group();
+
+    if H.hypercube().dim_count() == 2 {
+        // this is the `p = 1 mod 4` case
+        assert_eq!(2, H.hypercube().dim_length(1));
+        result.extend(coeffs_to_slots_fat_impl(H));
+        let final_transform = MatmulTransform::blockmatmul0d(H, |i, j, idxs| 
+            S.wrt_canonical_basis(&S.pow(S.canonical_gen(), j * Gal.representative(&Gal.inv(&H.hypercube().map_usize(idxs))) as usize)).at(i)
+        );
+        result.push(final_transform);
+    } else {
+        // this is the `p = 3 mod 4` case
+        assert_eq!(1, H.hypercube().dim_count());
+        result.extend(coeffs_to_slots_fat_impl(H));
+        let final_transform = MatmulTransform::blockmatmul0d(H, |i, j, idxs| {
+            S.wrt_canonical_basis(&S.pow(S.canonical_gen(), j * Gal.representative(&Gal.inv(&H.hypercube().map_usize(idxs))) as usize)).at(i)
+        });
+        take_mut::take(result.last_mut().unwrap(), |last| final_transform.compose(H.ring(), H.hypercube(), &last));
+    }
     return result;
 }
 
@@ -753,7 +901,7 @@ fn test_slots_to_coeffs_thin() {
 }
 
 #[test]
-fn test_slots_to_coeffs_fat_base() {
+fn test_slots_to_coeffs_fat() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
@@ -841,7 +989,7 @@ fn test_slots_to_coeffs_fat_base() {
 }
 
 #[test]
-fn test_slots_to_coeffs_fat_unpacked() {
+fn test_slots_to_coeffs_fat_Xbasis() {
     // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
     let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
     let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
@@ -856,7 +1004,7 @@ fn test_slots_to_coeffs_fat_unpacked() {
             (i + 1 + 16 * k) as i32
         ))
     )));
-    for T in slots_to_coeffs_fat_unpacked_impl(&H) {
+    for T in slots_to_coeffs_fat_Xbasis(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
     }
 
@@ -884,7 +1032,7 @@ fn test_slots_to_coeffs_fat_unpacked() {
             (i + 1 + 4 * k) as i32
         ))
     )));
-    for T in slots_to_coeffs_fat_unpacked_impl(&H) {
+    for T in slots_to_coeffs_fat_Xbasis(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
     }
 
@@ -914,7 +1062,7 @@ fn test_slots_to_coeffs_fat_unpacked() {
             (i + 1 + 16 * k) as i32
         ))
     )));
-    for T in slots_to_coeffs_fat_unpacked_impl(&H) {
+    for T in slots_to_coeffs_fat_Xbasis(&H) {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
     }
 
@@ -953,9 +1101,155 @@ fn test_coeffs_to_slots_fat() {
         current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
     }
 
-    let mut expected = H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| H.slot_ring().sum(
+    let expected = H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| H.slot_ring().sum(
         (0..2).map(|k| S.int_hom().mul_map(
             S.pow(S.canonical_gen(), k), 
+            (i + 1 + 16 * k) as i32
+        ))
+    )));
+    assert_el_eq!(&ring, &expected, &current);
+    
+    // `F31[X]/(X^64 + 1) ~ F_(31^4)^16`
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(128);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(31));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(31, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+    let S = H.slot_ring();
+
+    let mut current = [0; 64];
+    for i in 0..16 {
+        for k in 0..4 {
+            if k < 2 {
+                current[bitreverse(i, 4) * 2 + k] = (i + 1 + k * 16) as i32;
+            } else {
+                current[bitreverse(i, 4) * 2 + k - 2 + 32] = (i + 1 + k * 16) as i32;
+            }
+        }
+    }
+    let mut current = ring_literal(&ring, &current);
+    for T in coeffs_to_slots_fat_impl(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
+    }
+
+    let expected = H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| H.slot_ring().sum(
+        (0..4).map(|k| S.int_hom().mul_map(
+            S.pow(S.canonical_gen(), k), 
+            (i + 1 + 16 * k) as i32
+        ))
+    )));
+    assert_el_eq!(&ring, &expected, &current);
+}
+
+#[test]
+fn test_coeffs_to_slots_fat_unpack() {
+    // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(97, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+    
+    let mut current = [0; 32];
+    for i in 0..8 {
+        for j in 0..2 {
+            for k in 0..2 {
+                current[bitreverse(i, 3) * 2 + j * 16 + k] = (i * 2 + j + 16 * k + 1) as i32;
+            }
+        }
+    }
+    let current = ring_literal(&ring, &current);
+    let actual = coeffs_to_slots_fat_unpack(&H).evaluate(&[current], ring.identity());
+    let expected = (0..2).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
+        H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 1)) as i32)
+    ))).collect::<Vec<_>>();
+    
+    assert_eq!(expected.len(), actual.len());
+    for (expected, actual) in expected.iter().zip(actual.iter()) {
+        assert_el_eq!(&ring, &expected, &actual);
+    }
+
+    // `F31[X]/(X^64 + 1) ~ F_(31^4)^16`
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(128);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(31));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(31, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+
+    let mut current = [0; 64];
+    for i in 0..16 {
+        for k in 0..4 {
+            if k < 2 {
+                current[bitreverse(i, 4) * 2 + k] = (i + 1 + k * 16) as i32;
+            } else {
+                current[bitreverse(i, 4) * 2 + k - 2 + 32] = (i + 1 + k * 16) as i32;
+            }
+        }
+    }
+    let actual = coeffs_to_slots_fat_unpack(&H).evaluate(&[ring_literal(&ring, &current)], ring.identity());
+    let expected = (0..4).map(|k| H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, _)| 
+        H.slot_ring().int_hom().map((i + 1 + 16 * bitreverse(k, 2)) as i32)
+    ))).collect::<Vec<_>>();
+    assert_eq!(expected.len(), actual.len());
+    for (expected, actual) in expected.iter().zip(actual.iter()) {
+        assert_el_eq!(&ring, &expected, &actual);
+    }
+}
+
+#[test]
+fn test_coeffs_to_slots_fat_Xbasis() {
+    // `F97[X]/(X^32 + 1) ~ F_(97^2)^16`
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(64);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(97));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(97, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+    let Gal = H.galois_group();
+    let S = H.slot_ring();
+    
+    let mut current = [0; 32];
+    for i in 0..8 {
+        for j in 0..2 {
+            for k in 0..2 {
+                current[bitreverse(i, 3) * 2 + j * 16 + k] = (i * 2 + j + 16 * k + 1) as i32;
+            }
+        }
+    }
+    let mut current = ring_literal(&ring, &current);
+    for T in coeffs_to_slots_fat_Xbasis(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
+    }
+
+    let expected = H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, g)| H.slot_ring().sum(
+        (0..2).map(|k| S.int_hom().mul_map(
+            S.pow(S.canonical_gen(), k * Gal.representative(&Gal.inv(&g)) as usize), 
+            (i + 1 + 16 * k) as i32
+        ))
+    )));
+    assert_el_eq!(&ring, &expected, &current);
+
+    // `F31[X]/(X^64 + 1) ~ F_(31^4)^16`
+    let number_ring: Pow2CyclotomicNumberRing = Pow2CyclotomicNumberRing::new(128);
+    let ring = NumberRingQuotientByIntBase::new(number_ring, Zn::new(31));
+    let hypercube = HypercubeStructure::default_pow2_hypercube(ring.acting_galois_group(), int_cast(31, ZZbig, ZZi64));
+    let H = HypercubeIsomorphism::new::<false>(&&ring, &hypercube, None);
+    let S = H.slot_ring();
+    let Gal = H.galois_group();
+
+    let mut current = [0; 64];
+    for i in 0..16 {
+        for k in 0..4 {
+            if k < 2 {
+                current[bitreverse(i, 4) * 2 + k] = (i + 1 + k * 16) as i32;
+            } else {
+                current[bitreverse(i, 4) * 2 + k - 2 + 32] = (i + 1 + k * 16) as i32;
+            }
+        }
+    }
+    let mut current = ring_literal(&ring, &current);
+    for T in coeffs_to_slots_fat_Xbasis(&H) {
+        current = ring.get_ring().compute_linear_transform(H.hypercube(), &current, &T);
+    }
+
+    let expected = H.from_slot_values(H.hypercube().element_iter().enumerate().map(|(i, g)| H.slot_ring().sum(
+        (0..4).map(|k| S.int_hom().mul_map(
+            S.pow(S.canonical_gen(), k * Gal.representative(&Gal.inv(&g)) as usize), 
             (i + 1 + 16 * k) as i32
         ))
     )));

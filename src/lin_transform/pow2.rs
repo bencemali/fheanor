@@ -395,6 +395,20 @@ pub fn slots_to_coeffs_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R
     MatmulTransform::to_circuit_many(H.ring(), H.hypercube(), slots_to_coeffs_fat_impl(H))
 }
 
+///
+/// Computes the <https://ia.cr/2024/153>-style Slots-to-Coeffs linear transform with packing
+/// for the fat bootstrapping case. Thus, the resulting circuit will have `d` inputs and one output.
+/// 
+/// In the case `p = 1 mod 4`, the slots are enumerated by `i, j` with `0 <= i < l` and `j in {0, 1}`. 
+/// Then the returned linear transform will then put the slot `(i, 0)` of the `bitrev(k, d)`-th input into
+/// the coefficient coefficient of `X^(bitrev(i, l) * m/(4l) + k)` and slot `(i, 1)` of the `bitrev(k, d)`-th
+/// input into the coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)`.
+/// 
+/// If `p = 3 mod 4`, the slots are enumerated by `i` with `0 <= i < l` and the transform will put 
+/// slot `i` of the `bitrev(k, d)`-th input into the coefficient of `X^(bitrev(i, l) * m/(4l) + k)` and
+/// slot `i` of the `bitrev(k + d/2, d)`-th into the coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)`,
+/// where `0 <= k < d/2`.
+/// 
 #[instrument(skip_all)]
 pub fn slots_to_coeffs_fat_pack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>
     where R: RingStore,
@@ -660,9 +674,10 @@ pub fn coeffs_to_slots_fat<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R
 /// into the slot `(i, 0)` of the `bitrev(k, d)`-th output, and the coefficient of
 /// `X^(bitrev(i, l) * m/(4l) + m/4 + k)` into slot `(i, 1)` of the `bitrev(k, d)`-th output.
 /// 
-/// If `p = 3 mod 4`, the slots are enumerated by `i` with `0 <= i < l` and the transform will put the coefficient
-/// of `X^(bitrev(i, l) * m/(4l) + k + m/4 * l)` into the coefficient of `𝝵^(k + d/2 * l)` in slot `i`, where 
-/// `0 <= k < d/2` and `l in {0, 1}`.
+/// If `p = 3 mod 4`, the slots are enumerated by `i` with `0 <= i < l` and the transform will put the
+/// coefficient of `X^(bitrev(i, l) * m/(4l) + k)` into slot `i` of the `bitrev(k, d)`-th output and
+/// the coefficient of `X^(bitrev(i, l) * m/(4l) + m/4 + k)` into slot `i` of the `bitrev(k + d/2, d)`-th
+/// output, where `0 <= k < d/2`.
 /// 
 #[instrument(skip_all)]
 pub fn coeffs_to_slots_fat_unpack<R>(H: &HypercubeIsomorphism<R>) -> PlaintextCircuit<R::Type>

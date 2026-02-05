@@ -136,7 +136,7 @@ impl<NumberRing, C> SingleRNSRingBase<NumberRing, Global, C>
 impl<NumberRing, A, C> Clone for SingleRNSRingBase<NumberRing, A, C>
     where NumberRing: AbstractNumberRing + Clone,
         A: Allocator + Clone,
-        C: FheanorConvolution<Zn>
+        C: ConvolutionAlgorithm<ZnBase>
 {
     fn clone(&self) -> Self {
         Self {

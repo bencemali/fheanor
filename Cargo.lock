@@ -230,7 +230,7 @@ dependencies = [
 
 [[package]]
 name = "fheanor"
-version = "0.10.14"
+version = "0.10.15"
 dependencies = [
  "backtrace",
  "debugit",

@@ -73,7 +73,7 @@ pub enum SecretKeyDistribution {
     /// 
     /// In other words, a random choice of coefficients of the given size is
     /// set to a uniformly random value from `{-1, 1}`, and the others
-    /// are set to set.
+    /// are set to zero.
     SparseWithHwt(usize), 
     /// Each coefficient is taken uniformly at random from `{-1, 0, 1}`.
     UniformTernary, 

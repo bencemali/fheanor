@@ -10,6 +10,7 @@ use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
+use crate::matrix_ring::LWEMatrixRing;
 use crate::number_ring::NumberRingQuotient;
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::RNSOperation;
@@ -221,6 +222,12 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
             self.mul_prepared(lhs[1], Some(&lhs_prep[1]), rhs[1], Some(&rhs_prep[1]))
         ]
     }
+}
+
+///
+/// TODO(bence): RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> ???
+///
+pub trait MatrixBGFVCiphertextRing: PreparedMultiplicationRing + LWEMatrixRing + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
 }
 
 ///

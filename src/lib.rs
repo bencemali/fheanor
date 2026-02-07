@@ -203,6 +203,11 @@ pub mod rns_conv;
 pub mod number_ring;
 
 ///
+/// Contains an HE-specific abstraction for matrix rings.
+///
+pub mod matrix_ring;
+
+///
 /// Implementation of rings using double-RNS representation.
 /// 
 pub mod ciphertext_ring;
@@ -248,6 +253,10 @@ pub mod bgv;
 /// 
 pub mod clpx;
 
+///
+/// Contains an implementation of the native matrix version of BFV.
+///
+pub mod matrix_bfv;
 
 ///
 /// This is a workaround for displaying examples on `docs.rs`.

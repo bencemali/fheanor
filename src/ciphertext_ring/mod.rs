@@ -4,13 +4,14 @@ use std::convert::identity;
 use feanor_math::integer::BigIntRing;
 use feanor_math::matrix::*;
 use feanor_math::ring::*;
+use feanor_math::rings::finite::FiniteRing;
 use feanor_math::rings::zn::zn_64::{ZnEl, Zn, ZnBase};
 use feanor_math::rings::zn::zn_rns;
 use feanor_math::seq::VectorView;
 use tracing::instrument;
 
 use crate::ciphertext_ring::indices::RNSFactorIndexList;
-use crate::matrix_ring::LWEMatrixRing;
+use crate::matrix_ring::ModuleLWEMatrixRing;
 use crate::number_ring::NumberRingQuotient;
 use crate::prepared_mul::PreparedMultiplicationRing;
 use crate::rns_conv::RNSOperation;
@@ -227,7 +228,12 @@ pub trait BGFVCiphertextRing: PreparedMultiplicationRing + NumberRingQuotient + 
 ///
 /// TODO(bence): RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> ???
 ///
-pub trait MatrixBGFVCiphertextRing: PreparedMultiplicationRing + LWEMatrixRing + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>> {
+pub trait MatrixBGFVCiphertextRing: PreparedMultiplicationRing + ModuleLWEMatrixRing + RingExtension<BaseRing = zn_rns::Zn<Zn, BigIntRing>>
+where
+    Self::ScalarRing: BGFVCiphertextRing<NumberRing = Self::NumberRing> + FiniteRing,
+{
+    fn number_ring(&self) -> &Self::NumberRing;
+    fn scalar_ring(&self) -> &Self::ScalarRing;
 }
 
 ///
